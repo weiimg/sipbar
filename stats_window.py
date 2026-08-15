@@ -697,7 +697,18 @@ class Card(QWidget):
 
     def set_reveal(self, t):
         """任何有 set_reveal 的子元件都跟著動，不限自繪的圖形。"""
-        self._fx.setOpacity(clamp(ease(t), 0.0, 1.0))
+        value = clamp(ease(t), 0.0, 1.0)
+        self._fx.setOpacity(value)
+        # 完全不透明時把效果關掉：淡入結束之後它本來就不做事（opacity 1.0），
+        # 而掛著 QGraphicsEffect 的 widget 一律要先畫進離屏圖再合成，白付成本。
+        #
+        # **這不是「設定頁捲動時版面錯位」那個 bug 的修正。** 我一度以為是，
+        # 理由是效果的離屏圖在捲動時不會失效；但把效果強制開回來當對照組跑，
+        # 殘影的量跟關掉時一樣（實測 34278 vs 34206 個像素）。**假設被推翻了，
+        # 這行留著只是因為它本身划算。** 那個 bug 到目前為止還沒找到原因：
+        # 版面在每一條路徑上量出來都是對的（371/274/338、間距 17px），
+        # 畫面上卻差了 200px，所以問題在繪製，不在幾何。
+        self._fx.setEnabled(value < 0.999)
         for w in self.findChildren(QWidget):
             if w is not self and hasattr(w, "set_reveal"):
                 w.set_reveal(t)
@@ -1312,16 +1323,15 @@ class ScrollPane(QWidget):
         def scrollContentsBy(self, dx, dy):
             """整塊重畫，不要用平移既有像素的最佳化。
 
-            Qt 預設是把可視區的像素整片平移，只重畫新露出的那一條。這裡不行，
-            兩個理由疊在一起：
+            Qt 預設是把可視區的像素整片平移，只重畫新露出的那一條。而**內容頁的
+            背景漸層是錨在視窗座標上的**（見 fill_window_bg），平移過去就跟新位置
+            對不上，所以這裡本來就不該用那個最佳化。這個尺寸的面板重畫整塊，
+            成本量不出來。
 
-            - **卡片掛著 QGraphicsOpacityEffect**（進場淡入用的），有效果的 widget
-              是先畫進離屏圖再合成的，平移時那張快取不會跟著失效
-            - **內容頁的背景漸層錨在視窗座標上**（見 fill_window_bg），
-              平移過去就跟新位置對不上
-
-            結果是捲動時留下上一格的殘影：卡片看起來互相疊住、底下那列卡在原地。
-            重畫整塊的成本在這個尺寸的面板上量不出來，殘影卻是每次捲動都看得到。
+            **這不是「設定頁捲動時版面錯位」那個 bug 的修正。** 加了之後症狀照舊，
+            原因至今未明——版面在每一條路徑上量出來都是對的（371/274/338、
+            間距 17px），畫面上卻差了 200px。線索：靜止時空白也不會消失，
+            所以不是捲動當下的暫時殘影。
             """
             super().scrollContentsBy(dx, dy)
             self.viewport().update()

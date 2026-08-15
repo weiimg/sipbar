@@ -374,17 +374,9 @@ class Island(QWidget):
         if "daily_target_drinks" in changed:
             # 目標變了，連續天數的判定跟著變，島上的數字要當場更新
             self._refresh_streak()
-            # **新目標可能當場就已經達成。** 提醒中把目標調低（或改體重讓推導值
-            # 下降）會讓 drinks >= target，而 tick() 的達標守門是 `return`——
-            # 它只擋「不再發新的提醒」，擋不掉已經在畫面上的那一個。
-            # 島就卡在「拜託」配「今天 7/7 次」，一路留到隔天換日
-            # （實測 200 個 tick 之後還在）。
-            #
-            # 不閃「今天達標了」：那句是給「喝完最後一次」用的，
-            # 而這裡使用者沒有喝水，只是改了設定。安靜滑走就好。
-            if self.state in REMINDING and \
-                    self.drinks >= self.cfg["daily_target_drinks"]:
-                self._enter(NORMAL)
+            # 新目標可能當場就已經達成。tick 五秒後也會收，但改完設定馬上看到
+            # 才是對的回饋。
+            self._dismiss_if_done()
         self._refresh_message()
         self._sync_tray()
         self.update()
@@ -647,6 +639,28 @@ class Island(QWidget):
 
     # ------------------------------------------------------------ 計時主迴圈
 
+    def _dismiss_if_done(self):
+        """已經達標卻還在提醒，就收掉。回傳有沒有真的收。
+
+        **這條規則只能有一份實作，而且要放在所有路徑的共同出口。**
+        第一版寫在 apply_config 裡，只蓋到「在設定裡把目標調低」那一條路，
+        漏掉了更常見的一條：**狀態會跨重啟保存**，所以島一旦卡在
+        「還是沒喝喔」配「今天 7/7 次」，每次開機都會把那個狀態原封接回來，
+        重開程式等於把同一個 bug 重建一次（使用者實測「沒有改善」就是這樣）。
+
+        現在 tick() 的達標守門會叫它，而 tick 每 5 秒跑一次、任何進入方式
+        （重啟接回、改設定、換日）之後都會經過，所以不管怎麼卡進去都出得來。
+
+        不閃「今天達標了」：那句是給「喝完最後一次」用的，
+        這些路徑上使用者並沒有喝水。安靜滑走就好。
+        """
+        if self.state in REMINDING and \
+                self.drinks >= self.cfg["daily_target_drinks"]:
+            self._enter(NORMAL)
+            self._persist()          # 別讓下次啟動又接回這個狀態
+            return True
+        return False
+
     def tick(self):
         now = datetime.now()
 
@@ -673,7 +687,11 @@ class Island(QWidget):
             self.update()
 
         if self.drinks >= self.cfg["daily_target_drinks"]:
-            return                                # 達標，今天不再出現
+            # 達標，今天不再出現。**收掉之後才 return。**
+            # 這個 return 只擋「不再發新的提醒」，擋不掉已經在畫面上的那一個，
+            # 所以要在這裡收——它是所有路徑的共同出口。
+            self._dismiss_if_done()
+            return
 
         # 離開電腦不計時：提醒發在你不能行動的時候，只會訓練出無視的反射。
         if idle_seconds() >= self.cfg["idle_threshold_min"] * 60:

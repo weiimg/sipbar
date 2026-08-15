@@ -439,5 +439,31 @@ w22b.active_s = w22b.interval_s + 1
 w22b.tick()
 check("目標調高之後還能再提醒", w22b.state, isl.THIRSTY)
 
+print("\n22b. 已達標卻卡在提醒中的狀態，重啟後也要收掉")
+# **這一節才是真正咬到使用者的那條路。** 第一版只補了 apply_config（在設定裡
+# 把目標調低），但狀態會跨重啟保存——島一旦卡住，每次開機都把那個狀態原封接回來，
+# 重開程式等於把同一個 bug 重建一次。使用者實測「沒有改善」，state.json 裡就是
+# drinks=7 / state=WEAK / 目標 7。
+w22c = isl.Island(dict(cfg, daily_target_drinks=7))
+for _t in (w22c.tick_timer, w22c.frame, w22c.hold_timer, w22c.peek_timer):
+    _t.stop()
+w22c.paused_until = None
+w22c.drinks = 7
+w22c.state = isl.WEAK          # 直接偽造「上次存檔時卡住了」
+w22c._persist()
+check("存檔裡確實是卡住的狀態",
+      (isl.load_state()["state"], isl.load_state()["drinks"]), ("WEAK", 7))
+
+w22d = isl.Island(dict(cfg, daily_target_drinks=7))
+for _t in (w22d.tick_timer, w22d.frame, w22d.hold_timer, w22d.peek_timer):
+    _t.stop()
+w22d.paused_until = None
+check("重啟後確實接回了那個狀態", (w22d.state, w22d.drinks), (isl.WEAK, 7))
+w22d.tick()
+check("第一個 tick 就收掉", w22d.state, isl.NORMAL)
+check("而且是滑走", w22d.sp_reveal.target, 0.0)
+# 存檔也要更新，否則下次啟動又接回同一個狀態，等於沒修
+check("存檔跟著更新，不會再接回來", isl.load_state()["state"], "NORMAL")
+
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)
