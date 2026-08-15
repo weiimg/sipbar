@@ -407,5 +407,37 @@ for _label, _a, _b, _st in (("展開 0->1", 0.0, 1.0, isl.NORMAL),
     if not monotonic(_runs) or len(_runs) > 3:
         print(f"       實際變化序列：{_runs}")
 
+print("\n22. 提醒中把目標調低到已達成，島要走掉，不能卡在畫面上")
+# **tick() 的達標守門是 `return`**，它只擋「不再發新的提醒」，擋不掉已經在畫面上
+# 的那一個。所以提醒中把每日目標調低（或改體重讓推導值下降），島就卡在
+# 「拜託」配「今天 7/7 次」，一路留到隔天換日。使用者截圖回報的就是這個。
+w22 = isl.Island(dict(cfg, daily_target_drinks=8))
+for _t in (w22.tick_timer, w22.frame, w22.hold_timer, w22.peek_timer):
+    _t.stop()
+# 島啟動時會從 state.json 接回上一次的狀態，而第 19 節在那裡留下了「暫停中」。
+# 不清掉的話 tick() 會在暫停檢查就 return，這一節其實什麼都沒驗到。
+w22.paused_until = None
+w22.drinks = 7
+w22._enter(isl.WEAK)
+check("起點：提醒中且還沒達標", (w22.state, w22.sp_reveal.target), (isl.WEAK, 1.0))
+w22.apply_config(dict(cfg, daily_target_drinks=7))
+check("目標調低到已達成 -> 立刻收掉", w22.state, isl.NORMAL)
+check("而且是滑走，不是留在原地", w22.sp_reveal.target, 0.0)
+for _ in range(200):
+    w22.tick()
+check("之後也不會再冒出來", (w22.state, w22.sp_reveal.target), (isl.NORMAL, 0.0))
+
+# 反向也要對：目標調高之後又還沒達標，就該恢復提醒。
+# 只修「調低」很容易寫成無條件收掉，那會讓調高目標的人再也收不到提醒。
+w22b = isl.Island(dict(cfg, daily_target_drinks=7))
+for _t in (w22b.tick_timer, w22b.frame, w22b.hold_timer, w22b.peek_timer):
+    _t.stop()
+w22b.paused_until = None
+w22b.drinks = 7
+w22b.apply_config(dict(cfg, daily_target_drinks=9))
+w22b.active_s = w22b.interval_s + 1
+w22b.tick()
+check("目標調高之後還能再提醒", w22b.state, isl.THIRSTY)
+
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

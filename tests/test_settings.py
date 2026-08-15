@@ -437,6 +437,47 @@ for _ in range(60):
     pane._step()
 check("彈簧會把它補到目標", abs(bar.value() - pane._sp.target) <= 1, True)
 
+print("\n12i. 卡片高度要剛好，不能多也不能少（視窗可以被拉寬拉窄）")
+# **QVBoxLayout 不會把 heightForWidth 可靠地往下傳。** 「關於」卡裡有會換行的段落，
+# 實測版面的 sizeHint 比 heightForWidth 多 66px，而空間是照前者分配的：
+# 多出來的塞給「顯示」卡（兩張卡中間憑空多一大塊空白），需要更高時又不給
+# （段落被切掉）。使用者兩個都遇到了，回報「跑掉了」。
+#
+# 視窗可以拖曳縮放，所以要在**好幾個寬度**上驗，不能只驗預設值。
+#
+# 用自己的視窗，而且**保持顯示中**：隱藏的視窗不會重排，拿它量會量到上一次
+# 的殘值（第一版沿用 12e 那個已經 hide() 掉的視窗，卡片永遠停在 318）。
+fit_win = sw.open_window(dict(cfg), isl.EVENTS_PATH, on_settings=True)
+fit_win.frame.stop()
+_app.processEvents()
+
+bad_fit = []
+for w in (900, 840, 780, 720, 660):
+    fit_win.resize(w, fit_win.height())
+    _app.processEvents()
+    for i, card in enumerate(fit_win.settings_page.cards):
+        lay = card.layout()
+        need = (lay.heightForWidth(card.width()) if lay.hasHeightForWidth()
+                else max(lay.sizeHint().height(), lay.minimumSize().height()))
+        if card.height() != need:
+            bad_fit.append(f"寬 {w} 的卡 {i}：給 {card.height()} 需要 {need}")
+check("每個寬度下卡片高度都剛好等於需要的", bad_fit[:4], [])
+
+# 卡與卡之間只能是宣告的那個間距。多出來就是有卡被拉伸了。
+fit_win.resize(840, fit_win.height())
+_app.processEvents()
+lay = fit_win.settings_page.layout()
+gaps, prev = [], None
+for i in range(lay.count()):
+    widget = lay.itemAt(i).widget()
+    if widget is None or not isinstance(widget, sw.Card):
+        continue
+    if prev is not None:
+        gaps.append(widget.geometry().top() - prev)
+    prev = widget.geometry().bottom()
+check("卡與卡之間就是宣告的間距", {g - 1 for g in gaps}, {sw.GAP})
+fit_win.hide()
+
 print("\n13. 設定頁的高度必須跟紀錄頁一樣，換頁時視窗不能跳動")
 win2 = sw.StatsWindow(dict(cfg), isl.EVENTS_PATH)
 win2.show()

@@ -374,6 +374,17 @@ class Island(QWidget):
         if "daily_target_drinks" in changed:
             # 目標變了，連續天數的判定跟著變，島上的數字要當場更新
             self._refresh_streak()
+            # **新目標可能當場就已經達成。** 提醒中把目標調低（或改體重讓推導值
+            # 下降）會讓 drinks >= target，而 tick() 的達標守門是 `return`——
+            # 它只擋「不再發新的提醒」，擋不掉已經在畫面上的那一個。
+            # 島就卡在「拜託」配「今天 7/7 次」，一路留到隔天換日
+            # （實測 200 個 tick 之後還在）。
+            #
+            # 不閃「今天達標了」：那句是給「喝完最後一次」用的，
+            # 而這裡使用者沒有喝水，只是改了設定。安靜滑走就好。
+            if self.state in REMINDING and \
+                    self.drinks >= self.cfg["daily_target_drinks"]:
+                self._enter(NORMAL)
         self._refresh_message()
         self._sync_tray()
         self.update()

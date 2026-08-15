@@ -1309,6 +1309,23 @@ class ScrollPane(QWidget):
         def wheelEvent(self, event):
             self._on_wheel(event)
 
+        def scrollContentsBy(self, dx, dy):
+            """整塊重畫，不要用平移既有像素的最佳化。
+
+            Qt 預設是把可視區的像素整片平移，只重畫新露出的那一條。這裡不行，
+            兩個理由疊在一起：
+
+            - **卡片掛著 QGraphicsOpacityEffect**（進場淡入用的），有效果的 widget
+              是先畫進離屏圖再合成的，平移時那張快取不會跟著失效
+            - **內容頁的背景漸層錨在視窗座標上**（見 fill_window_bg），
+              平移過去就跟新位置對不上
+
+            結果是捲動時留下上一格的殘影：卡片看起來互相疊住、底下那列卡在原地。
+            重畫整塊的成本在這個尺寸的面板上量不出來，殘影卻是每次捲動都看得到。
+            """
+            super().scrollContentsBy(dx, dy)
+            self.viewport().update()
+
     def __init__(self, inner):
         super().__init__()
         self.inner = inner
@@ -1527,6 +1544,45 @@ class SettingsPage(QWidget):
 
     def paintEvent(self, event):
         fill_window_bg(self, QPainter(self))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._fit_cards()
+
+    def resizeEvent(self, event):
+        # **每次都重算，不要只在寬度變動時算。** 第一次 resize 發生在版面排好之前，
+        # 那時量到的是還沒收斂的值（實測「顯示」卡量到 318，正確答案是 274），
+        # 釘死之後就再也沒有機會更正。
+        #
+        # 不會遞迴：setFixedHeight 的值沒變就不觸發重排，而卡片版面的 sizeHint
+        # 不依賴卡片自己的高度，所以一定收斂。
+        super().resizeEvent(event)
+        self._fit_cards()
+
+    def _fit_cards(self):
+        """每張卡的高度自己算，不交給 QVBoxLayout 分配。
+
+        **QVBoxLayout 不會把 heightForWidth 可靠地往下傳。** 「關於」那張卡裡有兩段
+        會換行的說明，實測在 706px 寬時 `heightForWidth` 回 338，但版面的 `sizeHint`
+        回 404——兩個差 66px，而版面是照後者去分配的。後果有兩個，使用者兩個都遇到了：
+
+        - **視窗拉窄時，段落多一行、需要更高，版面卻不跟著長**，最後一段被切掉
+          （截圖裡說明斷在「僅涵蓋使用電」）
+        - **多出來的空間被平均塞給前面的卡**，顯示卡憑空多了 65px，
+          兩張卡中間出現一大塊空白
+
+        所以直接問每張卡「在這個寬度下要多高」，設成固定值。
+        沒有 heightForWidth 的卡（內容都是不換行的列）用 sizeHint，那個是準的。
+        """
+        for card in self.cards:
+            lay = card.layout()
+            lay.activate()
+            if lay.hasHeightForWidth():
+                need = lay.heightForWidth(card.width())
+            else:
+                need = max(lay.sizeHint().height(), lay.minimumSize().height())
+            if need > 0:
+                card.setFixedHeight(need)
 
     # ------------------------------------------------------------ 卡片
     #
