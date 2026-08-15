@@ -612,15 +612,15 @@ class OnboardWindow(QWidget):
 
     finished = Signal(bool)          # 參數：開機時啟動要不要開
 
-    def __init__(self):
+    def __init__(self, on_practice=None):
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowTitle("喝水提醒動態島")
         self._drag = None
 
-        self.preview = IslandPreview()                  # 第三頁，循環展示
-        self.try_preview = IslandPreview(interactive=True)   # 第四頁，讓他自己點
+        self.preview = IslandPreview()      # 第三頁，循環展示
+        self.on_practice = on_practice      # 第四頁叫真的島出來，見 _page_try
         self.autostart = sw.Toggle(True)
 
         # 視窗自己排幾何，不掛 layout。掛了的話 Deck 的高度變化會回頭去改視窗的
@@ -735,27 +735,28 @@ class OnboardWindow(QWidget):
         ], [nxt])
 
     def _page_try(self):
-        """真的點一次。
+        """在**真的島**上點一次。
+
+        **這一頁沒有示意圖。** 前一頁已經演過它長什麼樣子；這一步要練的是
+        「把游標移到螢幕上緣那顆藥丸、按下去」，而**位置是這個動作的一半**——
+        在引導視窗裡點一張縮小的圖，練不到那半。所以這裡叫真的島出來。
 
         **不擋**：「開始」隨時可以按，跟第二頁的「裝好了」同一條原則。
         這一步是給手的，不是關卡；擋住只會讓想跳過的人更想關掉程式。
-
-        點下去不會記任何東西——那不是靠程式擋，是 IslandPreview 本來就碰不到
-        島與 events.jsonl。文案把這件事寫出來，因為在意數字的人不寫就不敢點。
         """
         start = Button("開始")
         start.clicked.connect(self._finish)
         self.try_lead = sw.para(TRY_LEAD)
-        self.try_preview.tapped.connect(self._on_tried)
         return self._page("試一次", [
-            self.try_preview,
             _speech(None, self.try_lead),
             sw.setting_row("開機時啟動", self.autostart),
-        ], [start])
+        ], [start], portrait=CupPortrait(cell=6))
 
     def _on_tried(self):
         self.try_lead.setText(TRY_DONE)
         self.deck.remeasure(3)
+        self._h_from = self._h_to = self.deck.natural()
+        self._apply_height()
 
     # ------------------------------------------------------------ 流程
 
@@ -763,14 +764,14 @@ class OnboardWindow(QWidget):
         if index == self.deck.index:
             return
         self.deck.show_page(index)
-        # 兩個預覽各自只在自己那一頁跑，離開就停：常駐工具不能為了看不見的
-        # 動畫一直重繪。
+        # 展示動畫只在第三頁跑，離開就停：常駐工具不能為了看不見的動畫一直重繪。
         self.preview.stop()
-        self.try_preview.stop()
         if index == 2:
             self.preview.start()
-        elif index == 3:
-            self.try_preview.start()
+        elif index == 3 and self.on_practice:
+            # 叫真的島出來讓他練習。點下去由島自己處理，不計數也不落檔，
+            # 完成之後回呼到 _on_tried 換文案。
+            self.on_practice(self._on_tried)
         # 中心線鎖在切換的那一刻。高度往兩邊長，視窗才不會愈走愈往下、
         # 到第三頁時掉出螢幕（實測 1080p 上會少 8px）。
         self._anchor_y = self.y() + self.height() / 2
@@ -795,7 +796,6 @@ class OnboardWindow(QWidget):
 
     def _finish(self):
         self.preview.stop()
-        self.try_preview.stop()
         self.finished.emit(self.autostart.on)
         self.close()
 
@@ -858,10 +858,14 @@ class OnboardWindow(QWidget):
         self._drag = None
 
 
-def open_window(on_finished):
-    """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。"""
+def open_window(on_finished, on_practice=None):
+    """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。
+
+    `on_practice(done_cb)` 由島提供：第四頁會叫它，讓真的島出來讓人點一次。
+    沒給的話那一頁就只有文字（測試與單獨執行 onboard.py 時是這條路）。
+    """
     typeface.ensure_loaded()
-    win = OnboardWindow()
+    win = OnboardWindow(on_practice=on_practice)
     win.finished.connect(on_finished)
     screen = QApplication.primaryScreen().availableGeometry()
     # 對齊螢幕中心，不是對齊第一頁的中心：後面兩頁高度不同，鎖住中心線

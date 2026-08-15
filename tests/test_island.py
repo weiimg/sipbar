@@ -465,5 +465,41 @@ check("而且是滑走", w22d.sp_reveal.target, 0.0)
 # 存檔也要更新，否則下次啟動又接回同一個狀態，等於沒修
 check("存檔跟著更新，不會再接回來", isl.load_state()["state"], "NORMAL")
 
+print("\n23. 引導的練習點擊不能留下任何痕跡")
+# 引導最後一頁寫著「這次不會算進今天的次數」。**那是對使用者的承諾，要能驗。**
+# drink() 裡每一行都有副作用（次數、累積時間、重擲間隔、寫 events、存檔），
+# 練習那條路必須在最前面就 return。
+w23 = isl.Island(dict(cfg))
+for _t in (w23.tick_timer, w23.frame, w23.hold_timer, w23.peek_timer):
+    _t.stop()
+w23.paused_until = None
+w23.drinks = 2
+w23.active_s = 900.0
+before = (w23.drinks, w23.active_s, w23.interval_s,
+          os.path.getsize(isl.EVENTS_PATH) if os.path.exists(isl.EVENTS_PATH) else 0,
+          isl.load_state())
+
+called = []
+w23.practice(lambda: called.append(1))
+check("練習模式：島出來了", w23.sp_reveal.target, 1.0)
+check("而且是提醒中的樣子", w23.state, isl.THIRSTY)
+
+w23.drink()
+after = (w23.drinks, w23.active_s, w23.interval_s,
+         os.path.getsize(isl.EVENTS_PATH) if os.path.exists(isl.EVENTS_PATH) else 0,
+         isl.load_state())
+check("次數沒變", after[0], before[0])
+check("累積的在電腦前時間沒被歸零", after[1], before[1])
+check("這一輪的間隔沒被重擲", after[2], before[2])
+check("沒有寫進事件紀錄", after[3], before[3])
+check("沒有存檔", after[4], before[4])
+check("有回呼給引導", called, [1])
+check("點完是滿足的樣子", w23.state, isl.SATISFIED)
+
+# 練習只有一次。旗標沒清乾淨的話，之後每一次真的喝水都不會被記——
+# 那是這個 bug 最壞的形式：使用者以為有記，資料卻是空的。
+w23.drink()
+check("練習之後恢復正常計數", w23.drinks, before[0] + 1)
+
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

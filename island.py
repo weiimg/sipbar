@@ -271,6 +271,10 @@ class Island(QWidget):
         self._peeking = False
         self._peek_locked = False
         self._greeting = False
+        # 引導最後一步用的練習模式。開著的時候 drink() 走一條不寫入任何東西的路，
+        # 見 practice()。
+        self._practicing = False
+        self._practice_cb = None
         self._restored_state = None      # 上次關掉時停在哪個提醒狀態
 
         now = datetime.now()
@@ -578,7 +582,9 @@ class Island(QWidget):
         self._peeking = True
         # 主字是角色的聲音，副字是操作說明——兩者語域不同是刻意的：
         # 島可以有個性，但「怎麼叫出它」必須是清楚的指示。
-        self.message = "我在這裡"
+        # copy-style: off
+        self.message = "嗨！"
+        # copy-style: on
         self.sub_message = "游標移至螢幕上緣中央可呼叫"
         self._target_reveal(1.0)
         self._target_expand(1.0)
@@ -720,8 +726,35 @@ class Island(QWidget):
 
     # ------------------------------------------------------------ 動作
 
+    def practice(self, on_done=None):
+        """引導的最後一步：在**真的島**上點一次。不計數、不落檔。
+
+        為什麼不用引導視窗裡那台縮小螢幕：那張圖再像也是一張圖，而這一步要練的是
+        「把游標移到螢幕上緣那顆藥丸、按下去」這個動作。**位置是這個動作的一半**，
+        在別的地方點一百次也不會記得它其實在螢幕頂端。
+
+        `_practicing` 只有一個作用：讓 drink() 走一條不寫入任何東西的路。
+        """
+        self._practicing = True
+        self._practice_cb = on_done
+        # copy-style: off
+        self._enter(THIRSTY, message="點我一下", sub="這次不會算進今天的次數")
+        # copy-style: on
+
     def drink(self):
         """點一下＝「我剛補了水」，不管喝了幾口。不宣稱喝滿一杯，就沒有虛報的壓力。"""
+        if self._practicing:
+            # **練習不留任何痕跡**：不加次數、不重擲間隔、不寫 events、不存檔。
+            # 這條路徑必須放在最前面——底下每一行都有副作用。
+            self._practicing = False
+            # copy-style: off
+            self._enter(SATISFIED, message="就是這樣", sub="時間到我會自己出現")
+            # copy-style: on
+            cb, self._practice_cb = self._practice_cb, None
+            if cb:
+                cb()
+            return
+
         responded = self.state in REMINDING
         log_event(
             self.day, "drink",
@@ -769,10 +802,16 @@ class Island(QWidget):
         self.show_stats(on_settings=True)
 
     def show_onboarding(self, first_run=False):
-        """開首次啟動的引導。從設定的「重看使用說明」也走這條。"""
+        """開首次啟動的引導。從設定的「重看使用說明」也走這條。
+
+        `on_practice` 讓引導的最後一步驅動**真的島**：那一步要練的是
+        「把游標移到螢幕上緣、按下去」，位置是這個動作的一半，在引導視窗裡
+        點一張圖練不到。
+        """
         import onboard
         self._onboard_win = onboard.open_window(
-            lambda autostart: self._onboarding_done(autostart, first_run))
+            lambda autostart: self._onboarding_done(autostart, first_run),
+            on_practice=self.practice)
 
     def _onboarding_done(self, autostart, first_run):
         """引導按下「開始」之後。

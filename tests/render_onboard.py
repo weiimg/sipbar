@@ -48,11 +48,10 @@ def shot_flow(theme_name):
         win._go(i)
         win.sp_h.snap()
         win._apply_height()
-        if i in (2, 3):
-            pv = win.preview if i == 2 else win.try_preview
+        if i == 2:
             t = 0.0
             while t < 1.0:          # 停在「島已經滑下來」那一格
-                pv.step(1 / 60)
+                win.preview.step(1 / 60)
                 t += 1 / 60
         app.processEvents()
 
