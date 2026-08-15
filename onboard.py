@@ -285,6 +285,50 @@ class IslandPreview(sw.Graphic):
             QPointF(pt.x() + 11, pt.y() + 10)]))
 
 
+class CupPortrait(sw.Graphic):
+    """杯子的肖像，放在牠自己講話的那幾頁旁邊。
+
+    **不是裝飾，是在回答「我」是誰。** 前兩頁用第一人稱講了六次「我」，
+    但讀的人要到第三頁的動畫才看得到那是什麼。把臉放在講話的旁邊，
+    那六個「我」當場就有了對象。
+
+    畫在深色方塊上，不是直接放在卡片上：`pixelface` 的顏色是為深色藥丸調的
+    （INK 是近白色、GLASS 是淺灰），擺到淺色卡片上臉會整個消失。
+    而且它實際出現時本來就是浮在深色藥丸裡，**肖像跟本尊長得一樣才不會騙人**。
+    """
+
+    PAD = 13
+    RADIUS = 20
+    # 水位 0.8 不是狀態，是**為了看得出那是一個杯子**。滿水（1.0）會把整個杯子
+    # 填成一塊藍色，杯壁跟水同高，讀起來是方塊不是杯子；0.8 露出杯緣，
+    # 一眼就知道是容器。再低（0.65 以下）水面會切過眼睛，臉就糊了。
+    #
+    # 選 0.8 而不是更低還有一個理由：**水位在這個程式裡是有意義的**
+    # （忽略提醒它就一格一格少），畫得太低等於在暗示「快沒水了，你快點」，
+    # 那是前面特地拿掉的情勒。此刻使用者什麼都還沒忽略，畫成缺水也不是事實。
+    LEVEL = 0.8
+
+    def __init__(self, cell=6, state=pixelface.NORMAL, level=LEVEL):
+        cup_w, cup_h = pixelface.cup_size(cell)
+        super().__init__(cup_w + self.PAD * 2, cup_h + self.PAD * 2)
+        self.cell, self.state, self.level = cell, state, level
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
+        box = QRectF(0, 0, self.width(), self.height())
+        g = QLinearGradient(box.left(), box.top(), box.left(), box.bottom())
+        g.setColorAt(0.0, QColor(30, 31, 36, 246))
+        g.setColorAt(1.0, QColor(14, 15, 18, 246))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(g))
+        p.drawRoundedRect(box, self.RADIUS, self.RADIUS)
+        pixelface.draw_cup(p, int(box.center().x()), int(box.center().y()),
+                           self.level, self.state, pixelface.GLASS,
+                           pixelface.WATER, pixelface.INK, cell=self.cell)
+
+
 def _bullet(text):
     return sw.row(sw.Label("・", "body", sw.INK3), (sw.para(text), 1),
                   spacing=sw.S1)
@@ -401,8 +445,11 @@ class OnboardWindow(QWidget):
         no = Button("還沒有", primary=False)
         yes.clicked.connect(lambda: self._go(2))
         no.clicked.connect(self._no_water)
+        # 肖像跟牠講的話擺成一列，像對話框旁邊的頭像。垂直置中對齊：
+        # 段落在窄視窗會多一行，靠上對齊的話杯子就會跟著飄。
         return self._page("開始之前", [
-            sw.para(WATER_LEAD),
+            sw.row(CupPortrait(cell=7), (sw.para(WATER_LEAD), 1),
+                   spacing=sw.S3, align=Qt.AlignVCenter),
             sw.Label("桌上現在有水嗎？", "headline", sw.INK),
         ], [no, yes])
 
@@ -432,7 +479,12 @@ class OnboardWindow(QWidget):
         ok = Button("裝好了")
         ok.clicked.connect(lambda: self._go(2))
         self.fill_lead = sw.para(FILL_LEAD)
-        return self._page("先去裝一壺", [self.fill_lead], [ok])
+        # 這一頁的杯子跟第一頁同一個樣子（笑臉、同樣的水位），只是小一號。
+        # 特別**不要**在這裡畫一個快沒水的杯子催他快去，理由見 CupPortrait.LEVEL。
+        return self._page("先去裝一壺", [
+            sw.row(CupPortrait(cell=6), (self.fill_lead, 1),
+                   spacing=sw.S3, align=Qt.AlignVCenter),
+        ], [ok])
 
     def _page_howto(self):
         start = Button("開始")
