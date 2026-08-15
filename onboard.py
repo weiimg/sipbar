@@ -49,6 +49,35 @@ WIDTH = 560                 # 比紀錄視窗窄：引導一次只講一件事
 # 「關於」那頁的隱私聲明因此不能寫「本程式無網路連線」，
 # 要寫成「不蒐集也不傳送任何資料」，那句才是真的。
 WATER_SONG_URL = "https://youtu.be/P5YaZlGD1lI"
+
+# ---------------------------------------------------------------- 文案
+#
+# **引導的內文是角色在說話，不是介面標籤**，所以這一段的標準跟設定頁相反：
+# 第二人稱是刻意的，口語是刻意的。這是這個工具唯一一次自我介紹，而它是一隻桌寵。
+# 用說明書的語氣自我介紹的桌寵，沒有人會記得。
+#
+# 語氣參考 Duolingo：句子短、直接對著人講、對自己的限制誠實而且拿它開玩笑。
+# 初版是「這個工具唯一解決不了的問題是桌上沒有水。提醒響起時如果要走去廚房，
+# 忽略它是合理的選擇。」——論點沒錯，但那是設計文件的句法：先講抽象命題、
+# 再用被動語態下結論。第一次打開程式的人不是來讀論證的。
+#
+# 底線只有一條：**玩笑要建立在真的產品事實上。**「我也不會閉嘴」不是耍嘴皮，
+# 那描述的是「沒有關閉按鈕」這個設計決定；「喝了我才走」同理。
+# 讀的人笑完之後知道的事情要是對的。
+#
+# 按鈕與開關的標籤不在這個範圍內，那些仍然是標籤，仍然受 test_copy_style.py 管。
+# copy-style: off
+WATER_LEAD = ("醜話說在前面：我只會叫，不會倒水。"
+              "水在廚房的話，提醒響了你就是不會去。我不怪你，但我也不會閉嘴。")
+FILL_LEAD = "去吧，我等你。其他都不用設定，我會自己看著辦。"
+# 彩蛋真的開起來了才這樣寫。開失敗還說「配了首歌」就是介面在說謊。
+FILL_LEAD_SONG = "去吧，我等你，順便配了首歌。其他都不用設定，我會自己看著辦。"
+HOW_BULLETS = ("平常我完全不在，時間到才從螢幕上緣滑下來",
+               "點我一下就算喝了，點系統匣的圖示也一樣",
+               "沒有關閉按鈕。喝了我才走")
+HOW_SETTINGS = "覺得太吵或太少，設定裡都改得動。入口在系統匣圖示的選單，或紀錄視窗右上角的齒輪。"
+# copy-style: on
+
 PAD = 32
 SHADOW = 30
 SHADOW_SIGMA = 11.0
@@ -277,6 +306,11 @@ class Deck(QWidget):
     def natural(self, index=None):
         return self.pages[self.index if index is None else index].height()
 
+    def remeasure(self, index):
+        """換過那一頁的文字之後重量高度。高度是 add() 當下量的，不重量會裁掉。"""
+        page = self.pages[index]
+        page.setGeometry(0, 0, self._w, page_height(page))
+
 
 class OnboardWindow(QWidget):
     """三頁引導。第二頁只在回答「還沒有」時出現。"""
@@ -338,8 +372,7 @@ class OnboardWindow(QWidget):
         yes.clicked.connect(lambda: self._go(2))
         no.clicked.connect(self._no_water)
         return self._page("開始之前", [
-            sw.para("這個工具唯一解決不了的問題是桌上沒有水。"
-                    "提醒響起時如果要走去廚房，忽略它是合理的選擇。"),
+            sw.para(WATER_LEAD),
             sw.Label("桌上現在有水嗎？", "headline", sw.INK),
         ], [no, yes])
 
@@ -352,10 +385,15 @@ class OnboardWindow(QWidget):
         QDesktopServices 走的是預設瀏覽器而不是副檔名關聯，
         但一樣包起來，不讓它有機會把引導打斷。）
         """
+        played = False
         try:
-            QDesktopServices.openUrl(QUrl(WATER_SONG_URL))
+            played = QDesktopServices.openUrl(QUrl(WATER_SONG_URL))
         except Exception:
-            pass
+            played = False
+        self.fill_lead.setText(FILL_LEAD_SONG if played else FILL_LEAD)
+        # 換過字才量高度。兩句都只有一行，但那是現在——文案一改就可能變兩行，
+        # 而頁面的高度是在 Deck.add() 時量的，不重量就會裁掉最後一行。
+        self.deck.remeasure(1)
         self._go(1)
 
     def _page_fill(self):
@@ -363,9 +401,8 @@ class OnboardWindow(QWidget):
         # 只會讓人直接關掉程式。
         ok = Button("裝好了")
         ok.clicked.connect(lambda: self._go(2))
-        return self._page("先去裝一壺", [
-            sw.para("裝好再回來。剩下的不用填，程式會依使用狀況調整。"),
-        ], [ok])
+        self.fill_lead = sw.para(FILL_LEAD)
+        return self._page("先去裝一壺", [self.fill_lead], [ok])
 
     def _page_howto(self):
         start = Button("開始")
@@ -374,15 +411,11 @@ class OnboardWindow(QWidget):
             self.preview,
             # 三條是同一組，行距要比它們跟上下文的距離短。用頁面的 S3 排會讓
             # 三條各自讀成一段，掃過去像三件無關的事。
-            sw.col(_bullet("平常完全隱藏，時間到才從螢幕頂端滑下來"),
-                   _bullet("點一下動態島或系統匣圖示，就記錄一次補水"),
-                   _bullet("沒有關閉按鈕。記錄補水之後它會離開"),
-                   spacing=sw.S2),
+            sw.col(*[_bullet(t) for t in HOW_BULLETS], spacing=sw.S2),
             sw.Divider(),
             # 把「在哪裡」也寫出來。這個程式平常完全隱藏，
             # 使用者不會自己想到齒輪在紀錄視窗右上角。
-            sw.para("每日目標與提醒間隔可隨時在設定中調整，"
-                    "從系統匣圖示或紀錄視窗右上角的齒輪進入。"),
+            sw.para(HOW_SETTINGS),
             sw.setting_row("開機時啟動", self.autostart),
         ], [start])
 
