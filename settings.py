@@ -92,6 +92,10 @@ DEFAULTS = {
     "satisfied_flash_seconds": 1.8,
     "face_style": "pixel",
 
+    # 首次啟動的引導跑過沒有。跟 greeted_version 是兩件事：
+    # 引導是一次性的教學，打招呼是每次改版提醒使用者「它還在」。
+    "onboarded": False,
+
     # --- 內部狀態 ---
     # 啟動時滑下來 4 秒是為了解決「我不知道它在不在」，對已經知道的人是每天一次的
     # 噪音。用預設行為解掉，不做成開關——每個設定項都是推給使用者的一個決定。
@@ -133,6 +137,10 @@ def _upgrade_keys(raw):
     # 使用者自己調過目標，升級後不能被體重推導蓋掉
     if "daily_target_drinks" in raw and "target_manual" not in raw:
         raw["target_manual"] = raw["daily_target_drinks"] != DEFAULTS["daily_target_drinks"]
+    # 有設定檔就代表這個人已經在用了。引導是給第一次啟動的人看的，
+    # 對已經用了兩週的人跳出「桌上現在有水嗎」是搞錯對象。
+    # 要重看走設定的「關於」，不要靠升級時彈出來。
+    raw.setdefault("onboarded", True)
     # 換算完就把舊鍵刪掉。留著沒有壞處（沒有人讀），但使用者打開設定檔會看到
     # 兩組互相矛盾的值，不知道哪個才算數——發布出去的東西不該讓人猜。
     for dead in ("interval_jitter_min", "late_night_interval_min"):

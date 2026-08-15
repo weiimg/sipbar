@@ -1482,6 +1482,7 @@ class SettingsPage(QWidget):
 
     changed = Signal(dict)          # 丟出整份新的 cfg
     reset_done = Signal()
+    replay_onboarding = Signal()    # 「重看使用說明」，由島負責開那個視窗
     # 主題另外發一個訊號：換主題要把整個視窗重建（文字顏色是在建立 QLabel 時
     # 寫進 stylesheet 的，改模組變數不會回頭修改已存在的元件），
     # 那件事只有 StatsWindow 做得到。
@@ -1661,10 +1662,19 @@ class SettingsPage(QWidget):
         card.add(info_row("資料位置", appsettings.DATA_DIR, open_lbl))
         card.add(Divider())
         card.add(info_row("版本", appsettings.VERSION))
+        card.add(Divider())
+
+        # 引導只在第一次啟動時跑，忘記怎麼用的人需要一條回去的路。
+        again = TapLabel("重看", C_ACCENT.name())
+        again.clicked.connect(self.replay_onboarding)
+        card.add(info_row("使用說明", "", again))
         card.add(GRID)
         # 隱私聲明放這裡而不是體重欄底下：這是使用者會主動來找的地方，
         # 而輸入欄的說明行該留給那一欄的結果。
-        card.add(para("本程式無網路連線，資料僅儲存於本機。"))
+        # 不能寫「本程式無網路連線」：引導裡有一個彩蛋會用瀏覽器開影片。
+        # 那句話會變成假的，而隱私聲明只要有一句不精確，整段就不值得信。
+        # 「不蒐集也不傳送」才是真正成立、而且是使用者真正在意的那件事。
+        card.add(para("本程式不蒐集也不傳送任何資料，全部僅儲存於本機。"))
         card.add(para("每日目標依國民健康署的公開資料與體重推算，不構成醫療建議。"
                       "僅涵蓋使用電腦期間，未計入運動或流汗的額外需求。"))
         return card
@@ -1763,7 +1773,7 @@ class SettingsPage(QWidget):
 # ---------------------------------------------------------------- 視窗
 
 class StatsWindow(QWidget):
-    def __init__(self, cfg, events_path, on_config=None):
+    def __init__(self, cfg, events_path, on_config=None, on_replay=None):
         super().__init__()
         # **一定要複製一份。** 直接持有島傳來的字典，設定頁改完之後
         # `self.cfg.update(...)` 會就地改掉島的狀態——島的 apply_config()
@@ -1773,6 +1783,7 @@ class StatsWindow(QWidget):
         self.cfg = dict(cfg)
         self.events_path = events_path
         self.on_config = on_config
+        self.on_replay = on_replay
         self.mode = "stats"
         self._stats_stale = False     # 設定改過，回紀錄那邊時要重算
         self._drag = None
@@ -1928,7 +1939,15 @@ class StatsWindow(QWidget):
         page.changed.connect(self._on_config_changed)
         page.reset_done.connect(self._on_reset_done)
         page.theme_changed.connect(self._on_theme_changed)
+        page.replay_onboarding.connect(self._on_replay_onboarding)
         return page
+
+    def _on_replay_onboarding(self):
+        """引導視窗由島開，不是這裡開：它結束時要讓真的動態島打招呼，
+        而那顆島只有島自己拿得到。"""
+        if self.on_replay:
+            self.close()
+            self.on_replay()
 
     def _on_theme_changed(self, name):
         """換主題要把整個視窗重建。
@@ -2238,11 +2257,13 @@ class StatsWindow(QWidget):
             self.close()
 
 
-def open_window(cfg, events_path, existing=None, on_config=None, on_settings=False):
+def open_window(cfg, events_path, existing=None, on_config=None,
+                on_settings=False, on_replay=None):
     typeface.ensure_loaded()      # 只會做一次；讓渲染腳本單獨開視窗時也拿得到字體
     win = existing
     if win is None or not win.isVisible():
-        win = StatsWindow(cfg, events_path, on_config=on_config)
+        win = StatsWindow(cfg, events_path, on_config=on_config,
+                          on_replay=on_replay)
         if on_settings:
             win._switch_mode("settings", animate=False)
         screen = QApplication.primaryScreen().availableGeometry()

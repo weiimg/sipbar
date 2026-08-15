@@ -137,6 +137,16 @@ check("舊鍵已移除", [k for k in ("interval_jitter_min", "late_night_interva
 untouched = ap._upgrade_keys({"daily_target_drinks": ap.DEFAULTS["daily_target_drinks"]})
 check("沒調過目標就不標記", untouched["target_manual"], False)
 
+print("\n7b. 引導只給第一次啟動的人看")
+# 舊版寫的設定檔沒有這個鍵。對已經用了兩週的人跳出「桌上現在有水嗎」是搞錯對象。
+check("升級的舊設定檔視為看過了", ap._upgrade_keys({"interval_min": 60})["onboarded"], True)
+# 但**不能**因此讓中途關掉引導的新使用者也再也看不到：
+# 全新安裝寫進檔案的是明確的 False，setdefault 不會去動已經存在的鍵。
+check("新安裝寫的 False 不會被蓋成 True",
+      ap._upgrade_keys({"onboarded": False})["onboarded"], False)
+check("跑完引導的 True 保持不變",
+      ap._upgrade_keys({"onboarded": True})["onboarded"], True)
+
 print("\n8. 設定檔從程式旁邊搬到資料夾")
 _dir, _cfg, _legacy = ap.DATA_DIR, ap.CONFIG_PATH, ap.LEGACY_CONFIG_PATH
 try:

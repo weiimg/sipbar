@@ -727,7 +727,8 @@ class Island(QWidget):
             # 留著參考，不然視窗會被 GC 掉
             self._stats_win = stats_window.open_window(
                 self.cfg, EVENTS_PATH, getattr(self, "_stats_win", None),
-                on_config=self.apply_config, on_settings=on_settings)
+                on_config=self.apply_config, on_settings=on_settings,
+                on_replay=self.show_onboarding)
         except Exception as exc:                  # 紀錄視窗掛了不該影響提醒本身
             box = QMessageBox()
             box.setWindowTitle("開不了紀錄")
@@ -737,6 +738,27 @@ class Island(QWidget):
 
     def show_settings(self):
         self.show_stats(on_settings=True)
+
+    def show_onboarding(self, first_run=False):
+        """開首次啟動的引導。從設定的「重看使用說明」也走這條。"""
+        import onboard
+        self._onboard_win = onboard.open_window(
+            lambda autostart: self._onboarding_done(autostart, first_run))
+
+    def _onboarding_done(self, autostart, first_run):
+        """引導按下「開始」之後。
+
+        接著讓真的動態島滑下來打一次招呼：引導裡演的動畫是在視窗裡，
+        跟它實際會出現在螢幕哪個位置是兩回事。演完再讓本尊出來一次，
+        才補得上那個落差。
+        """
+        settings.set_autostart(autostart)
+        self.cfg["onboarded"] = True
+        self.cfg["greeted_version"] = settings.VERSION
+        settings.save_config(self.cfg)
+        if first_run:
+            log_event(self.day, "onboarded")
+        QTimer.singleShot(500, self.greet)
 
     def quit_app(self):
         log_event(self.day, "quit", drinks=self.drinks)
@@ -1293,7 +1315,9 @@ def main():
     # 對已經知道的人，那是每次開機一次的噪音——所以只在第一次跑、
     # 或版本更新之後才打招呼。用預設行為解掉，不做成設定開關：
     # 每一個設定項都是推給使用者的一個決定。
-    if cfg.get("greeted_version") != settings.VERSION:
+    if not cfg.get("onboarded"):
+        island.show_onboarding(first_run=True)
+    elif cfg.get("greeted_version") != settings.VERSION:
         QTimer.singleShot(800, island.greet)
         cfg["greeted_version"] = settings.VERSION
         settings.save_config(cfg)

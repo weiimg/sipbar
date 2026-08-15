@@ -34,7 +34,7 @@ sys.path.insert(0, APP)
 
 # island.py 也在檢查範圍內，但它含角色台詞——那些用
 # `# copy-style: off` / `on` 標出來，見該檔的 MESSAGES 區段。
-TARGETS = ("stats_window.py", "menu.py", "island.py")
+TARGETS = ("stats_window.py", "menu.py", "island.py", "onboard.py")
 
 BANNED = {
     "你": "第二人稱：介面不對使用者說話",
