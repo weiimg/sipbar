@@ -82,6 +82,39 @@ def shot_flow(theme_name):
     return frames
 
 
+def check_clipping():
+    """滑入時藥丸必須被那台縮小螢幕的上緣裁掉。
+
+    整張示意圖的意思就靠這一段：**它是從螢幕外面滑進來的。** 沒有裁切的話
+    藥丸會浮在螢幕上方，看起來像一個貼在圖上面的標籤，位置關係就沒說到。
+    這也是為什麼不再需要「螢幕上緣」那行小字——需要旁白的示意圖等於沒說清楚。
+    """
+    print("\n裁切（藥丸不能畫到縮小螢幕外面）")
+    sw.apply_theme("light")
+    sw._FONTS.clear()
+    pv = onboard.IslandPreview()
+    pv.reveal = 1.0
+    pv.resize(pv.W, pv.H)
+    card = sw.PAL.card_top
+    sy = (pv.H - pv.SCREEN_H) // 2
+    worst, t = 0, 0.0
+    while t < 1.2:
+        pv.step(1 / 60)
+        t += 1 / 60
+        pm = QPixmap(pv.W, pv.H)
+        pm.fill(card)
+        pv.render(pm)
+        img = pm.toImage()
+        for y in range(max(0, sy - 12), sy):
+            for x in range(pv.W // 2 - 100, pv.W // 2 + 100):
+                c = img.pixelColor(x, y)
+                if (abs(c.red() - card.red()) > 30
+                        or abs(c.green() - card.green()) > 30
+                        or abs(c.blue() - card.blue()) > 30):
+                    worst += 1
+    check(worst == 0, "滑入全程都沒有畫到螢幕外面", f"溢出 {worst} 個像素")
+
+
 def check_transition():
     """走一次真的補間，逐格檢查視窗幾何。
 
@@ -123,6 +156,7 @@ def check_transition():
 
 
 rows = [shot_flow("light"), shot_flow("dark")]
+check_clipping()
 check_transition()
 pad = 18
 w = max(f.width() for r in rows for f in r)

@@ -156,18 +156,34 @@ class Button(sw.Graphic):
 
 
 class IslandPreview(sw.Graphic):
-    """縮小版的動態島，循環演一遍它會怎麼出現。
+    """一台縮小的電腦桌面，循環演一遍動態島會怎麼出現。
 
-    循環：藏在螢幕上緣後面 -> 滑下來展開 -> 游標點一下 -> 變成已記錄 -> 滑回去。
+    循環：藏在螢幕上緣外面 -> 滑下來展開 -> 游標點一下 -> 變成已記錄 -> 滑回去。
+
+    ## 為什麼要畫整台桌面
+
+    初版只畫一條線代表螢幕上緣，旁邊標一行小字「螢幕上緣」。那是**用文字解釋
+    一張圖**——需要旁白的示意圖等於沒說清楚，而且那行小字比它要解釋的東西還難懂。
+
+    改成畫一台有桌布、有工作列的縮小螢幕，藥丸從它的上緣滑進來，還被螢幕邊界
+    裁掉一半。不用任何文字，位置關係自己講完了。
+
+    ## 藥丸的尺寸是刻意誇張的
+
+    照實際比例，動態島在 3440px 的螢幕上只佔 4%（收合）到 12.5%（展開）。
+    縮到這張圖上就是 15px 寬，杯子的臉根本畫不出來。
+    **這是示意圖不是比例尺**，所以放大到看得見表情為止；讀的人要拿到的資訊是
+    「它從上面中間出現、點一下就走」，不是「它有多大」。
     """
 
-    # 高度只留藥丸滑到底所需的：上緣線在 26，藥丸滑完底部在 74，再留 14 收邊。
-    # 初版給了 120，下面 46px 永遠是空的——那段空白會被讀成「預覽跟條列之間的
-    # 分隔」，條列就飄成另一個區塊了。
-    W, H = 464, 88
-    SCREEN_TOP = 26            # 那條代表螢幕上緣的線
-    PILL_MIN_W, PILL_MAX_W = 84, 248
-    PILL_H = 34
+    W, H = 464, 214
+    # 21:9，因為那是這台機器的螢幕比例（3440x1440）。16:9 也可以，
+    # 但畫成使用者自己那台的形狀，「那是我的螢幕」這件事不用想。
+    SCREEN_W, SCREEN_H = 404, 173
+    TASKBAR_H = 14
+    PILL_MIN_W, PILL_MAX_W = 62, 186
+    PILL_H = 26
+    CUP_CELL = 2
     # 死時間要少。初版 4.2 秒的循環有 1.7 秒是空的，看起來像壞掉。
     T_APPEAR, T_POINT, T_CLICK, T_LEAVE, T_LOOP = 0.3, 1.2, 1.9, 2.6, 3.4
 
@@ -221,23 +237,21 @@ class IslandPreview(sw.Graphic):
         p.setRenderHint(QPainter.TextAntialiasing, True)
         p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
 
-        # 一條線代表螢幕上緣。畫成方塊的話讀起來像個容器，
-        # 沒有人會把它理解成「螢幕的邊」。
-        top = self.SCREEN_TOP
-        p.setPen(QPen(sw.PAL.veil(34), 1))
-        p.drawLine(0, top, self.W, top)
-        p.setFont(self._f)
-        p.setPen(sw.PAL.ink_a(110))
-        p.drawText(2, top - 6, "螢幕上緣")
+        screen = self._draw_screen(p)
 
         drop = clamp(self.sp_drop.value, 0.0, 1.0)
         if drop < 0.01:
             return
 
+        # **藥丸要被螢幕邊界裁掉**。它是從螢幕外面滑進來的，不裁的話會浮在
+        # 螢幕上方，那正好是要說明的位置關係裡最關鍵的一段。
+        p.save()
+        p.setClipRect(screen)
+
         openness = clamp(self.sp_open.value, 0.0, 1.2)
         w = lerp(self.PILL_MIN_W, self.PILL_MAX_W, clamp(openness, 0.0, 1.0))
-        y = top - self.PILL_H + drop * (self.PILL_H + 14)
-        pill = QRectF((self.W - w) / 2, y, w, self.PILL_H)
+        y = screen.top() - self.PILL_H + drop * (self.PILL_H + 10)
+        pill = QRectF(screen.center().x() - w / 2, y, w, self.PILL_H)
 
         pg = QLinearGradient(pill.left(), pill.top(), pill.left(), pill.bottom())
         pg.setColorAt(0.0, QColor(30, 31, 36, 246))
@@ -247,11 +261,13 @@ class IslandPreview(sw.Graphic):
         p.drawRoundedRect(pill, self.PILL_H / 2, self.PILL_H / 2)
 
         done = self.phase == "done"
-        pixelface.draw_cup(p, int(pill.left() + 20), int(pill.center().y()),
+        cup_w = pixelface.cup_size(self.CUP_CELL)[0]
+        pixelface.draw_cup(p, int(pill.left() + 12 + cup_w / 2),
+                           int(pill.center().y()),
                            1.0 if done else 0.22,
                            "SATISFIED" if done else "THIRSTY", pixelface.GLASS,
                            pixelface.WATER_DONE if done else pixelface.WATER,
-                           pixelface.INK, cell=2)
+                           pixelface.INK, cell=self.CUP_CELL)
 
         if openness > 0.35:
             fm = QFontMetrics(self._f)
@@ -259,13 +275,54 @@ class IslandPreview(sw.Graphic):
             base = p.opacity()
             p.setOpacity(base * clamp((openness - 0.35) / 0.4, 0.0, 1.0))
             p.setPen(QColor(245, 245, 247))
-            p.drawText(int(pill.left() + 38),
+            p.drawText(int(pill.left() + 18 + cup_w),
                        int(pill.center().y() + (fm.ascent() - fm.descent()) / 2),
                        "已記錄" if done else "該喝水了")
             p.setOpacity(base)
 
         if self.phase in ("pointing", "done"):
             self._draw_cursor(p, pill, self.phase == "done")
+        p.restore()
+
+    def _draw_screen(self, p):
+        """一台縮小的電腦：桌布、工作列。回傳螢幕的矩形。
+
+        工作列是**讓人一眼認出這是桌面**的關鍵。只畫一塊漸層的話那是一張色卡，
+        底下加一條帶圖示的橫條，才會被讀成 Windows 的桌面。
+        """
+        x = (self.W - self.SCREEN_W) / 2
+        y = (self.H - self.SCREEN_H) / 2
+        screen = QRectF(x, y, self.SCREEN_W, self.SCREEN_H)
+
+        wall = QLinearGradient(screen.left(), screen.top(),
+                               screen.right(), screen.bottom())
+        wall.setColorAt(0.0, QColor(46, 59, 85))
+        wall.setColorAt(1.0, QColor(78, 62, 96))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(wall))
+        p.drawRoundedRect(screen, 8, 8)
+
+        bar = QRectF(screen.left(), screen.bottom() - self.TASKBAR_H,
+                     screen.width(), self.TASKBAR_H)
+        p.save()
+        p.setClipRect(screen)          # 讓工作列吃到螢幕下緣的圓角
+        p.setBrush(QBrush(QColor(0, 0, 0, 90)))
+        p.drawRect(bar)
+        p.setBrush(QBrush(QColor(255, 255, 255, 120)))
+        icon, gap = 6, 5
+        total = icon * 4 + gap * 3
+        ix = bar.center().x() - total / 2
+        for _ in range(4):
+            p.drawRoundedRect(QRectF(ix, bar.center().y() - icon / 2, icon, icon),
+                              1.5, 1.5)
+            ix += icon + gap
+        p.restore()
+
+        # 螢幕外框：淺色主題下深色桌布已經夠明顯，深色主題需要一圈邊才分得出來
+        p.setPen(QPen(sw.PAL.veil(40), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(screen.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
+        return screen
 
     @staticmethod
     def _draw_cursor(p, pill, hit):
