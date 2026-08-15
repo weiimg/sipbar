@@ -74,16 +74,20 @@ check("75 分 × 1.45", ap.late_night_interval({"interval_min": 75, "late_night_
 check("深夜一定比白天長",
       ap.late_night_interval({"interval_min": 30, "late_night_ratio": 1.45}) > 30, True)
 
-print("\n4. 作息推導：找最長的一段沒在用電腦的時間")
-# 造一份「每天 09:00-23:00 在電腦前」的紀錄：安靜段是 00:00-08:00，起點 0
+print("\n4. 作息推導：起床＝安靜段的結束，不是開始")
+# 造一份「每天 09:00-23:00 在電腦前」的紀錄：安靜段是 00:00-09:00
 base = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=6)
 rows = []
 for d in range(6):
     for h in range(9, 24):
         rows.append((base + timedelta(days=d, hours=h), "drink"))
 p = write_events(rows)
-check("換日設在安靜段起點", ap.infer_schedule(p)[0], 0)
-check("深夜模式是換日往前 6 小時", ap.infer_schedule(p)[1], 18)
+# 取結束（回到電腦前）而不是開始（停止用電腦）。兩者都落在空檔裡都能當換日用，
+# 但拿「停止用電腦」當換日，哪天做過頭就會在還在工作時把當天次數歸零。
+check("起床＝安靜段結束", ap.infer_wake_hour(p), 9)
+# 每天最後活動 23:00，起床 09:00 → 起床後 14 小時；往前 3 小時 = 20:00
+check("深夜模式＝每日最後活動中位數往前 3 小時", ap.infer_late_hour(p, 9), 20)
+check("infer_schedule 兩個一起給", ap.infer_schedule(p), (9, 20))
 
 print("\n5. 資料不足時不亂猜")
 check("空檔案", ap.infer_schedule(write_events([])), None)
@@ -101,7 +105,24 @@ print("\n6. 程式自己的記帳事件不算活動")
 noise = list(rows)
 for d in range(6):
     noise.append((base + timedelta(days=d, hours=4), "day_start"))
-check("day_start 不影響推導", ap.infer_schedule(write_events(noise))[0], 0)
+check("day_start 不影響推導", ap.infer_wake_hour(write_events(noise)), 9)
+
+print("\n6b. 起床時間手動指定後，深夜模式跟著它重算")
+manual = dict(ap.DEFAULTS)
+manual["wake_manual"] = True
+manual["day_rollover_hour"] = 11
+_ev = ap.EVENTS_PATH
+try:
+    ap.EVENTS_PATH = p
+    ap.apply_auto_schedule(manual, p)
+finally:
+    ap.EVENTS_PATH = _ev
+check("手動的起床時間不被推導蓋掉", manual["day_rollover_hour"], 11)
+# 這份假資料是 09:00–23:00 活動，使用者卻說 11:00 才起床——起床時間落在
+# 自己的活動時段裡。以 11:00 切天，「當天最後一次活動」會變成隔天早上 10:00
+# （起床後 23 小時），往回推 3 小時得出 07:00，是垃圾。
+# 落在合理範圍外就退回「起床 − 11 小時」。
+check("起床時間與活動矛盾時退回推估值", manual["late_night_start_hour"], 0)
 
 print("\n7. 舊鍵名升級，使用者調過的值不能弄丟")
 raw = {"interval_min": 60, "interval_jitter_min": 12,
@@ -182,6 +203,7 @@ check("記了改成什麼", cfgev[0]["changed"].get("interval_min"), 30)
 print("\n11. 齒輪點得到，而且改設定會一路傳到島")
 from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import QLabel  # noqa: E402
 
 import stats_window as sw  # noqa: E402
 
@@ -274,15 +296,44 @@ check("刪完收回確認狀態", d._armed, False)
 print("\n12d. 網格：列高只能是宣告過的三種，控制項中心線才會對齊")
 win._switch_mode("settings", animate=False)
 allowed = {sw.ROW_TALL, sw.ROW_FLAT, sw.ROW_INFO, sw.ROW_SECTION}
-box = win.settings_page.card.box
 bad = []
-for i in range(box.count()):
-    wd = box.itemAt(i).widget()
-    if wd is None or isinstance(wd, (sw.Divider, sw.Label)):
-        continue
-    if wd.height() not in allowed:
-        bad.append((i, wd.height()))
+for card in win.settings_page.cards:
+    box = card.box
+    for i in range(box.count()):
+        wd = box.itemAt(i).widget()
+        if wd is None or isinstance(wd, (sw.Divider, sw.Label, sw.DangerAction)):
+            continue
+        if isinstance(wd, QLabel):        # para() 產的自動換行段落，高度由內容決定
+            continue
+        if wd.height() not in allowed:
+            bad.append((type(wd).__name__, wd.height()))
 check(f"所有設定列高度屬於 {sorted(allowed)}", bad, [])
+
+print("\n12e. 從系統匣直接開「設定」，版面不能塌掉")
+# 這條路徑（open_window(on_settings=True)）先前是壞的：QStackedWidget 會把
+# 非當前頁 hide 掉，而 layout 對 hidden 的 widget 一律回報 sizeHint 0——
+# 在設定模式下量紀錄那一側會量到 64px，視窗縮成 277、卡片壓成 13px、文字疊在一起。
+# 渲染測試一直是綠的，因為它們都是「先開紀錄再切設定」，剛好繞過這條路。
+direct = sw.open_window(dict(cfg), isl.EVENTS_PATH, on_settings=True)
+_app.processEvents()
+normal = sw.open_window(dict(cfg), isl.EVENTS_PATH)
+_app.processEvents()
+check("直接開設定的高度 == 直接開紀錄的高度", direct.height(), normal.height())
+check("開起來就停在設定頁", direct.mode, "settings")
+# 設定頁現在可捲動，所以不再要求「塞得進內容區」。真正該守的是**沒有一張卡被壓扁**——
+# 那是版面塌掉時的症狀，跟捲不捲動無關。
+# 不拿 sizeHint 當基準：自動換行的 QLabel 在寬度未定時會多報高度，
+# 拿它比會誤判。版面塌掉時的症狀很極端（實測卡片被壓成 13px），
+# 用一個絕對下限就抓得到，也不會被換行的估算誤差影響。
+squashed = [(i, c.height()) for i, c in enumerate(direct.settings_page.cards)
+            if c.height() < 80]
+check("沒有卡片被壓扁", squashed, [])
+check("內容比可視區高，捲軸有東西可捲",
+      direct.pane.area.verticalScrollBar().maximum() > 0, True)
+check("進來時停在頂端", direct.pane.area.verticalScrollBar().value(), 0)
+for _w in (direct, normal):
+    _w.frame.stop()
+    _w.hide()
 
 print("\n13. 設定頁的高度必須跟紀錄頁一樣，換頁時視窗不能跳動")
 win2 = sw.StatsWindow(dict(cfg), isl.EVENTS_PATH)
@@ -292,8 +343,6 @@ h_stats = win2.height()
 win2._switch_mode("settings", animate=False)
 h_settings = win2.height()
 check("兩種模式同高", h_settings, h_stats)
-check("設定頁內容放得下",
-      win2.settings_page.sizeHint().height() <= win2.root.height(), True)
 
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))

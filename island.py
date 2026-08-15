@@ -32,10 +32,10 @@ from datetime import datetime, timedelta
 
 from PySide6.QtCore import QPoint, QRectF, Qt, QTimer
 from PySide6.QtGui import (
-    QAction, QBrush, QColor, QFont, QFontMetrics, QIcon, QLinearGradient,
+    QBrush, QColor, QFont, QFontMetrics, QIcon, QLinearGradient,
     QPainter, QPen, QPixmap, QRadialGradient,
 )
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon, QWidget
+from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QWidget
 
 import pixelface                              # 像素杯與表情
 import settings                               # 路徑、設定、推導、開機自啟
@@ -786,7 +786,7 @@ class Island(QWidget):
             self.drink()
 
     def contextMenuEvent(self, event):
-        self._menu().exec(event.globalPos())
+        self._popup_menu(event.globalPos())
 
     # ------------------------------------------------------------ 幾何
 
@@ -1084,7 +1084,7 @@ class Island(QWidget):
         # 滑過去什麼都看不到。
         tray.setToolTip(f"喝水動態島　·　{self._status_sub()}")
         tray.activated.connect(self._tray_clicked)
-        tray.setContextMenu(self._menu())
+        # 刻意不設 setContextMenu：右鍵由 _tray_clicked 接手，彈自繪的選單
         tray.show()
         # Windows 11 預設把新圖示摺進「^」，開機自啟時你不會知道它到底有沒有起來。
         tray.showMessage(
@@ -1118,50 +1118,38 @@ class Island(QWidget):
         if not hasattr(self, "tray"):
             return
         self.tray.setIcon(self._tray_icon())
-        self.tray.setContextMenu(self._menu())
         self.tray.setToolTip(f"喝水動態島　·　{self._status_sub()}")
 
     def _tray_clicked(self, reason):
         if reason == QSystemTrayIcon.Trigger:
             self.drink()
+        elif reason == QSystemTrayIcon.Context:
+            # 系統匣的右鍵選單由我們自己畫（見 menu.py）。
+            # QSystemTrayIcon.setContextMenu() 只吃 QMenu，而 QMenu 在 Windows 上
+            # 是原生彈出視窗，改不動圓角與陰影——所以不設它，自己接右鍵。
+            self._popup_menu(cursor_pos())
 
-    def _menu(self):
-        menu = QMenu()
+    def _popup_menu(self, pos):
+        import menu as trymenu
         target = self.cfg["daily_target_drinks"]
         est = self.drinks * self.cfg["ml_per_drink_estimate"]
-        head = QAction(f"今天補水 {self.drinks}/{target} 次（約 {est}cc，估算）", menu)
-        head.setEnabled(False)
-        menu.addAction(head)
-        menu.addSeparator()
+        head = (f"今天補水 {self.drinks} / {target} 次",
+                f"約 {est} cc（估算）　·　{self._status_sub()}")
 
-        act_drink = QAction("喝了", menu)
-        act_drink.triggered.connect(self.drink)
-        menu.addAction(act_drink)
-
+        items = [("喝了", self.drink)]
         if self.paused_until:
-            act_resume = QAction(f"取消暫停（原定到 {self.paused_until.strftime('%H:%M')}）", menu)
-            act_resume.triggered.connect(self._cancel_pause)
-            menu.addAction(act_resume)
+            items.append((f"取消暫停（原定到 {self.paused_until.strftime('%H:%M')}）",
+                          self._cancel_pause))
         else:
-            act_pause = QAction("暫停 2 小時", menu)
-            act_pause.triggered.connect(self.pause_2h)
-            menu.addAction(act_pause)
+            items.append(("暫停 2 小時", self.pause_2h))
+        items += [("看喝水紀錄", self.show_stats),
+                  ("設定", self.show_settings),
+                  (None, None),
+                  ("結束", self.quit_app)]
 
-        act_stats = QAction("看喝水紀錄", menu)
-        act_stats.triggered.connect(self.show_stats)
-        menu.addAction(act_stats)
-
-        act_settings = QAction("設定", menu)
-        act_settings.triggered.connect(self.show_settings)
-        menu.addAction(act_settings)
-
-        menu.addSeparator()
-        act_quit = QAction("結束", menu)
-        act_quit.triggered.connect(self.quit_app)
-        menu.addAction(act_quit)
-
-        self._menu_ref = menu       # 不留參考會被 GC 掉
-        return menu
+        # 留參考，否則彈出視窗會被 GC 掉
+        self._menu_ref = trymenu.TrayMenu(head, items)
+        self._menu_ref.popup_at(QPoint(*pos) if isinstance(pos, tuple) else pos)
 
     def _cancel_pause(self):
         self.paused_until = None
@@ -1229,6 +1217,11 @@ def main():
     # 要在 QApplication 之後：QFontDatabase 需要 QGuiApplication 才能運作。
     # 失敗不致命（會退到 fallback chain），但設定頁會照實顯示是哪一種情況。
     typeface.ensure_loaded()
+
+    # 主題在這裡先套一次：系統匣選單是島自己彈的，它需要調色盤，
+    # 而紀錄視窗要等使用者點開才會被 import。
+    import theme
+    theme.apply(cfg.get("theme", "auto"))
 
     # Windows 預設拿「執行檔」的圖示當工作列圖示，也就是 pythonw 的蟒蛇——
     # 這跟系統匣圖示顯示為 pythonw 是同一個根源（見規劃檔）。

@@ -47,12 +47,17 @@ for label, weight in (("有填體重", 65), ("沒填體重", None), ("清除紀�
     win.setWindowOpacity(1.0)
     app.processEvents()
 
-    avail = win.root.height()
-    need = win.settings_page.sizeHint().height()
-    fits = need <= avail
-    print(f"  {'ok  ' if fits else 'FAIL'} {label}：需要 {need}px / 可用 {avail}px"
-          f"　視窗 {win.width()}x{win.height()}")
-    if not fits:
+    # 設定頁可捲動，所以不驗「塞得下」。要守的是兩件跟捲動無關的事：
+    # 視窗高度必須跟紀錄頁一致（換頁不能跳動），以及沒有卡片被壓扁。
+    bar = win.pane.area.verticalScrollBar()
+    squashed = [c.height() for c in win.settings_page.cards if c.height() < 80]
+    ok = win.height() == 771 and not squashed
+    print(f"  {'ok  ' if ok else 'FAIL'} {label}："
+          f"視窗 {win.width()}x{win.height()}　內容 {win.settings_page.height()}px"
+          f"　可視 {win.root.height()}px　捲動範圍 0..{bar.maximum()}")
+    if squashed:
+        print(f"       有卡片被壓扁：{squashed}")
+    if not ok:
         fails.append(label)
     shots.append((label, win.grab()))
 

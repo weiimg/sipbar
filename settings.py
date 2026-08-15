@@ -22,7 +22,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from motion import clamp
 
@@ -59,12 +59,21 @@ DEFAULTS = {
     "screen_name": None,            # QScreen.name()，找不到就退回主螢幕
     # 開機自啟不存在這裡：登錄檔才是唯一事實來源，存兩份一定會不同步
 
+    # 習慣起床時間。**這個值就是換日點**：這個時間之後算新的一天，補水次數歸零。
+    # 鍵名沿用 day_rollover_hour 沒有改，換鍵名要處理遷移，而語意完全相同。
+    #
+    # 用「起床時間」而不是「停止用電腦的時間」是有差的：後者若哪天你做過頭，
+    # 換日會在你還在工作時把當天次數歸零、前一天的紀錄當場被切斷。
+    # 起床時間不會——你還在電腦前就代表還沒睡，那就還是同一天。
+    "day_rollover_hour": 8,
+    "wake_manual": False,           # 使用者調過就不再被推導覆蓋
+
     # --- 自動推導，使用者不用回答 ---
-    # 「你幾點睡」這個問題程式自己看得到（見 infer_schedule），而且真正相關的
-    # 不是睡覺時間，是「電腦日什麼時候結束」。頭幾天資料不夠就用這裡的預設。
     "auto_schedule": True,
-    "day_rollover_hour": 4,
     "late_night_start_hour": 23,
+
+    # "auto" 跟隨系統，其餘 "light" / "dark"
+    "theme": "auto",
 
     # --- 寫死，不上面板 ---
     # 單位是「補水次數」不是「杯」：被提醒時你只會喝幾口，用「杯」當單位會逼你
@@ -193,10 +202,12 @@ def late_night_interval(cfg):
 # ---------------------------------------------------------------- 作息推導
 
 LOOKBACK_DAYS = 14
-MIN_EVENTS = 20        # 少於這個量的樣本，任何推導都只是在放大雜訊
-MIN_QUIET_H = 4        # 安靜時段至少要這麼長才算數
-QUIET_RATIO = 0.15     # 低於「平均每小時」這個比例就算安靜
-LATE_BEFORE_H = 6      # 深夜模式從換日往前幾小時開始
+MIN_EVENTS = 20            # 少於這個量的樣本，任何推導都只是在放大雜訊
+MIN_DAYS = 3               # 中位數至少要這麼多天才有意義
+MIN_QUIET_H = 4            # 安靜時段至少要這麼長才算數
+QUIET_RATIO = 0.15         # 低於「平均每小時」這個比例就算安靜
+LATE_BEFORE_SLEEP_H = 3    # 睡前幾小時開始放慢提醒
+MIN_AWAKE_H, MAX_AWAKE_H = 8, 20   # 清醒時段落在這個範圍外，代表推導的前提不成立
 
 # 只有這些事件代表「人真的在電腦前」。
 # day_start / pause / resume / quit 是程式自己的記帳，跟人在不在無關——
@@ -262,29 +273,20 @@ def _longest_quiet_run(hist):
     return best if best[0] is not None else None
 
 
-def infer_schedule(events_path):
-    """推導 (換日時間, 深夜模式起點)，資料不夠就回 None。
+def infer_wake_hour(events_path):
+    """推導「習慣起床時間」，資料不夠就回 None。
 
-    **不問使用者「你幾點睡」。** 那個答案程式自己看得到，而且真正相關的
-    也不是睡覺時間，是「你從來不在電腦前的是哪一段」——這個工具只在
-    電腦前運作，牆上時鐘幾點跟它無關。
+    做法：把活動事件攤成 24 格直方圖，找最長的一段安靜時間，
+    取那一段的**結束**——那是你重新回到電腦前的時刻，也就是起床。
 
-    做法：把所有活動事件攤成 24 格直方圖，找出最長的一段安靜時間，
-    **換日就設在那一段的起點**。理由很直接：那是一天當中最安全的換日點，
-    因為按定義你不在。換日設在有活動的時段，凌晨的工作就會被切成兩天、
-    次數莫名歸零。
+    注意是結束不是開始。安靜段的**開始**是「你停止用電腦」（≈ 就寢），
+    兩者都落在空檔裡，所以都能當換日點用，但語意差很多：
+    拿就寢時間當換日，哪天你做過頭做到那個時刻之後，換日會在你還在
+    工作時把當天次數歸零。起床時間沒有這個破口。
 
-    深夜模式從換日往前推 6 小時。它的目的是「睡前別灌水」，而睡前
-    就是換日之前那幾個小時——只推導一個量，另一個跟著走，
-    兩個各自推導只會推出互相矛盾的組合。
-
-    以使用者 2026-08-10～08-14 的真實資料驗證：54 筆活動事件中
-    05:00–10:00 完全是零，最長安靜段起點 05:00 → 換日 05:00、深夜 23:00，
-    與他手動調出來的值一致。
-
-    比「取每天結束時刻的平均」穩健得多：那個做法只有 4 個樣本、
-    而且會被一次 4 小時的下午外出誤判成一天的結束。這個做法用上全部
-    54 筆事件，而且是眾數性質的統計，不會被個別的晚睡拉走。
+    這個值只是**初始建議**。使用者可以在設定裡改，改過就不再被覆蓋——
+    連續段偵測對雜訊很敏感（實測三筆多餘的事件就能讓它從 6 小時縮到
+    3 小時、直接回 None），不該是唯一的路。
     """
     hist = activity_hours(events_path)
     if sum(hist) < MIN_EVENTS:
@@ -292,22 +294,97 @@ def infer_schedule(events_path):
     run = _longest_quiet_run(hist)
     if not run or run[1] < MIN_QUIET_H:
         return None
-    rollover = run[0] % 24
-    return rollover, (rollover - LATE_BEFORE_H) % 24
+    return (run[0] + run[1]) % 24
+
+
+def infer_late_hour(events_path, wake_hour):
+    """推導深夜模式起點：每天最後一次活動的中位數，往前推 3 小時。
+
+    「每天」由起床時間定義（一天 = [起床, 起床+24)），所以這個推導
+    建立在使用者已經給定的值上，不必再自己猜天的邊界。
+
+    **每天最後一次活動 ≈ 你當天收工的時間 ≈ 上床時間。**
+    往前 3 小時是有依據的：睡前 2–3 小時的攝取才是造成夜間起身的區間，
+    那正是這個機制要避開的東西。
+
+    取中位數不取平均：一次特例（熬夜、或程式重啟造成的雜訊事件）
+    會把平均拉走，卻撼動不了中位數。實測把一筆離群值拿掉，
+    結果從 00:00 變成 23:42，仍然是 00:00。
+
+    資料不足時回退到「起床 − 11 小時」（假設睡 8 小時、睡前 3 小時開始放慢）。
+    在真實資料上兩條路徑得出同一個答案，是這個模型沒亂跑的旁證。
+    """
+    fallback = (wake_hour - 11) % 24
+    if not os.path.exists(events_path):
+        return fallback
+
+    stamps = []
+    try:
+        with open(events_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get("event") in ACTIVITY_EVENTS and row.get("ts"):
+                    try:
+                        stamps.append(datetime.fromisoformat(row["ts"]))
+                    except ValueError:
+                        pass
+    except OSError:
+        return fallback
+    if not stamps:
+        return fallback
+
+    # 以起床時間為原點切天，取每天最後一次活動距起床幾小時
+    days = {}
+    for t in stamps:
+        key = (t - timedelta(hours=wake_hour)).date()
+        off = (t.hour + t.minute / 60.0 - wake_hour) % 24
+        days[key] = max(days.get(key, 0.0), off)
+    offsets = sorted(days.values())
+    if len(offsets) < MIN_DAYS:
+        return fallback
+
+    n = len(offsets)
+    med = offsets[n // 2] if n % 2 else (offsets[n // 2 - 1] + offsets[n // 2]) / 2.0
+
+    # 合理範圍的防線。使用者可以把起床時間設在自己實際還在活動的時段裡
+    # （例如明明 09:00 就在用電腦卻填 11:00），那時候「一天」的邊界會切在
+    # 活動中間，中位數變成 23 小時，往回推 3 小時得出 07:00——完全是垃圾。
+    # 沒有人的一天在起床後 3 小時就結束，也沒有人撐到 22 小時。
+    # 落在範圍外就代表這個推導的前提不成立，退回從起床時間直接推。
+    if not (MIN_AWAKE_H <= med <= MAX_AWAKE_H):
+        return fallback
+    return int(round(wake_hour + med - LATE_BEFORE_SLEEP_H)) % 24
+
+
+def infer_schedule(events_path):
+    """兩個都推導，回傳 (起床時間, 深夜模式起點)。資料不夠回 None。"""
+    wake = infer_wake_hour(events_path)
+    if wake is None:
+        return None
+    return wake, infer_late_hour(events_path, wake)
 
 
 def apply_auto_schedule(cfg, events_path):
-    """把推導出來的作息寫進 cfg。回傳有沒有變動。"""
+    """把推導出來的作息寫進 cfg。回傳有沒有變動。
+
+    起床時間使用者調過（wake_manual）就不再覆蓋，但深夜模式**照樣重算**——
+    它是從使用者給的起床時間往下推的，起床時間變了它就該跟著變。
+    """
     if not cfg.get("auto_schedule", True):
         return False
-    got = infer_schedule(events_path)
-    if not got:
-        return False
-    rollover, late = got
-    if (cfg.get("day_rollover_hour"), cfg.get("late_night_start_hour")) == (rollover, late):
-        return False
-    cfg["day_rollover_hour"], cfg["late_night_start_hour"] = rollover, late
-    return True
+    before = (cfg.get("day_rollover_hour"), cfg.get("late_night_start_hour"))
+
+    if not cfg.get("wake_manual"):
+        wake = infer_wake_hour(events_path)
+        if wake is not None:
+            cfg["day_rollover_hour"] = wake
+    wake = cfg.get("day_rollover_hour", DEFAULTS["day_rollover_hour"])
+    cfg["late_night_start_hour"] = infer_late_hour(events_path, wake)
+
+    return (cfg.get("day_rollover_hour"), cfg.get("late_night_start_hour")) != before
 
 
 # ---------------------------------------------------------------- 開機自啟

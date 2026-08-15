@@ -30,18 +30,20 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QIntValidator, QLinearGradient,
     QPainter, QPainterPath, QPen,
 )
 from PySide6.QtWidgets import (
-    QApplication, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit,
-    QSizePolicy, QStackedWidget, QToolTip, QVBoxLayout, QWidget,
+    QApplication, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
+    QLineEdit, QScrollArea, QSizePolicy, QStackedWidget, QToolTip,
+    QVBoxLayout, QWidget,
 )
 
 import dashboard
 import settings as appsettings               # 設定的讀寫與推導
+import theme                                  # 深色／淺色調色盤
 import typeface                               # 隨程式散布的字體
 from motion import PRESET, Spring, clamp, ease, lerp
 from paintkit import draw_soft_shadow, shadow_alphas
@@ -90,19 +92,42 @@ SHADOW_ALPHAS = shadow_alphas(SHADOW - 2, SHADOW_PEAK, SHADOW_SIGMA)
 WIN_W, WIN_H = 780, 900
 WIN_PAD = 32                               # 視窗內距
 
-INK = "rgba(245,245,247,1)"
-INK2 = "rgba(235,235,245,0.84)"
-INK3 = "rgba(235,235,245,0.74)"
-C_ACCENT = QColor("#4FA8E8")
-C_GREEN = QColor("#4FCF8A")
-C_FLAME = QColor("#FF9F43")
-C_FLAME2 = QColor("#FFD166")
-C_DANGER = "rgba(232,122,79,1)"             # 破壞性動作，跟「虛弱」狀態同一個橘紅
-C_SLOT = QColor(255, 255, 255, 24)
-C_CARD_TOP = QColor(34, 35, 41)
-C_CARD_BOTTOM = QColor(23, 24, 29)
-C_BG_TOP = QColor(28, 29, 34, 252)
-C_BG_BOTTOM = QColor(14, 15, 18, 252)
+# 顏色全部來自 theme.py 的調色盤，這裡只是「目前主題」的快照。
+# 換主題要呼叫 apply_theme() 重新取值，**而且視窗要重建**——
+# 文字顏色是在建立 QLabel 的當下寫進 stylesheet 的，改了模組變數不會回頭修改已存在的元件。
+PAL = theme.active()
+INK = INK2 = INK3 = C_DANGER = ""
+C_ACCENT = C_GREEN = C_FLAME = C_FLAME2 = None
+C_SLOT = C_CARD_TOP = C_CARD_BOTTOM = C_BG_TOP = C_BG_BOTTOM = None
+
+
+def _alpha(color, a):
+    """同一個顏色換一個透明度。語意色在兩套主題不同值，不能寫死 RGB。"""
+    c = QColor(color)
+    c.setAlpha(a)
+    return c
+
+
+def apply_theme(name=None):
+    """套用主題並刷新這個模組的顏色快照。回傳生效的調色盤。"""
+    global PAL, INK, INK2, INK3, C_DANGER, C_ACCENT, C_GREEN, C_FLAME, C_FLAME2
+    global C_SLOT, C_CARD_TOP, C_CARD_BOTTOM, C_BG_TOP, C_BG_BOTTOM
+    global C_DIVIDER, SHADOW_ALPHAS
+    PAL = theme.apply(name) if name is not None else theme.active()
+    INK, INK2, INK3 = PAL.ink, PAL.ink2, PAL.ink3
+    C_DANGER = f"rgba({PAL.danger.red()},{PAL.danger.green()},{PAL.danger.blue()},1)"
+    C_ACCENT, C_GREEN = PAL.accent, PAL.green
+    C_FLAME, C_FLAME2 = PAL.flame, PAL.flame2
+    C_SLOT = PAL.veil(24)
+    C_DIVIDER = PAL.veil(20)
+    C_CARD_TOP, C_CARD_BOTTOM = PAL.card_top, PAL.card_bottom
+    # 視窗底色留一點透明度，讓底下的桌面透出來一點點（原本就是 252/255）
+    C_BG_TOP, C_BG_BOTTOM = _alpha(PAL.bg_top, 252), _alpha(PAL.bg_bottom, 252)
+    # 陰影濃度跟著主題走：同一個 alpha 的黑影壓在淺色底上會重得多
+    SHADOW_ALPHAS = shadow_alphas(SHADOW - 2, PAL.shadow_peak, SHADOW_SIGMA)
+    return PAL
+
+apply_theme()          # 模組載入時先套一次，之後由設定或系統決定
 
 STAGGER_MS = 62
 WEEKDAYS = "一二三四五六日"
@@ -149,8 +174,11 @@ class Label(QLabel):
         p.drawText(self.rect(), Qt.AlignLeft | Qt.AlignVCenter, shown)
 
 
-def para(text, role="caption", color=INK3):
+def para(text, role="caption", color=None):
     """會換行的整段說明。
+
+    顏色預設用第二層而不是第三層：第三層是給「掃過去就好」的註記用的，
+    成段的說明是要讀完的。淺色主題上第三層只有 3.9:1，一整段那樣讀很吃力。
 
     Label 的省略號是給「一行放不下就切掉」的欄位用的——那適合數值旁邊的短註解，
     不適合成段的說明：一段話被切成「…程式看你的活動紀…」等於完全沒說。
@@ -158,7 +186,7 @@ def para(text, role="caption", color=INK3):
     """
     lbl = QLabel(text)
     lbl.setFont(font(role))
-    lbl.setStyleSheet(f"color:{color};background:transparent")
+    lbl.setStyleSheet(f"color:{color or INK2};background:transparent")
     lbl.setAttribute(Qt.WA_TranslucentBackground)
     lbl.setWordWrap(True)
     lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
@@ -257,7 +285,7 @@ class Ring(Graphic):
         box = QRectF(cx - r, cy - r, r * 2, r * 2)
         done = self.value >= self.target
 
-        p.setPen(QPen(QColor(255, 255, 255, 28), 11))
+        p.setPen(QPen(PAL.veil(28), 11))
         p.drawArc(box, 0, 360 * 16)
         pct = min(1.0, self.value / self.target if self.target else 0) * e
         if pct > 0:
@@ -277,7 +305,7 @@ class Ring(Graphic):
         fm = QFontMetrics(f)
         num = str(int(round(self.value * e)))
         p.setFont(f)
-        p.setPen(QColor(245, 245, 247))
+        p.setPen(PAL.ink_a(255))
         # 數字沒有下伸部，用 cap height 對齊才是光學置中
         p.drawText(int(cx - fm.horizontalAdvance(num) / 2),
                    int(round(cy + fm.capHeight() / 2)), num)
@@ -314,7 +342,7 @@ class Flame(Graphic):
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(C_FLAME if self.lit else C_SLOT))
         p.drawPath(self._path(cx, bottom, h))
-        p.setBrush(QBrush(C_FLAME2 if self.lit else QColor(255, 255, 255, 16)))
+        p.setBrush(QBrush(C_FLAME2 if self.lit else PAL.veil(16)))
         p.drawPath(self._path(cx, bottom - h * 0.06, h * 0.56))
 
 
@@ -349,8 +377,8 @@ class Shields(Graphic):
                          x - r * 0.86, y + r * 0.16)
             path.lineTo(x - r * 0.86, y - r * 0.5)
             path.closeSubpath()
-            p.setPen(QPen(C_ACCENT if on else QColor(255, 255, 255, 46), 2.2))
-            p.setBrush(QBrush(QColor(79, 168, 232, 72) if on else Qt.transparent))
+            p.setPen(QPen(C_ACCENT if on else PAL.veil(46), 2.2))
+            p.setBrush(QBrush(_alpha(C_ACCENT, 72) if on else Qt.transparent))
             p.drawPath(path)
 
 
@@ -382,19 +410,21 @@ class WeekStrip(Graphic):
             r = rad * lerp(0.74, 1.0, local)
 
             p.setFont(font("body"))
-            p.setPen(QColor(245, 245, 247) if day["today"] else QColor(235, 235, 245, 168))
+            p.setPen(PAL.ink_a(255) if day["today"] else PAL.ink_a(168))
             lw = fm_l.horizontalAdvance(day["label"])
             p.drawText(int(cx - lw / 2), int(fm_l.ascent()) + 2, day["label"])
 
             p.setPen(Qt.NoPen)
             box = QRectF(cx - r, cy - r, r * 2, r * 2)
             if day["future"]:
-                p.setBrush(QBrush(QColor(255, 255, 255, 14)))
+                p.setBrush(QBrush(PAL.veil(14)))
                 p.drawEllipse(box)
                 note = "還沒到"
             elif day["hit"]:
                 p.setBrush(QBrush(C_GREEN))
                 p.drawEllipse(box)
+                # 打勾畫在飽和的綠色圓點上，兩套主題都該是深色——
+                # 它的底不是頁面底色，是那顆圓點，所以不跟著主題翻。
                 p.setPen(QPen(QColor(16, 22, 18), 3.6, Qt.SolidLine, Qt.RoundCap))
                 p.drawLine(QPoint(int(cx - r * 0.34), int(cy + r * 0.02)),
                            QPoint(int(cx - r * 0.08), int(cy + r * 0.28)))
@@ -403,7 +433,7 @@ class WeekStrip(Graphic):
                 note = f"{day['drinks']} / {self.target} 次，達標"
             elif day["used"]:
                 pct = (day["drinks"] / self.target) * local if self.target else 0
-                p.setPen(QPen(QColor(255, 255, 255, 28), 5))
+                p.setPen(QPen(PAL.veil(28), 5))
                 p.setBrush(Qt.NoBrush)
                 p.drawEllipse(box)
                 if pct > 0:
@@ -411,7 +441,7 @@ class WeekStrip(Graphic):
                     p.drawArc(box, 90 * 16, -int(360 * 16 * pct))
                 n = str(day["drinks"])
                 p.setFont(font("headline"))
-                p.setPen(QColor(245, 245, 247))
+                p.setPen(PAL.ink_a(255))
                 p.drawText(int(cx - fm_n.horizontalAdvance(n) / 2),
                            int(cy + fm_n.capHeight() / 2), n)
                 note = f"{day['drinks']} / {self.target} 次"
@@ -461,7 +491,7 @@ class Heatmap(Graphic):
 
         fm = QFontMetrics(font("caption"))
         p.setFont(font("caption"))
-        p.setPen(QColor(235, 235, 245, 168))
+        p.setPen(PAL.ink_a(168))
         for i in range(0, 7, 2):
             p.drawText(0, int(i * step + cell / 2 + fm.capHeight() / 2), WEEKDAYS[i])
 
@@ -502,12 +532,12 @@ class Heatmap(Graphic):
         if ratio >= 1:
             return C_GREEN
         if ratio >= 0.66:
-            return QColor(79, 207, 138, 175)
+            return _alpha(C_GREEN, 175)
         if ratio >= 0.33:
-            return QColor(79, 168, 232, 160)
+            return _alpha(C_ACCENT, 160)
         if ratio > 0:
-            return QColor(79, 168, 232, 96)
-        return QColor(255, 255, 255, 52)
+            return _alpha(C_ACCENT, 96)
+        return PAL.veil(52)
 
     def mouseMoveEvent(self, event):
         pos = event.position()
@@ -527,7 +557,7 @@ class Bar(Graphic):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(QColor(255, 255, 255, 26)))
+        p.setBrush(QBrush(PAL.veil(26)))
         p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()), 4, 4)
         v = self.pct * ease(self.reveal)
         if v > 0:
@@ -548,7 +578,7 @@ class Badge(Graphic):
         r = self.width() / 2 * lerp(0.82, 1.0, ease(self.reveal))
         cx = cy = self.width() / 2
         p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(QColor(79, 168, 232, 66) if self.done else QColor(255, 255, 255, 18)))
+        p.setBrush(QBrush(_alpha(C_ACCENT, 66) if self.done else PAL.veil(18)))
         p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
         if self.done:
             p.setPen(QPen(C_ACCENT, 3.4, Qt.SolidLine, Qt.RoundCap))
@@ -559,7 +589,7 @@ class Badge(Graphic):
             fm = QFontMetrics(f)
             t = str(self.remain)
             p.setFont(f)
-            p.setPen(QColor(235, 235, 245, 168))
+            p.setPen(PAL.ink_a(168))
             p.drawText(int(cx - fm.horizontalAdvance(t) / 2), int(cy + fm.capHeight() / 2), t)
 
 
@@ -608,12 +638,12 @@ class Card(QWidget):
         g = QLinearGradient(0, 0, 0, self.height())
         g.setColorAt(0.0, C_CARD_TOP)
         g.setColorAt(1.0, C_CARD_BOTTOM)
-        p.setPen(QPen(QColor(255, 255, 255, 20), 1))
+        p.setPen(QPen(PAL.veil(20), 1))
         p.setBrush(QBrush(g))
         p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), 20, 20)
         hl = QLinearGradient(0, 0, 0, self.height() * 0.5)
-        hl.setColorAt(0.0, QColor(255, 255, 255, 26))
-        hl.setColorAt(1.0, QColor(255, 255, 255, 0))
+        hl.setColorAt(0.0, PAL.veil(26))
+        hl.setColorAt(1.0, PAL.veil(0))
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(QBrush(hl), 1.0))
         p.drawRoundedRect(QRectF(1, 1, self.width() - 2, self.height() - 2), 19, 19)
@@ -770,12 +800,13 @@ class Segmented(QWidget):
         p.setRenderHint(QPainter.TextAntialiasing, True)
         p.setPen(Qt.NoPen)
 
-        p.setBrush(QColor(235, 235, 245, 20))
+        p.setBrush(PAL.ink_a(20))
         p.drawRoundedRect(QRectF(0, 0, self.width(), self.H), self.H / 2, self.H / 2)
 
         w = self.seg_w()
         pill = QRectF(self.INSET + self.sp.value * w, self.INSET, w, self.H - self.INSET * 2)
-        p.setBrush(QColor(235, 235, 245, 34))
+        # 選中格的底色兩套主題是相反做法，見 theme.Palette.seg_pill
+        p.setBrush(PAL.seg_pill)
         p.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2)
 
         fm = QFontMetrics(self._f)
@@ -784,7 +815,7 @@ class Segmented(QWidget):
         for i, text in enumerate(self.labels):
             # 亮度跟著彈簧的距離插值，切換時是滑過去而不是瞬間換色
             near = clamp(1.0 - abs(self.sp.value - i), 0.0, 1.0)
-            p.setPen(QColor(235, 235, 245, int(lerp(150, 255, near))))
+            p.setPen(PAL.ink_a(int(lerp(150, 255, near))))
             cx = self.INSET + w * (i + 0.5)
             p.drawText(int(cx - fm.horizontalAdvance(text) / 2), baseline, text)
 
@@ -847,7 +878,7 @@ class Toggle(Graphic):
         t = clamp(self.sp.value, 0.0, 1.0)
 
         track = QRectF(0, 0, self.W, self.H)
-        off = QColor(235, 235, 245, 30)
+        off = PAL.ink_a(30)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(int(lerp(off.red(), C_GREEN.red(), t)),
                           int(lerp(off.green(), C_GREEN.green(), t)),
@@ -857,8 +888,78 @@ class Toggle(Graphic):
 
         r = self.H / 2 - 4
         cx = lerp(4 + r, self.W - 4 - r, t)
+        # 旋鈕永遠是白的：它壓在綠色軌道或灰色軌道上，底不是頁面底色。
+        # 淺色主題若跟著翻成黑色，開啟狀態會變成綠底黑點，讀起來像壞掉。
         p.setBrush(QColor(255, 255, 255, 240))
         p.drawEllipse(QRectF(cx - r, self.H / 2 - r, r * 2, r * 2))
+
+
+class HourStepper(Graphic):
+    """`‹ 08:00 ›` 小時步進器。
+
+    不用系統的時間選擇器：QTimeEdit 會在這片自繪的版面中間開一個 Windows 的洞，
+    而且它給到分鐘——這裡只用得到小時，多出來的精度只會讓人以為分鐘有意義。
+    """
+
+    changed = Signal(int)
+
+    W, H = 128, 40
+    ZONE = 40           # 左右各留這麼寬當按鈕；圖示只有 8px，點擊區要大得多
+
+    def __init__(self, hour):
+        super().__init__(self.W, self.H)
+        self.hour = int(hour) % 24
+        self.setCursor(Qt.PointingHandCursor)
+        self._f = font("body")
+
+    def set_hour(self, hour, emit=True):
+        hour %= 24
+        if hour == self.hour:
+            return
+        self.hour = hour
+        self.update()
+        if emit:
+            self.changed.emit(hour)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        x = event.position().x()
+        if x < self.ZONE:
+            self.set_hour(self.hour - 1)       # 小時是環狀的，0 往下就是 23
+        elif x > self.W - self.ZONE:
+            self.set_hour(self.hour + 1)
+
+    def wheelEvent(self, event):
+        self.set_hour(self.hour + (1 if event.angleDelta().y() > 0 else -1))
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
+
+        p.setPen(Qt.NoPen)
+        p.setBrush(PAL.ink_a(20))
+        p.drawRoundedRect(QRectF(0, 0, self.W, self.H), self.H / 2, self.H / 2)
+
+        cy = self.H / 2
+        p.setPen(QPen(PAL.ink_a(150), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        # 箭頭要指向它會把數字帶去的方向：左邊的指左、右邊的指右。
+        # side=-1 是左鈕，尖端必須在臂的**左邊**（x 較小）。
+        for side in (-1, 1):
+            cx = self.ZONE / 2 if side < 0 else self.W - self.ZONE / 2
+            tip = cx + side * 3
+            arm = cx - side * 2
+            p.drawLine(QPoint(int(arm), int(cy - 5)), QPoint(int(tip), int(cy)))
+            p.drawLine(QPoint(int(tip), int(cy)), QPoint(int(arm), int(cy + 5)))
+
+        fm = QFontMetrics(self._f)
+        text = f"{self.hour:02d}:00"
+        p.setFont(self._f)
+        p.setPen(PAL.ink_a(255))
+        p.drawText(int(self.W / 2 - fm.horizontalAdvance(text) / 2),
+                   int(cy + (fm.ascent() - fm.descent()) / 2), text)
 
 
 class TapLabel(Label):
@@ -921,13 +1022,19 @@ class WeightField(QLineEdit):
 # 解法是把列高釘死成兩種，兩種都是 8 的倍數，控制項一律垂直置中。
 
 GRID = 8
-ROW_TALL = GRID * 6        # 48：有說明的設定列（標題 + 說明兩行）
-ROW_FLAT = GRID * 5        # 40：單行的設定列。裡面有控制項，要留得下點擊區
-ROW_INFO = GRID * 4        # 32：唯讀資訊列。沒有東西要點，就不需要那個餘裕——
-                           #     互動列比資訊列高，是因為手指與滑鼠需要空間，不是為了好看
-ROW_SECTION = GRID * 3     # 24：區塊標題
+ROW_TALL = GRID * 7        # 56：有說明的設定列（標題 + 說明兩行）
+ROW_FLAT = GRID * 6        # 48：單行的設定列。裡面有控制項，要留得下點擊區
+ROW_INFO = GRID * 5        # 40：唯讀資訊列。沒有東西要點，就不需要那個餘裕——
+                           #     互動列比資訊列高，是因為滑鼠需要空間，不是為了好看
+ROW_SECTION = GRID * 4     # 32：區塊標題
+
+# 這四個值先前是 48/40/32/24——那是為了把設定頁擠進 558px 的內容區壓出來的，
+# 不是設計判斷。改成可捲動之後就沒有理由再擠，各放寬一級。
+# **版面被空間逼出來的妥協，要在空間解禁時退回去**，不然那些妥協會被
+# 後人當成刻意的設計而繼續沿用。
 LABEL_RATIO = 0.56         # 標籤欄佔的寬度；其餘留給控制項，右對齊
-C_DIVIDER = QColor(255, 255, 255, 20)
+# C_DIVIDER 由 apply_theme() 設定，這裡不要再寫死一次——
+# 寫死的話切換主題時它不會跟著換，淺色版上會留下一條白線。
 
 
 class Divider(QWidget):
@@ -984,6 +1091,119 @@ def info_row(label, value, trailing=None):
     w = row(*items, spacing=S3, align=Qt.AlignVCenter)
     w.setFixedHeight(ROW_INFO)
     return w
+
+
+# 邊緣漸層的高度。28 太厚——它會蓋到「完整顯示、讀得到」的那幾行，
+# 把說明段落洗成半透明。遮罩的作用是暗示「還有」，不是把內容變淡，
+# 所以只夠在最外緣做出淡出就好。
+FADE_H = 18
+
+
+def scrollbar_qss():
+    """捲軸的樣式。跟著主題走，所以是函式不是常數。
+
+    Windows 預設那條捲軸帶著方角、箭頭按鈕與實心軌道，放進這片自繪的版面
+    就是一塊作業系統的補丁。這裡只留一根圓角的把手，軌道全透明。
+    """
+    ink = PAL.ink_rgb
+    return f"""
+        QScrollArea {{ background: transparent; border: none; }}
+        QScrollBar:vertical {{
+            background: transparent; width: 10px; margin: 2px 0 2px 0;
+        }}
+        QScrollBar::handle:vertical {{
+            background: rgba({ink[0]},{ink[1]},{ink[2]},0.22);
+            border-radius: 3px; min-height: 36px;
+            margin: 0 3px 0 4px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: rgba({ink[0]},{ink[1]},{ink[2]},0.38);
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0; background: transparent;
+        }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+            background: transparent;
+        }}
+    """
+
+
+class _Fade(QWidget):
+    """內容被裁切的那一緣畫一道漸層，暗示「還有」。
+
+    這是這個檔案裡唯一允許捲動的地方所付的代價：不捲動的面板一眼就知道
+    有多少東西，捲動的沒有。漸層是把那個資訊還一部分回來——
+    邊緣是硬切還是淡出，決定了人會不會想到要往下拉。
+    """
+
+    def __init__(self, parent, top):
+        super().__init__(parent)
+        self.top = top
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setFixedHeight(FADE_H)
+        self.hide()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        base = QColor(PAL.bg_top if self.top else PAL.bg_bottom)
+        g = QLinearGradient(0, 0, 0, self.height())
+        solid, clear = QColor(base), QColor(base)
+        clear.setAlpha(0)
+        g.setColorAt(0.0, solid if self.top else clear)
+        g.setColorAt(1.0, clear if self.top else solid)
+        p.fillRect(self.rect(), QBrush(g))
+
+
+class ScrollPane(QWidget):
+    """把一頁內容包成可捲動，並在上下緣加漸層遮罩。
+
+    **設定可以捲，紀錄不行。** 紀錄那三頁是拿來逛的——成就與軌跡藏在捲軸下面
+    等於不存在；設定是拿來查的，帶著目的進來、改完就走，捲動是標準做法。
+    這條規則從「一律不捲」改成「依頁面性質決定」，理由記在這裡。
+
+    三個子元件用手動座標而不是 layout：漸層是**疊在**捲動區上面的覆蓋層，
+    layout 表達不了重疊關係。這是這個檔案裡少數該手算座標的地方。
+    """
+
+    def __init__(self, inner):
+        super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.inner = inner
+
+        self.area = QScrollArea(self)
+        self.area.setWidget(inner)
+        self.area.setWidgetResizable(True)
+        self.area.setFrameShape(QFrame.NoFrame)
+        self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.area.viewport().setAutoFillBackground(False)
+        self.area.setStyleSheet(scrollbar_qss())
+
+        self.top_fade = _Fade(self, top=True)
+        self.bottom_fade = _Fade(self, top=False)
+        self.area.verticalScrollBar().valueChanged.connect(self._sync_fades)
+        self.area.verticalScrollBar().rangeChanged.connect(self._sync_fades)
+
+    def set_inner(self, inner):
+        """換掉內容（換主題要重建整頁）。舊的由呼叫端負責回收。"""
+        self.inner = inner
+        self.area.setWidget(inner)
+        self.area.setStyleSheet(scrollbar_qss())
+        self._sync_fades()
+
+    def to_top(self):
+        self.area.verticalScrollBar().setValue(0)
+
+    def _sync_fades(self):
+        bar = self.area.verticalScrollBar()
+        self.top_fade.setVisible(bar.value() > 2)
+        self.bottom_fade.setVisible(bar.value() < bar.maximum() - 2)
+
+    def resizeEvent(self, event):
+        self.area.setGeometry(0, 0, self.width(), self.height())
+        self.top_fade.setGeometry(0, 0, self.width(), FADE_H)
+        self.bottom_fade.setGeometry(0, self.height() - FADE_H, self.width(), FADE_H)
+        self._sync_fades()
 
 
 class DangerAction(QWidget):
@@ -1075,6 +1295,10 @@ class SettingsPage(QWidget):
 
     changed = Signal(dict)          # 丟出整份新的 cfg
     reset_done = Signal()
+    # 主題另外發一個訊號：換主題要把整個視窗重建（文字顏色是在建立 QLabel 時
+    # 寫進 stylesheet 的，改模組變數不會回頭修改已存在的元件），
+    # 那件事只有 StatsWindow 做得到。
+    theme_changed = Signal(str)
 
     def __init__(self, cfg):
         super().__init__()
@@ -1088,12 +1312,16 @@ class SettingsPage(QWidget):
         # 上一版 setSpacing(GAP) 又手動 addSpacing(S4)，每個接縫實際是 40px 而不是 24。
         lay.setSpacing(0)
 
-        # 一張卡分兩段，不是兩張卡。設定頁的高度必須跟紀錄那三頁一樣——
-        # 換頁時會跳動的面板讀起來像兩個不同的視窗。內容區只有 558px，
-        # 兩張卡光是內距與標題就吃掉 154px，那些空間該留給內容。
-        self.card = self._settings_card()
-        self.cards.append(self.card)
-        lay.addWidget(self.card)
+        # 五組，由上而下就是動線：
+        #   你要喝多少 -> 它長什麼樣 -> 它自己判斷了什麼 -> 這程式是什麼 -> 重來
+        # 最常動的在最上面，永遠不會動的在最下面，不可復原的在最末端。
+        # 先前擠成一張卡是為了塞進 558px，那是妥協不是分類。
+        for i, card in enumerate((self._reminder_card(), self._display_card(),
+                                  self._schedule_card(), self._about_card())):
+            if i:
+                lay.addSpacing(GAP)
+            self.cards.append(card)
+            lay.addWidget(card)
 
         # 破壞性動作放在卡片**外面**，用分隔線與一大段留白隔開。
         # 它跟上面那些「調整偏好」在語意上不是同一類東西，放進同一張卡
@@ -1105,31 +1333,15 @@ class SettingsPage(QWidget):
                                    "確定要清除所有紀錄嗎？")
         self.danger.confirmed.connect(self._on_reset)
         lay.addWidget(self.danger)
-
-        lay.addStretch(1)
-        lay.addWidget(Label(
-            f"v{appsettings.VERSION}　·　體重僅儲存於本機　·　"
-            f"每日目標依國民健康署一般建議推算，非醫療建議", "caption", INK3, elide=True))
-
-    def sizeHint(self):
-        """自動換行的文字要問 heightForWidth，不能問 sizeHint。
-
-        QLabel 開了 wordWrap 之後，sizeHint 回報的是「還不知道寬度時的猜測」，
-        實測比實際需要多 22px。多報的部分會變成視窗底部一塊莫名的留白，
-        看起來像沒做完——這個檔案開頭那條「不捲動就一定要收到剛好」的規則，
-        在有換行文字的頁面要靠 heightForWidth 才成立。
-        """
-        s = super().sizeHint()
-        lay = self.layout()
-        w = self.width()
-        if w > 1 and lay and lay.hasHeightForWidth():
-            return QSize(s.width(), lay.heightForWidth(w))
-        return s
+        lay.addSpacing(S3)
 
     # ------------------------------------------------------------ 卡片
+    #
+    # 每張卡的內部間距是 0：列高已經釘死，列與列之間靠分隔線切開。
+    # 用間距來分隔會讓「這兩列是同一組嗎」變成猜的；分隔線是明確的答案。
 
-    def _settings_card(self):
-        """一張卡分兩段：可調的偏好，以及唯讀的說明。
+    def _reminder_card(self):
+        """喝多少、多久提醒一次、一天從幾點開始算。
 
         設定項的說明是標籤，不是文案：講清楚「這個值影響什麼」就停，
         不解釋機制、不講理由、不用第二人稱。理由屬於 README，不屬於介面。
@@ -1138,23 +1350,21 @@ class SettingsPage(QWidget):
         單位是那個值的一部分，寫進說明就變成要讀完一句話才知道自己在設什麼。
         """
         card = Card()
-        card.box.setSpacing(0)          # 列高已經釘死，列與列之間靠分隔線切開
-
-        card.add(section_header("偏好設定"))
+        card.box.setSpacing(0)
+        card.add(section_header("提醒"))
         card.add(GRID)
 
         self.weight = WeightField(self.cfg.get("weight_kg"))
         self.weight.editingFinished.connect(self._on_weight)
         card.add(setting_row("體重", row(self.weight,
                                         Label("公斤", "body", INK3), spacing=S2),
-                             "用於推算每日目標"))
+                             "用於推算每日目標，僅儲存於本機"))
 
         # 每日目標是體重那一列的**結果**，不是另一個設定項——所以緊貼著它、
-        # 中間不放分隔線。分隔線在這裡代表「這是另一件事」，用錯地方就會
-        # 把因果關係切斷，讀起來像兩個無關的數字。
+        # 中間不放分隔線。分隔線代表「這是另一件事」，用錯地方會把因果切斷。
         self.target_lbl = Label("", "body", INK2)
         card.add(info_row("每日目標", "", self.target_lbl))
-        card.add(Divider(inset=0))
+        card.add(Divider())
 
         choices = appsettings.INTERVAL_CHOICES
         self.interval = Segmented([f"{m}" for m in choices])
@@ -1168,7 +1378,33 @@ class SettingsPage(QWidget):
                              row(self.interval, Label("分鐘", "body", INK3), spacing=S2),
                              "以在電腦前的時間計算，離開電腦不算"))
         card.add(Divider())
+
+        # 問「起床時間」而不是「換日時間」：後者是系統概念，使用者得反推該填什麼；
+        # 起床時間是他本來就知道的事實。而且語意上更對——你還在電腦前就代表還沒睡，
+        # 那就還是同一天，不會在你工作到一半時把當天次數歸零。
+        self.wake = HourStepper(self.cfg.get("day_rollover_hour", 8))
+        self.wake.changed.connect(self._on_wake)
+        card.add(setting_row("習慣起床時間", self.wake, "次數將於每日重置"))
         self._refresh_target_label()
+        return card
+
+    def _display_card(self):
+        card = Card()
+        card.box.setSpacing(0)
+        card.add(section_header("顯示"))
+        card.add(GRID)
+
+        modes = (("auto", "跟隨系統"), ("light", "淺色"), ("dark", "深色"))
+        self._theme_keys = [m[0] for m in modes]
+        self.theme_seg = Segmented([m[1] for m in modes])
+        self.theme_seg.setFixedWidth(280)
+        cur = self._theme_keys.index(self.cfg.get("theme", "auto")) \
+            if self.cfg.get("theme", "auto") in self._theme_keys else 0
+        self.theme_seg.set_index(cur, animate=False)
+        self.theme_seg.index = cur
+        self.theme_seg.changed.connect(self._on_theme)
+        card.add(setting_row("外觀", self.theme_seg))
+        card.add(Divider())
 
         screens = QApplication.screens()
         if len(screens) > 1:
@@ -1182,52 +1418,78 @@ class SettingsPage(QWidget):
             self.screen_seg.set_index(cur, animate=False)
             self.screen_seg.index = cur
             self.screen_seg.changed.connect(self._on_screen)
-            self.screen_lbl = Label("", "caption", INK3, elide=True)
             g = screens[cur].geometry()
-            card.add(setting_row("顯示螢幕", self.screen_seg,
+            self.screen_lbl = Label(f"{g.width()}×{g.height()}", "caption", INK3,
+                                    elide=True)
+            card.add(setting_row("島顯示在", self.screen_seg,
                                  f"{g.width()}×{g.height()}"))
-            self._refresh_screen_label()
         else:
             # 只有一個螢幕時不放控制項：單一選項的選擇器是雜訊，
             # 它讓人以為有得選，點下去才發現沒有。
             g = screens[0].geometry() if screens else None
-            card.add(setting_row("顯示螢幕",
+            card.add(setting_row("島顯示在",
                                  Label(f"{g.width()}×{g.height()}" if g else "—",
                                        "body", INK2)))
         card.add(Divider())
 
         self.autostart = Toggle(appsettings.autostart_enabled())
         self.autostart.toggled.connect(self._on_autostart)
-        card.add(setting_row("開機時啟動", self.autostart))
+        card.add(setting_row("開機時啟動", self.autostart,
+                             "關掉之後要自己從開始選單開它"))
+        return card
 
-        # ---- 第二段：唯讀 ----
-        card.add(S4)
+    def _schedule_card(self):
+        """程式自己判斷出來的東西。唯讀——它是交代，不是設定。"""
+        card = Card()
+        card.box.setSpacing(0)
         card.add(section_header("排程", self._schedule_note()))
         card.add(GRID)
 
-        # 「換日」「深夜模式」是內部術語，使用者讀不出那是什麼意思，
-        # 而且很容易誤解成「幾點睡」或「安靜時段」。改成講它實際造成什麼結果，
-        # 並且**把真正的數字寫出來**——「23:00 後 65 分」不會有第二種解讀。
-        rollover = self.cfg.get("day_rollover_hour", 4)
+        # 「深夜模式」是內部術語，使用者讀不出是什麼，還會誤解成「安靜時段」。
+        # 改成講它實際造成什麼結果，並且**把真正的數字寫出來**——
+        # 「23:00 起改為每 65 分」不會有第二種解讀。
         late = self.cfg.get("late_night_start_hour", 23)
         late_min = appsettings.late_night_interval(self.cfg)
-        card.add(info_row("今日次數歸零", f"每天 {rollover:02d}:00"))
-        card.add(info_row("夜間放慢提醒", f"{late:02d}:00 起改為每 {late_min} 分"))
+        self.late_lbl = Label(f"{late:02d}:00 起改為每 {late_min} 分", "body", INK2,
+                              elide=True)
+        card.add(info_row("夜間放慢提醒", "", self.late_lbl))
+        card.add(GRID)
+        card.add(para("睡前 2–3 小時攝取水分才是造成夜間起身的原因，"
+                      "所以這段時間會拉長間隔。起點由你的活動紀錄推算，"
+                      "改了起床時間也會跟著重算。"))
+        return card
+
+    def _about_card(self):
+        """對發布出去的工具，這一區比控制項更重要：
+        使用者第一個問題是「它有沒有在傳我的資料」，答案要看得到。
+        """
+        card = Card()
+        card.box.setSpacing(0)
+        card.add(section_header("關於"))
+        card.add(GRID)
 
         open_lbl = TapLabel("開啟", C_ACCENT.name())
         open_lbl.clicked.connect(self._open_data_dir)
         card.add(info_row("資料位置", appsettings.DATA_DIR, open_lbl))
+        card.add(Divider())
+        card.add(info_row("版本", appsettings.VERSION))
+        card.add(GRID)
+        card.add(para("每日目標依國民健康署的一般性建議與體重推算，不是醫療建議。"
+                      "流汗多的日子要另外補，這個工具管不到那一段。"))
         return card
 
     def _schedule_note(self):
-        """這兩個時間是怎麼來的。不能一律標「自動判定」——
-        資料還不夠時用的是預設值，標成自動判定就是介面在說謊。
+        """深夜模式的起點是怎麼來的。不能一律標「自動判定」——
+        資料還不夠時用的是回退值，標成自動判定就是介面在說謊。
         """
         if not self.cfg.get("auto_schedule", True):
             return "手動指定"
-        if appsettings.infer_schedule(appsettings.EVENTS_PATH):
-            return "依你的活動紀錄自動判定"
-        return "預設值，累積足夠紀錄後自動校準"
+        # 有沒有夠多天的資料可以取中位數，決定了它是真的算出來的還是猜的
+        wake = self.cfg.get("day_rollover_hour", 8)
+        fallback = (wake - 11) % 24
+        if appsettings.infer_late_hour(appsettings.EVENTS_PATH, wake) != fallback:
+            return "依你的活動紀錄推算"
+        return "推估值，累積足夠紀錄後自動校準"
 
     # ------------------------------------------------------------ 事件
 
@@ -1255,7 +1517,28 @@ class SettingsPage(QWidget):
 
     def _on_interval(self, i):
         self.cfg["interval_min"] = appsettings.INTERVAL_CHOICES[i]
+        self._refresh_late_label()      # 深夜間隔是主間隔的倍數，會跟著變
         self._emit()
+
+    def _on_wake(self, hour):
+        """改了起床時間。深夜模式是從它往下推的，所以要一起重算。"""
+        self.cfg["day_rollover_hour"] = hour
+        # 動過就不再被推導覆蓋。推導只負責給初始值，使用者一旦表態就聽他的。
+        self.cfg["wake_manual"] = True
+        self.cfg["late_night_start_hour"] = appsettings.infer_late_hour(
+            appsettings.EVENTS_PATH, hour)
+        self._refresh_late_label()
+        self._emit()
+
+    def _refresh_late_label(self):
+        late = self.cfg.get("late_night_start_hour", 23)
+        mins = appsettings.late_night_interval(self.cfg)
+        self.late_lbl.setText(f"{late:02d}:00 起改為每 {mins} 分")
+
+    def _on_theme(self, i):
+        self.cfg["theme"] = self._theme_keys[i]
+        self._emit()
+        self.theme_changed.emit(self.cfg["theme"])
 
     def _on_screen(self, i):
         self.cfg["screen_name"] = self._screens[i].name()
@@ -1331,14 +1614,13 @@ class StatsWindow(QWidget):
 
         # 設定是另一個去處，不是第四個分頁——所以它跟整組分頁平行，
         # 放在外面這一層。這樣 refresh() 重建分頁時也不會把它一起拆掉。
-        self.settings_page = SettingsPage(cfg)
-        self.settings_page.changed.connect(self._on_config_changed)
-        self.settings_page.reset_done.connect(self._on_reset_done)
+        self.settings_page = self._make_settings_page()
+        self.pane = ScrollPane(self.settings_page)
 
         self.root = QStackedWidget()
         self.root.setAttribute(Qt.WA_TranslucentBackground)
         self.root.addWidget(stats_side)
-        self.root.addWidget(self.settings_page)
+        self.root.addWidget(self.pane)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SHADOW + WIN_PAD, SHADOW + WIN_PAD,
@@ -1419,22 +1701,57 @@ class StatsWindow(QWidget):
         設定頁必須把內容收進同一個內容區——收不進去代表設定頁話太多，
         該刪的是字不是把視窗拉長。render_settings.py 會在放不下時擋下來。
         """
-        for i in range(self.root.count()):
-            w = self.root.widget(i)
-            # 永遠讓紀錄那一側（index 0）決定高度，跟現在顯示哪一頁無關。
-            w.setSizePolicy(QSizePolicy.Preferred,
-                            QSizePolicy.Preferred if i == 0 else QSizePolicy.Ignored)
-            # 巢狀的 layout 要自己 activate 一次。外層 activate() 不會遞迴下去，
-            # 沒 activate 的容器其 sizeHint 是還沒算過的 (0, 0)——量出來的視窗
-            # 就會是 277px 而不是 771px，而且不會有任何錯誤。
-            if w.layout():
-                w.layout().activate()
-        self.root.adjustSize()
-        lay = self.layout()
-        lay.activate()
-        need = lay.sizeHint().height()
+        # **量的時候一定要讓紀錄那一側是「目前頁」。**
+        # QStackedWidget 會把非當前頁 hide 掉，而 layout 對 hidden 的 widget
+        # 一律回報 sizeHint 0——在設定模式下量 index 0，會量到 64px，
+        # 整個視窗縮成 277px、卡片被壓成 13px 高、文字疊在一起。
+        # 兩次 setCurrentIndex 在同一個同步呼叫裡完成，Qt 不會在中間重繪，看不到閃動。
+        keep = self.root.currentIndex()
+        self.root.setCurrentIndex(0)
+        try:
+            for i in range(self.root.count()):
+                w = self.root.widget(i)
+                # 高度永遠由紀錄那一側決定，跟使用者現在看哪一頁無關。
+                w.setSizePolicy(QSizePolicy.Preferred,
+                                QSizePolicy.Preferred if i == 0 else QSizePolicy.Ignored)
+                # 巢狀的 layout 要自己 activate 一次。外層 activate() 不會遞迴下去，
+                # 沒 activate 的容器其 sizeHint 是還沒算過的 (0, 0)。
+                if w.layout():
+                    w.layout().activate()
+            self.root.adjustSize()
+            lay = self.layout()
+            lay.activate()
+            need = lay.sizeHint().height()
+        finally:
+            self.root.setCurrentIndex(keep)
         self.setFixedHeight(need)
         return need
+
+    def _make_settings_page(self):
+        page = SettingsPage(self.cfg)
+        page.changed.connect(self._on_config_changed)
+        page.reset_done.connect(self._on_reset_done)
+        page.theme_changed.connect(self._on_theme_changed)
+        return page
+
+    def _on_theme_changed(self, name):
+        """換主題要把整個視窗重建。
+
+        顏色分兩種：自繪的部分讀模組變數，換了就跟著換；但文字顏色是在
+        建立 QLabel 的當下寫進 stylesheet 的，改模組變數不會回頭修改已存在的元件。
+        與其記住哪些要手動刷、哪些不用（那種清單一定會漏），不如整頁重建——
+        設定頁只有五張卡，重建的成本遠低於漏掉一處造成的「一半深色一半淺色」。
+        """
+        apply_theme(name)
+        old = self.settings_page
+        self.settings_page = self._make_settings_page()
+        self.pane.set_inner(self.settings_page)
+        old.deleteLater()
+        if self.mode == "settings":
+            self.cards = self.settings_page.cards
+            self._settle(self.cards)
+        self._stats_stale = True        # 紀錄那三頁離開設定頁時再重建
+        self.update()
 
     def showEvent(self, event):
         """視窗真的出現之後再量一次高度。
@@ -1467,6 +1784,9 @@ class StatsWindow(QWidget):
             self.sub_lbl.setStyleSheet(f"color:{C_ACCENT.name()};background:transparent")
             self.sub_lbl.setCursor(Qt.PointingHandCursor)
             cards = self.settings_page.cards
+            # 每次進來都從頂端開始。停在上次離開的捲動位置，會讓人以為
+            # 自己看到的是整頁——而最上面那幾項才是最常改的。
+            self.pane.to_top()
         else:
             if self._stats_stale:
                 # 目標次數變了，環、連續天數、成就的每個數字都要重算。
@@ -1626,26 +1946,26 @@ class StatsWindow(QWidget):
         g = QLinearGradient(body.left(), body.top(), body.left(), body.bottom())
         g.setColorAt(0.0, C_BG_TOP)
         g.setColorAt(1.0, C_BG_BOTTOM)
-        p.setPen(QPen(QColor(255, 255, 255, 28), 1))
+        p.setPen(QPen(PAL.veil(28), 1))
         p.setBrush(QBrush(g))
         p.drawRoundedRect(body.adjusted(0.5, 0.5, -0.5, -0.5), 22, 22)
 
         hl = QLinearGradient(body.left(), body.top(), body.left(), body.top() + 80)
-        hl.setColorAt(0.0, QColor(255, 255, 255, 30))
-        hl.setColorAt(1.0, QColor(255, 255, 255, 0))
+        hl.setColorAt(0.0, PAL.veil(30))
+        hl.setColorAt(1.0, PAL.veil(0))
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(QBrush(hl), 1.0))
         p.drawRoundedRect(body.adjusted(1, 1, -1, -1), 21, 21)
 
         cx, cy = self.width() - SHADOW - WIN_PAD - 8, SHADOW + WIN_PAD + 14
-        p.setPen(QPen(QColor(235, 235, 245, 214), 1.8, Qt.SolidLine, Qt.RoundCap))
+        p.setPen(QPen(PAL.ink_a(214), 1.8, Qt.SolidLine, Qt.RoundCap))
         p.drawLine(QPoint(cx - 7, cy - 7), QPoint(cx + 7, cy + 7))
         p.drawLine(QPoint(cx - 7, cy + 7), QPoint(cx + 7, cy - 7))
 
         # 齒輪（在設定頁時換成返回箭頭）。放在 × 左邊：關閉永遠在最外側，
         # 那是 Windows 的位置慣例，把它往內擠會讓人關錯。
         gx = cx - GEAR_GAP
-        p.setPen(QPen(QColor(235, 235, 245, 214), 1.8, Qt.SolidLine, Qt.RoundCap,
+        p.setPen(QPen(PAL.ink_a(214), 1.8, Qt.SolidLine, Qt.RoundCap,
                       Qt.RoundJoin))
         if self.mode == "settings":
             p.drawLine(QPoint(gx + 7, cy), QPoint(gx - 6, cy))
