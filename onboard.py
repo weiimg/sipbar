@@ -31,7 +31,7 @@ import time
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QBrush, QColor, QDesktopServices, QFontMetrics, QImage, QLinearGradient,
-    QPainter, QPen, QPolygonF,
+    QPainter, QPainterPath, QPen, QPixmap, QPolygonF,
 )
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
@@ -194,6 +194,7 @@ class IslandPreview(sw.Graphic):
         self.sp_drop = Spring(0.0, *PRESET["reveal"])
         self.sp_open = Spring(0.0, *PRESET["expand"])
         self.phase = "hidden"
+        self._wall = None      # 桌布只畫一次，見 _build_wallpaper
         self._f = sw.font("caption")
         self._last = time.perf_counter()
         self.frame = QTimer(self)
@@ -332,14 +333,73 @@ class IslandPreview(sw.Graphic):
 
         screen = QRectF(self.BEZEL, self.BEZEL,
                         self.W - self.BEZEL * 2, self.H - self.BEZEL)
-        wall = QLinearGradient(screen.left(), screen.top(),
-                               screen.right(), screen.bottom())
-        wall.setColorAt(0.0, QColor(46, 59, 85))
-        wall.setColorAt(1.0, QColor(78, 62, 96))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(wall))
-        p.drawRoundedRect(screen, 6, 6)
+        if self._wall is None:
+            self._wall = self._build_wallpaper(int(screen.width()),
+                                               int(screen.height()))
+        path = QPainterPath()
+        path.addRoundedRect(screen, 6, 6)
+        p.save()
+        p.setClipPath(path)
+        p.drawPixmap(int(screen.left()), int(screen.top()), self._wall)
+        p.restore()
         return screen
+
+    @classmethod
+    def _build_wallpaper(cls, w, h):
+        """像素版的 Bliss（Windows XP 那張綠丘藍天）。
+
+        **畫成像素而不是照片或平滑漸層**：這台螢幕裡站的是一隻像素杯子，
+        桌布用照片會變成兩種畫風貼在一起——`pixelface` 當初不用向量杯子配像素臉，
+        也是同一個理由。
+
+        整張預先畫一次存成 pixmap。逐格重畫的話是每秒二十幾萬次 fillRect，
+        而它從頭到尾都不會變。
+        """
+        CELL = 4
+        SKY = [QColor(38, 90, 190), QColor(58, 118, 214), QColor(94, 156, 232),
+               QColor(140, 194, 242), QColor(190, 224, 248)]
+        HILL = [QColor(140, 198, 63), QColor(107, 168, 46), QColor(78, 140, 34)]
+        CLOUD = QColor(255, 255, 255)
+        CLOUD_SHADE = QColor(214, 233, 250)
+
+        cols, rows = -(-w // CELL), -(-h // CELL)
+        pm = QPixmap(w, h)
+        pm.fill(SKY[0])
+        p = QPainter(pm)
+        p.setPen(Qt.NoPen)
+
+        # 地平線放在可視區的下緣附近：這張圖的重點在螢幕頂端，
+        # 山丘只要露出一角就夠了，剩下的交給羽化。
+        base = rows * 0.74
+        amp = rows * 0.22
+
+        for r in range(rows):
+            band = min(len(SKY) - 1, int(r / max(1, base) * len(SKY)))
+            p.setBrush(QBrush(SKY[band]))
+            p.drawRect(0, r * CELL, w, CELL)
+
+        # 雲：幾團手排的像素塊，不用亂數——亂數畫出來的雲每次建置都不一樣，
+        # 而且多半像雜訊。(起始格, 列, 長度) 三個一組。
+        for cx, cy, run, shade in ((6, 2, 9, False), (4, 3, 13, False),
+                                   (7, 4, 8, True),
+                                   (58, 1, 7, False), (56, 2, 11, False),
+                                   (59, 3, 6, True),
+                                   (88, 4, 10, False), (86, 5, 14, False),
+                                   (89, 6, 8, True)):
+            p.setBrush(QBrush(CLOUD_SHADE if shade else CLOUD))
+            p.drawRect(cx * CELL, cy * CELL, run * CELL, CELL)
+
+        # 山丘：從左高往右低掃過去，那是 Bliss 的構圖。
+        for c in range(cols):
+            t = c / max(1, cols - 1)
+            top = int(base - amp * (1.0 - t) ** 1.7)
+            for r in range(top, rows):
+                depth = r - top
+                p.setBrush(QBrush(HILL[0] if depth == 0 else
+                                  HILL[1] if depth <= 2 else HILL[2]))
+                p.drawRect(c * CELL, r * CELL, CELL, CELL)
+        p.end()
+        return pm
 
     @staticmethod
     def _draw_cursor(p, pill, hit):
