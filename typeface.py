@@ -27,18 +27,26 @@ import os
 
 from PySide6.QtGui import QFont, QFontDatabase, QFontInfo
 
-FAMILY = "Noto Sans TC"
+# 隨程式散布的字體是**合成品**：Inter 的拉丁字形 + Noto Sans TC 的中文，
+# 由 tools/build_font.py 產生。它既不是 Inter 也不是 Noto Sans TC，所以另外命名。
+#
+# 為什麼要合成而不是掛兩個字體：**只要 Qt 需要為任何一個字做回退，
+# 它就會把一整份中文字符表載進記憶體**（實測 56MB -> 396MB）。
+# 完整的量測與其他做法的比較寫在 tools/build_font.py 的 docstring 裡。
+FAMILY = "WaterPet Sans TC"
 
 # 只有兩個字重會被要求：Bold 700（display/title/section/headline）與
 # Medium 500（body/caption 與島的小標）。Regular 400 全專案沒有任何地方用到，
 # 所以不隨附——多 5.4MB 換一個沒人叫的字重不划算。
-BUNDLED = ("NotoSansTC-Bold.otf", "NotoSansTC-Medium.otf")
+BUNDLED = ("WaterPetSansTC-Bold.otf", "WaterPetSansTC-Medium.otf")
 
 FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
 
 # **只有隨附字體載不起來時才會用到這串。** 平常路徑一個字體都不多掛——
 # 理由見 make()：中文字體進了字體序列就會被整份載進記憶體，一個要價數百 MB。
-FALLBACKS = (FAMILY, "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC")
+# 這裡不放 FAMILY：那是合成品，系統上不可能裝著，載不起來就是真的沒有。
+FALLBACKS = ("Noto Sans TC", "Microsoft JhengHei UI", "Microsoft JhengHei",
+             "Noto Sans CJK TC")
 
 _state = None       # (ok: bool, detail: str)，只算一次
 _cache = {}
