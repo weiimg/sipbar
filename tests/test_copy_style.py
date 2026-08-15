@@ -48,6 +48,16 @@ BANNED = {
     "喔": "語助詞",
     "吧": "語助詞",
     "囉": "語助詞",
+    "—": "破折號：介面用標點分隔，不用破折號",
+    "–": "破折號：介面用標點分隔，不用破折號",
+}
+
+# 不能用一個字代替一個詞。單字看起來省，但它把「這是什麼」的判斷丟給讀者：
+# 「島顯示在」的島是什麼島？讀過整份文件的人知道，第一次打開設定的人不知道。
+# key 是那個單字，value 是 (完整的詞, 例外前綴)——前綴出現時代表它本來就是
+# 完整詞的一部分，不算違規。
+SHORTHAND = {
+    "島": ("動態島", "態"),
 }
 
 STRING = re.compile('"([^"]{3,})"')
@@ -115,6 +125,12 @@ for name in TARGETS:
             for word, why in BANNED.items():
                 if word in text:
                     fails.append((name, lineno, text, word, why))
+            for short, (full, prefix) in SHORTHAND.items():
+                for m in re.finditer(short, text):
+                    if m.start() == 0 or text[m.start() - 1] != prefix:
+                        fails.append((name, lineno, text, short,
+                                      f"用單字代替詞：請寫「{full}」"))
+                        break
             dup = restated(text)
             if dup:
                 fails.append((name, lineno, text, dup,

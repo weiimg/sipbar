@@ -1464,7 +1464,7 @@ def build_empty_card(d):
     card = Card()
     card.add(
         Label("還沒有紀錄", "title", INK),
-        Label("點擊島或系統匣圖示即可記錄補水", "body", INK2, elide=True),
+        Label("點擊動態島或系統匣圖示即可記錄補水", "body", INK2, elide=True),
         Label("首次記錄後開始累積", "body", INK3, elide=True),
     )
     return card
@@ -1629,13 +1629,13 @@ class SettingsPage(QWidget):
             g = screens[cur].geometry()
             self.screen_lbl = Label(f"{g.width()}×{g.height()}", "caption", INK3,
                                     elide=True)
-            card.add(setting_row("島顯示在", self.screen_seg,
+            card.add(setting_row("動態島顯示在", self.screen_seg,
                                  f"{g.width()}×{g.height()}"))
         else:
             # 只有一個螢幕時不放控制項：單一選項的選擇器是雜訊，
             # 它讓人以為有得選，點下去才發現沒有。
             g = screens[0].geometry() if screens else None
-            card.add(setting_row("島顯示在",
+            card.add(setting_row("動態島顯示在",
                                  Label(f"{g.width()}×{g.height()}" if g else "—",
                                        "body", INK2)))
         card.add(Divider())

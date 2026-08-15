@@ -271,6 +271,7 @@ class Island(QWidget):
         self._peeking = False
         self._peek_locked = False
         self._greeting = False
+        self._restored_state = None      # 上次關掉時停在哪個提醒狀態
 
         now = datetime.now()
         saved = load_state()
@@ -329,7 +330,10 @@ class Island(QWidget):
 
         self.tray = self._build_tray()
         self._refresh_message()
-        self._enter(NORMAL, animate=False)
+        # 接回上次的提醒狀態。從 NORMAL 起算的話，tick() 會發現 active_s 已經
+        # 超過間隔而立刻再發一次提醒——每次重開都多念一遍，還會污染活動紀錄。
+        # animate=False：這是還原不是新事件，不該滑下來吸引注意。
+        self._enter(self._restored_state or NORMAL, animate=False)
         self._persist()      # 啟動就先落檔，否則第一分鐘內被關掉會什麼都沒存到
 
     def _reposition(self):
@@ -753,6 +757,11 @@ class Island(QWidget):
             if gap is not None and 0 <= gap < 12 * 3600:
                 self.active_s = float(saved.get("active_s", 0.0))
                 self.interval_s = float(saved.get("interval_s", 0.0)) or self._roll_interval()
+                # 接回上次的狀態。SATISFIED 是「剛喝完的閃爍」那個過場，
+                # 不是一個該被還原的狀態——重開之後停在它會讓島卡在確認訊息上。
+                st = saved.get("state")
+                if st in (THIRSTY, WEAK, COLLAPSED):
+                    self._restored_state = st
                 pu = saved.get("paused_until")
                 if pu:
                     try:
@@ -773,6 +782,11 @@ class Island(QWidget):
             "active_s": round(self.active_s, 1),
             "interval_s": round(self.interval_s, 1),
             "paused_until": self.paused_until.isoformat(timespec="seconds") if self.paused_until else None,
+            # 狀態也要存。不存的話，重開之後一律從 NORMAL 起算，而 active_s 已經
+            # 超過間隔，於是 tick() 立刻再發一次提醒——每次重開都多念一遍。
+            # 那不只煩：多出來的 remind 事件會混進活動紀錄，
+            # 把作息推導用的安靜段填掉（實測三筆就讓推導直接回 None）。
+            "state": self.state,
             "saved_ts": datetime.now().isoformat(timespec="seconds"),
         })
 
@@ -1095,7 +1109,7 @@ class Island(QWidget):
         # 工具提示必須在 show() 之前設好：Windows 是在圖示註冊當下把提示寫進
         # HKCU\Control Panel\NotifyIconSettings 的，事後才設會留下一筆空白提示，
         # 滑過去什麼都看不到。
-        tray.setToolTip(f"喝水動態島 — {self._status_sub()}")
+        tray.setToolTip(f"喝水動態島　{self._status_sub()}")
         tray.activated.connect(self._tray_clicked)
         # 刻意不設 setContextMenu：右鍵由 _tray_clicked 接手，彈自繪的選單
         tray.show()
@@ -1131,7 +1145,7 @@ class Island(QWidget):
         if not hasattr(self, "tray"):
             return
         self.tray.setIcon(self._tray_icon())
-        self.tray.setToolTip(f"喝水動態島 — {self._status_sub()}")
+        self.tray.setToolTip(f"喝水動態島　{self._status_sub()}")
 
     def _tray_clicked(self, reason):
         if reason == QSystemTrayIcon.Trigger:

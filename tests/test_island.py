@@ -133,7 +133,8 @@ print("\n12. 存檔與統計")
 w._persist()
 saved = isl.load_state()
 check("存檔鍵", sorted(saved.keys()),
-      ["active_s", "day", "drinks", "interval_s", "paused_until", "saved_ts"])
+      ["active_s", "day", "drinks", "interval_s", "paused_until", "saved_ts",
+       "state"])
 text = isl.build_stats_text(cfg)
 print("     " + text.replace("\n", "\n     "))
 check("統計有內容", "提醒" in text, True)
@@ -287,6 +288,24 @@ for label, text, font in (
           f"  {label}：需要 {need}px / 可用 {avail:.0f}px　「{text}」")
     if not fits:
         fails.append(f"文字被截：{label}")
+
+print("\n17c. 重啟不能重發提醒（多出來的事件會污染作息推導）")
+# 狀態沒跨重啟保存時，重開一律從 NORMAL 起算，而 active_s 已經超過間隔，
+# tick() 就會立刻再發一次提醒。實測那些多餘的 remind 事件會把活動紀錄的
+# 安靜段填掉，讓 settings.infer_wake_hour() 直接回 None。
+w2.state = isl.THIRSTY
+w2.active_s = w2.interval_s + 60
+w2.drinks = 2
+w2._persist()
+check("狀態有落檔", isl.load_state().get("state"), isl.THIRSTY)
+
+_before = sum(1 for _ in open(isl.EVENTS_PATH, encoding="utf-8"))
+w5 = isl.Island(cfg)
+w5.tick_timer.stop(); w5.frame.stop(); w5.hold_timer.stop(); w5.peek_timer.stop()
+check("重啟後接回原本的狀態", w5.state, isl.THIRSTY)
+w5.tick()
+_after = sum(1 for _ in open(isl.EVENTS_PATH, encoding="utf-8"))
+check("重啟後 tick 不會再發一次提醒", _after, _before)
 
 print("\n18. 距上次存檔超過 12 小時就重新開始，不把昨天的累積算進來")
 stale = isl.load_state()
