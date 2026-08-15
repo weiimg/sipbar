@@ -51,7 +51,14 @@ for label, weight in (("有填體重", 65), ("沒填體重", None), ("清除紀�
     # 視窗高度必須跟紀錄頁一致（換頁不能跳動），以及沒有卡片被壓扁。
     bar = win.pane.area.verticalScrollBar()
     squashed = [c.height() for c in win.settings_page.cards if c.height() < 80]
-    ok = win.height() == 771 and not squashed
+    # 跟紀錄頁比，不要寫死數字：視窗高度由紀錄那三頁決定，
+    # 那邊的卡片內容一改（例如環換成杯子）高度就會變，寫死的斷言只會變成假失敗。
+    win._switch_mode("stats", animate=False)
+    app.processEvents()
+    stats_h = win.height()
+    win._switch_mode("settings", animate=False)
+    app.processEvents()
+    ok = win.height() == stats_h and not squashed
     print(f"  {'ok  ' if ok else 'FAIL'} {label}："
           f"視窗 {win.width()}x{win.height()}　內容 {win.settings_page.height()}px"
           f"　可視 {win.root.height()}px　捲動範圍 0..{bar.maximum()}")

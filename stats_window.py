@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 import dashboard
+import pixelface                             # 島上那顆像素杯，紀錄頁共用同一個容器
 import settings as appsettings               # 設定的讀寫與推導
 import theme                                  # 深色／淺色調色盤
 import typeface                               # 隨程式散布的字體
@@ -80,6 +81,21 @@ TYPE = {                       # 角色 -> (px, 字重, 字距)
 }
 
 S1, S2, S3, S4, S5 = 4, 8, 16, 24, 32     # 間距級距，只用 4 的倍數
+
+# 接近性原則：**標題與它的說明要貼緊，列與列之間要拉開。**
+# 兩者是同一組資訊，靠得近才讀成一組；真正需要距離的是「這一項」與「下一項」之間。
+# 這兩個值一起看才有意義——只看單一個數字沒辦法判斷夠不夠。
+LABEL_GAP = 2                             # 標題 ↔ 它自己的說明（同一組，貼緊）
+ROW_GAP = 8                               # 列 ↔ 列（不同項目，拉開；分隔線落在中間）
+
+# 設定裡控制項的高度。比導覽用的分段控制項（Segmented.H = 40）矮一級：
+# 控制項是用來操作那一列的，不該比它標示的內容更搶眼。
+CTRL_H = 34
+CTRL_W = 240                              # 分段控制項的寬度。
+                                          # 280 在 706px 的內容區裡佔 40%，太重
+# 控制項裡的字級也要跟著縮。只把框改小、字留原尺寸，字會把框撐得很滿，
+# 看起來仍然是個重的元件——**縮小控制項不是只縮外框。**
+CTRL_TYPE = "caption"
 PAD = 24                                   # 卡片內距
 GAP = 16                                   # 卡片之間
 SHADOW = 30                                # 視窗投影留白
@@ -309,6 +325,60 @@ class Ring(Graphic):
         # 數字沒有下伸部，用 cap height 對齊才是光學置中
         p.drawText(int(cx - fm.horizontalAdvance(num) / 2),
                    int(round(cy + fm.capHeight() / 2)), num)
+
+
+class CupGauge(Graphic):
+    """今日進度：像素杯的水位 + 次數 + 換算的 cc。取代原本的環。
+
+    **這是量表，不是插畫。** 卡片上已經有一個大圖示（火焰，連續天數的徽記），
+    再放第二個同等份量的圖形，兩個會互相競爭、看不出誰是主角。
+    所以杯子收在原本環的footprint 裡（132 寬），杯身只佔上半，
+    底下兩行文字——讀起來是一個儀表，不是另一張插畫。
+
+    用島上那顆杯子而不是另畫一個容器，是為了讓兩個畫面說同一種話：
+    **島上那杯水降下去代表該喝了，這裡那杯水升上來代表今天喝了多少。**
+    同一個容器，兩個方向。
+
+    cc 是換算不是紀錄。這個工具刻意數「次」——被提醒時你只會喝幾口，
+    用 cc 當計數單位會逼人虛報或不敢按（見 README）。所以它小一級、灰一階。
+    """
+
+    W = 132
+    CELL = 5
+
+    def __init__(self, done, target, ml_each):
+        cw, ch = pixelface.cup_size(self.CELL)
+        super().__init__(self.W, ch + 46)
+        self.done, self.target, self.ml = done, target, ml_each
+        self.cup_h = ch
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        t = clamp(ease(self.reveal), 0.0, 1.0)
+        p.setOpacity(t)
+
+        ratio = clamp(self.done / max(1, self.target), 0.0, 1.0) * t
+        pixelface.draw_cup(p, self.W // 2, self.cup_h // 2 + 2, ratio, "NORMAL",
+                           pixelface.GLASS, pixelface.WATER, pixelface.INK,
+                           cell=self.CELL)
+
+        f = font("headline")
+        fm = QFontMetrics(f)
+        p.setFont(f)
+        p.setPen(PAL.ink_a(255))
+        main = f"{self.done} / {self.target} 次"
+        p.drawText(int((self.W - fm.horizontalAdvance(main)) / 2),
+                   self.cup_h + 22, main)
+
+        f2 = font("caption")
+        fm2 = QFontMetrics(f2)
+        p.setFont(f2)
+        p.setPen(PAL.ink_a(140))
+        sub = f"約 {self.done * self.ml} / {self.target * self.ml} cc"
+        p.drawText(int((self.W - fm2.horizontalAdvance(sub)) / 2),
+                   self.cup_h + 42, sub)
 
 
 class Flame(Graphic):
@@ -653,18 +723,20 @@ def build_streak_card(d):
     t, today, streak = d["target"], d["today"]["drinks"], d["streak"]["streak"]
     s = d["streak"]
     left = t - today
+    # 語域：進行中講「再幾次會發生什麼」——把結果說出來比催促有效，而且每天讀都還行。
+    # **達標當下才用驚嘆號**：那是一次性的獎勵時刻，天天用會很快失效、甚至變吵。
     if today >= t:
-        status = "今天已達標"
+        status = f"達標！連續第 {streak} 天" if streak else "今天達標！"
     elif streak > 0:
-        status = f"再 {left} 次維持連續"
+        status = f"再 {left} 次，連續來到第 {streak + 1} 天"
     elif today > 0:
         status = f"還差 {left} 次達標"
     else:
         status = "今天還沒開始"
 
     num = CountLabel(streak, "display", INK if streak else INK3)
-    ring = Ring(today, t)
-    ring.setToolTip(f"今天 {today} / {t} 次")
+    gauge = CupGauge(today, t, d["ml"])
+    gauge.setToolTip(f"今天 {today} / {t} 次")
 
     card = Card()
     card.add(
@@ -672,7 +744,7 @@ def build_streak_card(d):
             (col(row(num, Label("天", "section", INK2), "stretch", spacing=S2),
                  Label("連續達標", "caption", INK3),
                  spacing=S1), 1),
-            ring,
+            gauge,
             spacing=S3),
         Label(status, "body", INK2, elide=True),
         row(Label("護盾", "caption", INK3), Shields(s["saves_total"], s["saves_left"]),
@@ -746,19 +818,23 @@ class Segmented(QWidget):
 
     changed = Signal(int)
 
+    # 導覽用的（今天／紀錄／成就）維持 40：那是這個視窗的主要動作。
+    # 設定裡的分段控制項用 CTRL_H——控制項不該比它標示的內容更搶眼。
     H = 40
     INSET = 4
 
-    def __init__(self, labels):
+    def __init__(self, labels, h=None):
         super().__init__()
         self.labels = labels
         self.index = 0
+        self.H = h or Segmented.H
         self.setFixedHeight(self.H)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setCursor(Qt.PointingHandCursor)
         # 選取的藥丸用彈簧滑過去，不是瞬間跳——跟島同一套物理
         self.sp = Spring(0.0, 0.38, 0.85)
-        self._f = font("headline")
+        # 矮的那種（設定裡）用小一級的字：框縮了字沒縮，看起來還是很重
+        self._f = font("headline" if self.H >= Segmented.H else CTRL_TYPE)
         self.frame = QTimer(self)
         self.frame.setInterval(16)
         self.frame.timeout.connect(self._step)
@@ -831,7 +907,7 @@ class Toggle(Graphic):
 
     toggled = Signal(bool)
 
-    W, H = 52, 32
+    W, H = 46, 28
 
     def __init__(self, on=False):
         super().__init__(self.W, self.H)
@@ -903,14 +979,14 @@ class HourStepper(Graphic):
 
     changed = Signal(int)
 
-    W, H = 128, 40
-    ZONE = 40           # 左右各留這麼寬當按鈕；圖示只有 8px，點擊區要大得多
+    W, H = 116, CTRL_H
+    ZONE = 36           # 左右各留這麼寬當按鈕；圖示只有 8px，點擊區要大得多
 
     def __init__(self, hour):
         super().__init__(self.W, self.H)
         self.hour = int(hour) % 24
         self.setCursor(Qt.PointingHandCursor)
-        self._f = font("body")
+        self._f = font(CTRL_TYPE)
 
     def set_hour(self, hour, emit=True):
         hour %= 24
@@ -992,8 +1068,8 @@ class WeightField(QLineEdit):
         self.setValidator(QIntValidator(30, 200, self))
         self.setPlaceholderText("選填")
         self.setAlignment(Qt.AlignRight)
-        self.setFixedSize(78, 38)     # 高度也要釘住，否則會被列高拉長
-        self.setFont(font("body"))
+        self.setFixedSize(72, CTRL_H)   # 高度也要釘住，否則會被列高拉長
+        self.setFont(font(CTRL_TYPE))
         self.setStyleSheet(f"""
             QLineEdit {{
                 background: rgba(255,255,255,0.07);
@@ -1028,8 +1104,11 @@ ROW_INFO = GRID * 5        # 40：唯讀資訊列。沒有東西要點，就不�
                            #     互動列比資訊列高，是因為滑鼠需要空間，不是為了好看
 ROW_SECTION = GRID * 4     # 32：區塊標題
 
-# 這四個值先前是 48/40/32/24——那是為了把設定頁擠進 558px 的內容區壓出來的，
-# 不是設計判斷。改成可捲動之後就沒有理由再擠，各放寬一級。
+# LABEL_GAP / CTRL_H / CTRL_W 定義在檔案上方的設計常數區——
+# 元件類別（Toggle、HourStepper…）比這一段早出現，會用到它們。
+#
+# 這幾個值先前是 48/40/32/24——那是為了把設定頁擠進 558px 的內容區壓出來的，
+# 不是設計判斷。改成可捲動之後就沒有理由再擠。
 # **版面被空間逼出來的妥協，要在空間解禁時退回去**，不然那些妥協會被
 # 後人當成刻意的設計而繼續沿用。
 LABEL_RATIO = 0.56         # 標籤欄佔的寬度；其餘留給控制項，右對齊
@@ -1074,18 +1153,39 @@ def setting_row(label, control, hint=None):
     左欄用伸展因子吃掉剩餘寬度，不是在旁邊塞 "stretch"：
     那會讓 stretch 把空間搶走，帶省略號的說明被壓成「這是在電腦…」。
     """
+    # hint 可以直接傳字串，也可以傳外面先建好的 Label（內容需要之後更新時）
+    if hint is None:
+        hint_w = None
+    elif isinstance(hint, QLabel):
+        hint_w = hint
+    else:
+        hint_w = Label(hint, "caption", INK3, elide=True)
     left = col(Label(label, "headline", INK),
-               *([Label(hint, "caption", INK3, elide=True)] if hint else []),
-               spacing=2)
+               *([hint_w] if hint_w else []),
+               spacing=LABEL_GAP)
     w = row((left, 1), control, spacing=S3, align=Qt.AlignVCenter)
     w.setFixedHeight(ROW_TALL if hint else ROW_FLAT)
     return w
 
 
-def info_row(label, value, trailing=None):
-    """唯讀資訊列：左邊名稱、右邊值，值太長就省略。跟設定列共用同一條基線。"""
-    items = [Label(label, "body", INK3),
-             (Label(value, "body", INK2, elide=True), 1)]
+def info_row(label, value, trailing=None, elide_value=False):
+    """唯讀資訊列：左邊名稱、右邊值。跟設定列共用同一條基線。
+
+    `value` 可以是字串，也可以是外面先建好的 Label（需要之後更新內容時）。
+
+    **值預設不開省略號，而且靠 "stretch" 推到右邊。**
+    開了 elide 的 Label 水平政策是 `Ignored`，沒有伸展因子就會被壓成 0 寬度、
+    整個消失——「夜間放慢提醒」那一列的值就是這樣不見的，畫面上只剩一個標籤
+    跟一段沒頭沒尾的說明，而且沒有任何錯誤。
+
+    只有真的可能過長的值（例如資料夾路徑）才傳 `elide_value=True`，
+    那時改用伸展因子吃掉剩餘寬度——**要省略的欄位一定要有伸展因子**，
+    這條規則在 Label 的 docstring 裡寫過，我又踩了一次。
+    """
+    val = value if isinstance(value, QLabel) else Label(
+        value, "body", INK2, elide=elide_value)
+    items = [Label(label, "body", INK3)]
+    items += [(val, 1)] if elide_value else ["stretch", val]
     if trailing is not None:
         items.append(trailing)
     w = row(*items, spacing=S3, align=Qt.AlignVCenter)
@@ -1104,10 +1204,13 @@ def scrollbar_qss():
 
     Windows 預設那條捲軸帶著方角、箭頭按鈕與實心軌道，放進這片自繪的版面
     就是一塊作業系統的補丁。這裡只留一根圓角的把手，軌道全透明。
+
+    **不要加 `QScrollArea { background: transparent }`。** 那條規則會讓
+    Qt 的樣式表機制把整塊區域擦成透明，蓋掉父層畫好的底色——在半透明視窗上
+    那就是一個會讓滑鼠穿透的洞。背景由 ScrollPane 與內容頁自己畫。
     """
     ink = PAL.ink_rgb
     return f"""
-        QScrollArea {{ background: transparent; border: none; }}
         QScrollBar:vertical {{
             background: transparent; width: 10px; margin: 2px 0 2px 0;
         }}
@@ -1154,6 +1257,33 @@ class _Fade(QWidget):
         p.fillRect(self.rect(), QBrush(g))
 
 
+def fill_window_bg(widget, painter):
+    """把 widget 自己那一塊填成不透明的視窗底色。
+
+    **這是一個嚴重回歸的修正。** 視窗開了 WA_TranslucentBackground（圓角與陰影
+    需要它），而在 Windows 上，**完全透明的像素會讓滑鼠事件穿透到下面那個視窗**——
+    捲動區那一整塊變成一個洞：看起來是透明的，點下去操作到底下的瀏覽器。
+
+    漸層錨在**視窗**座標而不是 widget 自己的座標。兩個理由：
+    一是捲動時背景才不會跟著內容一起移動（那看起來像整面牆在滑）；
+    二是接縫——視窗底色是 bg_top → bg_bottom 的漸層，各畫各的會在捲動區
+    邊緣留下一條看得見的橫線（深色主題兩端差 14 階）。
+
+    走過的兩條死路，都記在這裡免得有人再試一次：
+    - `viewport().setAutoFillBackground(True)`：QAbstractScrollArea 會覆寫視口的
+      背景處理，設了沒有用。
+    - `setViewport(自繪的 widget)`：視口的 paint 事件先進 viewportEvent()，
+      被基底類別吃掉，自訂的 paintEvent 根本不會被呼叫（實測 alpha 全 0）。
+    能穩定生效的只有「讓實際覆蓋那塊區域的 widget 自己畫」。
+    """
+    win = widget.window()
+    top = widget.mapTo(win, QPoint(0, 0)).y()
+    g = QLinearGradient(0, -top, 0, -top + win.height())
+    g.setColorAt(0.0, PAL.bg_top)
+    g.setColorAt(1.0, PAL.bg_bottom)
+    painter.fillRect(widget.rect(), QBrush(g))
+
+
 class ScrollPane(QWidget):
     """把一頁內容包成可捲動，並在上下緣加漸層遮罩。
 
@@ -1165,27 +1295,62 @@ class ScrollPane(QWidget):
     layout 表達不了重疊關係。這是這個檔案裡少數該手算座標的地方。
     """
 
+    class _Area(QScrollArea):
+        """滾輪必須在這一層接。
+
+        **QAbstractScrollArea 自己處理 wheel 事件**，所以它不會往上傳到 ScrollPane——
+        第一版把 wheelEvent 寫在 ScrollPane 上，完全沒有被呼叫過。
+        """
+
+        def __init__(self, on_wheel):
+            super().__init__()
+            self._on_wheel = on_wheel
+
+        def wheelEvent(self, event):
+            self._on_wheel(event)
+
     def __init__(self, inner):
         super().__init__()
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.inner = inner
 
-        self.area = QScrollArea(self)
+        self.area = self._Area(self._wheel)
+        self.area.setParent(self)
         self.area.setWidget(inner)
         self.area.setWidgetResizable(True)
         self.area.setFrameShape(QFrame.NoFrame)
         self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.area.viewport().setAutoFillBackground(False)
         self.area.setStyleSheet(scrollbar_qss())
 
         self.top_fade = _Fade(self, top=True)
         self.bottom_fade = _Fade(self, top=False)
-        self.area.verticalScrollBar().valueChanged.connect(self._sync_fades)
-        self.area.verticalScrollBar().rangeChanged.connect(self._sync_fades)
+        bar = self.area.verticalScrollBar()
+        bar.valueChanged.connect(self._sync_fades)
+        bar.rangeChanged.connect(self._sync_fades)
+        # 使用者直接拖捲軸時，把平滑捲動的目標同步過去，
+        # 否則放開之後彈簧會把畫面拉回它自己的舊目標。
+        bar.sliderMoved.connect(lambda v: self._sp.snap(float(v)))
+
+        # 平滑捲動：跟島、卡片、分段控制項同一套彈簧物理。
+        # 滾輪預設是一格一格跳，在一份要「掃過去找東西」的清單上，
+        # 跳動會讓眼睛每次都要重新定位。
+        self._sp = Spring(0.0, 0.30, 1.0)      # 阻尼給滿：捲動過頭再彈回來會暈
+        self._frame = QTimer(self)
+        self._frame.setInterval(16)
+        self._frame.timeout.connect(self._step)
+        self._last = time.perf_counter()
+
+    def paintEvent(self, event):
+        # 捲軸那條 10px 的窄帶不在內容頁的覆蓋範圍內，要由這一層補上底色，
+        # 否則那一條會是透明的洞。
+        fill_window_bg(self, QPainter(self))
 
     def set_inner(self, inner):
-        """換掉內容（換主題要重建整頁）。舊的由呼叫端負責回收。"""
+        """換掉內容（換主題要重建整頁）。
+
+        **舊的那一頁由 QScrollArea 自己回收**——setWidget() 會接管所有權並刪掉
+        前一個 widget。呼叫端不要再 deleteLater()，那會拿到已被回收的 C++ 物件。
+        """
         self.inner = inner
         self.area.setWidget(inner)
         self.area.setStyleSheet(scrollbar_qss())
@@ -1193,6 +1358,28 @@ class ScrollPane(QWidget):
 
     def to_top(self):
         self.area.verticalScrollBar().setValue(0)
+        self._sp.snap(0.0)
+
+    def _wheel(self, event):
+        bar = self.area.verticalScrollBar()
+        if bar.maximum() <= 0:
+            return
+        # 一格滾輪 = 120，換算成三列的高度：跟得上手感又不會一次跳過整段
+        delta = event.angleDelta().y() / 120.0 * ROW_FLAT * 3
+        self._sp.target = clamp(self._sp.target - delta, 0.0, float(bar.maximum()))
+        if not self._frame.isActive():
+            self._last = time.perf_counter()
+            self._frame.start()
+
+    def _step(self):
+        now = time.perf_counter()
+        self._sp.step(now - self._last)
+        self._last = now
+        self.area.verticalScrollBar().setValue(int(round(self._sp.value)))
+        if self._sp.settled:
+            self._sp.snap()
+            self.area.verticalScrollBar().setValue(int(round(self._sp.value)))
+            self._frame.stop()
 
     def _sync_fades(self):
         bar = self.area.verticalScrollBar()
@@ -1277,8 +1464,8 @@ def build_empty_card(d):
     card = Card()
     card.add(
         Label("還沒有紀錄", "title", INK),
-        Label("島出現時點一下，或把游標移到螢幕上緣中間叫出來。", "body", INK2, elide=True),
-        Label("第一次記錄之後，這裡就會開始累積。", "body", INK3, elide=True),
+        Label("點擊島或系統匣圖示即可記錄補水", "body", INK2, elide=True),
+        Label("首次記錄後開始累積", "body", INK3, elide=True),
     )
     return card
 
@@ -1302,7 +1489,9 @@ class SettingsPage(QWidget):
 
     def __init__(self, cfg):
         super().__init__()
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # **不能是半透明的。** 這一頁是捲動區裡實際覆蓋整個可視範圍的東西，
+        # 它不畫背景，那塊區域就是透明的——在半透明視窗上等於一個
+        # 會讓滑鼠穿透到底下視窗的洞。見 fill_window_bg()。
         self.cfg = dict(cfg)
         self.cards = []
 
@@ -1317,7 +1506,7 @@ class SettingsPage(QWidget):
         # 最常動的在最上面，永遠不會動的在最下面，不可復原的在最末端。
         # 先前擠成一張卡是為了塞進 558px，那是妥協不是分類。
         for i, card in enumerate((self._reminder_card(), self._display_card(),
-                                  self._schedule_card(), self._about_card())):
+                                  self._about_card())):
             if i:
                 lay.addSpacing(GAP)
             self.cards.append(card)
@@ -1335,6 +1524,9 @@ class SettingsPage(QWidget):
         lay.addWidget(self.danger)
         lay.addSpacing(S3)
 
+    def paintEvent(self, event):
+        fill_window_bg(self, QPainter(self))
+
     # ------------------------------------------------------------ 卡片
     #
     # 每張卡的內部間距是 0：列高已經釘死，列與列之間靠分隔線切開。
@@ -1350,25 +1542,28 @@ class SettingsPage(QWidget):
         單位是那個值的一部分，寫進說明就變成要讀完一句話才知道自己在設什麼。
         """
         card = Card()
-        card.box.setSpacing(0)
+        card.box.setSpacing(ROW_GAP)
         card.add(section_header("提醒"))
         card.add(GRID)
 
+        # 每日目標**不另立一列**，它就是體重這一列的結果——放在說明行，
+        # 因果直接可見：填了體重，底下那行當場變成算出來的目標。
+        # 先前它是獨立的一列，把「結果」跟「這個值哪來的」用「·」串成三段等重的
+        # 碎片，讀的人得自己判斷哪一段重要。
+        #
+        # 原本掛在這裡的「僅儲存於本機」搬到「關於」——那是使用者會去找隱私
+        # 聲明的地方，而說明行該留給結果。
         self.weight = WeightField(self.cfg.get("weight_kg"))
         self.weight.editingFinished.connect(self._on_weight)
+        self.target_lbl = Label("", "caption", INK3, elide=True)
         card.add(setting_row("體重", row(self.weight,
                                         Label("公斤", "body", INK3), spacing=S2),
-                             "用於推算每日目標，僅儲存於本機"))
-
-        # 每日目標是體重那一列的**結果**，不是另一個設定項——所以緊貼著它、
-        # 中間不放分隔線。分隔線代表「這是另一件事」，用錯地方會把因果切斷。
-        self.target_lbl = Label("", "body", INK2)
-        card.add(info_row("每日目標", "", self.target_lbl))
+                             self.target_lbl))
         card.add(Divider())
 
         choices = appsettings.INTERVAL_CHOICES
-        self.interval = Segmented([f"{m}" for m in choices])
-        self.interval.setFixedWidth(280)
+        self.interval = Segmented([f"{m}" for m in choices], h=CTRL_H)
+        self.interval.setFixedWidth(CTRL_W)
         cur = min(range(len(choices)),
                   key=lambda i: abs(choices[i] - self.cfg["interval_min"]))
         self.interval.set_index(cur, animate=False)
@@ -1377,6 +1572,18 @@ class SettingsPage(QWidget):
         card.add(setting_row("提醒間隔",
                              row(self.interval, Label("分鐘", "body", INK3), spacing=S2),
                              "以在電腦前的時間計算，離開電腦不算"))
+        card.add(Divider())
+
+        # 夜間放慢是「提醒間隔」的補充條件，不是另一個主題——它先前自成一張
+        # 名為「排程」的卡，一整張只為了顯示一個不能改的值，旁邊還附一段解釋
+        # 為什麼睡前不該灌水。使用者看到的是一個讀不出用途的區塊。
+        #
+        # 放回它所屬的脈絡：緊接在間隔後面，讀起來就是「平常 75 分，晚上改 109 分」。
+        # 說明只寫這個數字**從哪來**，不寫**為什麼要有這個機制**——理由屬於 README。
+        late = self.cfg.get("late_night_start_hour", 23)
+        late_min = appsettings.late_night_interval(self.cfg)
+        self.late_lbl = Label(f"{late:02d}:00 起改為每 {late_min} 分", "body", INK2)
+        card.add(setting_row("夜間自動放慢", self.late_lbl, self._schedule_note()))
         card.add(Divider())
 
         # 問「起床時間」而不是「換日時間」：後者是系統概念，使用者得反推該填什麼；
@@ -1390,14 +1597,14 @@ class SettingsPage(QWidget):
 
     def _display_card(self):
         card = Card()
-        card.box.setSpacing(0)
+        card.box.setSpacing(ROW_GAP)
         card.add(section_header("顯示"))
         card.add(GRID)
 
         modes = (("auto", "跟隨系統"), ("light", "淺色"), ("dark", "深色"))
         self._theme_keys = [m[0] for m in modes]
-        self.theme_seg = Segmented([m[1] for m in modes])
-        self.theme_seg.setFixedWidth(280)
+        self.theme_seg = Segmented([m[1] for m in modes], h=CTRL_H)
+        self.theme_seg.setFixedWidth(CTRL_W)
         cur = self._theme_keys.index(self.cfg.get("theme", "auto")) \
             if self.cfg.get("theme", "auto") in self._theme_keys else 0
         self.theme_seg.set_index(cur, animate=False)
@@ -1409,8 +1616,9 @@ class SettingsPage(QWidget):
         screens = QApplication.screens()
         if len(screens) > 1:
             self._screens = screens
-            self.screen_seg = Segmented([f"螢幕 {i + 1}" for i in range(len(screens))])
-            self.screen_seg.setFixedWidth(min(280, 84 * len(screens)))
+            self.screen_seg = Segmented([f"螢幕 {i + 1}" for i in range(len(screens))],
+                                        h=CTRL_H)
+            self.screen_seg.setFixedWidth(min(CTRL_W, 76 * len(screens)))
             cur = 0
             for i, s in enumerate(screens):
                 if s.name() == self.cfg.get("screen_name"):
@@ -1434,29 +1642,9 @@ class SettingsPage(QWidget):
 
         self.autostart = Toggle(appsettings.autostart_enabled())
         self.autostart.toggled.connect(self._on_autostart)
-        card.add(setting_row("開機時啟動", self.autostart,
-                             "關掉之後要自己從開始選單開它"))
-        return card
-
-    def _schedule_card(self):
-        """程式自己判斷出來的東西。唯讀——它是交代，不是設定。"""
-        card = Card()
-        card.box.setSpacing(0)
-        card.add(section_header("排程", self._schedule_note()))
-        card.add(GRID)
-
-        # 「深夜模式」是內部術語，使用者讀不出是什麼，還會誤解成「安靜時段」。
-        # 改成講它實際造成什麼結果，並且**把真正的數字寫出來**——
-        # 「23:00 起改為每 65 分」不會有第二種解讀。
-        late = self.cfg.get("late_night_start_hour", 23)
-        late_min = appsettings.late_night_interval(self.cfg)
-        self.late_lbl = Label(f"{late:02d}:00 起改為每 {late_min} 分", "body", INK2,
-                              elide=True)
-        card.add(info_row("夜間放慢提醒", "", self.late_lbl))
-        card.add(GRID)
-        card.add(para("睡前 2–3 小時攝取水分才是造成夜間起身的原因，"
-                      "所以這段時間會拉長間隔。起點由你的活動紀錄推算，"
-                      "改了起床時間也會跟著重算。"))
+        # 說明只標示這個開關控制什麼。關掉之後怎麼手動開啟，是使用者的常識，
+        # 不是這一列的職責——介面把它寫出來就變成在教學。
+        card.add(setting_row("開機時啟動", self.autostart))
         return card
 
     def _about_card(self):
@@ -1464,7 +1652,7 @@ class SettingsPage(QWidget):
         使用者第一個問題是「它有沒有在傳我的資料」，答案要看得到。
         """
         card = Card()
-        card.box.setSpacing(0)
+        card.box.setSpacing(ROW_GAP)
         card.add(section_header("關於"))
         card.add(GRID)
 
@@ -1474,8 +1662,11 @@ class SettingsPage(QWidget):
         card.add(Divider())
         card.add(info_row("版本", appsettings.VERSION))
         card.add(GRID)
-        card.add(para("每日目標依國民健康署的一般性建議與體重推算，不是醫療建議。"
-                      "流汗多的日子要另外補，這個工具管不到那一段。"))
+        # 隱私聲明放這裡而不是體重欄底下：這是使用者會主動來找的地方，
+        # 而輸入欄的說明行該留給那一欄的結果。
+        card.add(para("體重與所有設定僅儲存於本機，本程式無網路連線。"))
+        card.add(para("每日目標依國民健康署一般性建議與體重推算，非醫療建議。"
+                      "本工具僅涵蓋使用電腦期間，不含流汗量大的日子所需的額外補充。"))
         return card
 
     def _schedule_note(self):
@@ -1488,7 +1679,7 @@ class SettingsPage(QWidget):
         wake = self.cfg.get("day_rollover_hour", 8)
         fallback = (wake - 11) % 24
         if appsettings.infer_late_hour(appsettings.EVENTS_PATH, wake) != fallback:
-            return "依你的活動紀錄推算"
+            return "依活動紀錄推算"
         return "推估值，累積足夠紀錄後自動校準"
 
     # ------------------------------------------------------------ 事件
@@ -1501,7 +1692,7 @@ class SettingsPage(QWidget):
         t = appsettings.effective_target(self.cfg)
         ml = t * self.cfg.get("ml_per_drink_estimate", 200)
         src = "由體重推算" if self.cfg.get("weight_kg") else "預設值"
-        self.target_lbl.setText(f"{t} 次　·　約 {ml} cc　·　{src}")
+        self.target_lbl.setText(f"{src}：每日目標 {t} 次，約 {ml} cc")
 
     def _on_weight(self):
         kg = self.weight.value()
@@ -1574,7 +1765,12 @@ class SettingsPage(QWidget):
 class StatsWindow(QWidget):
     def __init__(self, cfg, events_path, on_config=None):
         super().__init__()
-        self.cfg = cfg
+        # **一定要複製一份。** 直接持有島傳來的字典，設定頁改完之後
+        # `self.cfg.update(...)` 會就地改掉島的狀態——島的 apply_config()
+        # 再去算「哪些鍵變了」時，舊值早就是新值，於是判定沒有變動、提早 return，
+        # 換螢幕、改目標這些需要副作用的設定就完全失效（而且沒有任何錯誤）。
+        # 擁有權：島擁有它的 cfg，視窗拿一份副本編輯，改完往上回報。
+        self.cfg = dict(cfg)
         self.events_path = events_path
         self.on_config = on_config
         self.mode = "stats"
@@ -1743,15 +1939,35 @@ class StatsWindow(QWidget):
         設定頁只有五張卡，重建的成本遠低於漏掉一處造成的「一半深色一半淺色」。
         """
         apply_theme(name)
-        old = self.settings_page
+        # 不要自己刪舊的那一頁：QScrollArea.setWidget() 會接管所有權並把
+        # 前一個 widget 刪掉，再 deleteLater() 一次會拿到已經被回收的 C++ 物件。
         self.settings_page = self._make_settings_page()
         self.pane.set_inner(self.settings_page)
-        old.deleteLater()
+
+        # **視窗自己的外框也要換。** 標題與副標是 QLabel，顏色寫在 stylesheet 裡，
+        # 重建設定頁不會動到它們——第一版就是這樣：切到淺色之後底色變白了，
+        # 標題還留著深色主題的淺色文字，等於消失。
+        self._restyle_chrome()
+
         if self.mode == "settings":
             self.cards = self.settings_page.cards
             self._settle(self.cards)
         self._stats_stale = True        # 紀錄那三頁離開設定頁時再重建
         self.update()
+
+    def _restyle_chrome(self):
+        """把視窗外框（標題、副標）的顏色套成目前主題。
+
+        自繪的部分（分段控制項、關閉鈕、卡片）讀模組變數，換主題自動跟著變；
+        只有 QLabel 需要手動重上——它的顏色是建立當下寫死進 stylesheet 的。
+        """
+        self.title_lbl.setStyleSheet(f"color:{INK};background:transparent")
+        if self.mode == "settings":
+            self.sub_lbl.setStyleSheet(
+                f"color:{C_ACCENT.name()};background:transparent")
+        else:
+            self.sub_lbl.setStyleSheet(f"color:{INK3};background:transparent")
+        self.seg.update()
 
     def showEvent(self, event):
         """視窗真的出現之後再量一次高度。

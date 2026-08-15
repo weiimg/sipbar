@@ -240,6 +240,34 @@ win.settings_page._emit()
 check("設定變更有傳出去", bool(got), True)
 check("傳出去的是新值", got[-1]["interval_min"], 60)
 
+print("\n11b. 設定頁改的值要真的傳到島（含副作用）")
+# **關鍵是視窗跟島共用同一份 cfg 的情況**——實際執行時 island.show_stats()
+# 就是把 self.cfg 直接傳進去的。上一版測試傳的是獨立字典，剛好繞過這個 bug：
+# 視窗就地改掉島的字典 -> apply_config 比對「舊值」時舊值早就是新值 ->
+# changed 是空的 -> 提早 return -> 換螢幕、改目標全部沒作用，也不留事件紀錄。
+w2 = isl.Island(cfg)                       # cfg 是共用的那一份
+for t in (w2.tick_timer, w2.frame, w2.hold_timer, w2.peek_timer):
+    t.stop()
+before_events = len([1 for _ in open(isl.EVENTS_PATH, encoding="utf-8")])
+win2 = sw.open_window(w2.cfg, isl.EVENTS_PATH, None,
+                      on_config=w2.apply_config, on_settings=True)
+_app.processEvents()
+check("視窗不能直接持有島的 cfg 物件", win2.cfg is w2.cfg, False)
+
+idx = ap.INTERVAL_CHOICES.index(30)
+win2.settings_page.interval.set_index(idx)
+_app.processEvents()
+check("島收到新的間隔", w2.cfg["interval_min"], 30)
+after = [json.loads(x) for x in open(isl.EVENTS_PATH, encoding="utf-8")]
+check("有留下 config 事件", any(e.get("event") == "config" and
+                                 e.get("changed", {}).get("interval_min") == 30
+                                 for e in after[before_events:]), True)
+# 節奏類變更仍然不能重置當前這一輪
+w2.drink()
+check("下一輪才套用（30 分 ±15%）", 25 * 60 <= w2.interval_s <= 35 * 60, True)
+win2.frame.stop()
+win2.hide()
+
 print("\n12. 換頁只重播卡片，不能把整個視窗淡掉再淡回來")
 win._switch_mode("stats", animate=False)
 win.sp_win.snap(1.0)
@@ -334,6 +362,70 @@ check("進來時停在頂端", direct.pane.area.verticalScrollBar().value(), 0)
 for _w in (direct, normal):
     _w.frame.stop()
     _w.hide()
+
+print("\n12f. 捲動區不能是透明的洞（會讓滑鼠穿透到底下的視窗）")
+# 視窗開了 WA_TranslucentBackground，而 Windows 上完全透明的像素會讓點擊穿透。
+# 捲動區的視口若不填背景，那一整塊就變成洞：看起來透明、點下去操作到底下的瀏覽器。
+# **這個 bug 離線渲染抓不到**——grab() 不經過視窗合成，洞在圖裡是實心的，
+# 所以只能從屬性上檢查。
+from PySide6.QtGui import QImage  # noqa: E402
+
+
+def transparent_points(win):
+    """數視窗本體內有多少取樣點是半透明的。
+
+    直接量 alpha，不從屬性推。屬性檢查只能證明「我設了某個旗標」，
+    證明不了「畫面上真的有東西」——第一版就是設了旗標、測試綠燈，
+    但 setViewport() 交出去的自繪視口其 paintEvent 根本沒被呼叫，實際 alpha 全 0。
+    """
+    img = win.grab().toImage().convertToFormat(QImage.Format_ARGB32)
+    s = sw.SHADOW + 4          # 往內縮一點，避開本來就該透明的圓角
+    return sum(1 for y in range(s, win.height() - s, 2)
+               for x in range(s, win.width() - s, 2)
+               if (img.pixel(x, y) >> 24) < 200)
+
+
+direct._switch_mode("stats", animate=False)
+_app.processEvents()
+base = transparent_points(direct)
+direct._switch_mode("settings", animate=False)
+_app.processEvents()
+got = transparent_points(direct)
+print(f"       紀錄頁 {base} 點 / 設定頁 {got} 點")
+# 設定頁不該比紀錄頁破更多洞。修正前是 98997 對 1216。
+check("設定頁沒有比紀錄頁多出透明區塊", got <= base + 8, True)
+
+print("\n12g. 換主題要連視窗外框一起換")
+# 標題與副標是 QLabel，顏色寫在建立當下的 stylesheet 裡，重建設定頁不會動到它們。
+# 漏掉的話：切到淺色底色變白，標題還留著深色主題的淺色文字，等於消失。
+before = direct.title_lbl.styleSheet()
+direct._on_theme_changed("light")
+_app.processEvents()
+after = direct.title_lbl.styleSheet()
+check("標題顏色跟著主題換", after != before, True)
+check("淺色主題的標題是深色文字", "28,28,30" in after, True)
+direct._on_theme_changed("dark")
+_app.processEvents()
+check("切回深色也要換回來", "235,235,245" in direct.title_lbl.styleSheet(), True)
+
+print("\n12h. 滾輪走彈簧，不是一格一格跳")
+pane = direct.pane
+bar = pane.area.verticalScrollBar()
+bar.setValue(0)
+pane._sp.snap(0.0)
+from PySide6.QtGui import QWheelEvent  # noqa: E402
+
+# 事件要送到 QScrollArea——QAbstractScrollArea 自己處理 wheel，不會往上傳給
+# ScrollPane。第一版把 wheelEvent 寫在 ScrollPane 上，一次都沒被呼叫過。
+pane.area.wheelEvent(QWheelEvent(QPointF(100, 100), QPointF(100, 100),
+                                 QPoint(0, -120), QPoint(0, -120),
+                                 Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+check("滾一格會設定一個目標", pane._sp.target > 0, True)
+check("但畫面還沒瞬間跳過去", bar.value(), 0)
+for _ in range(60):
+    pane._last -= 0.016
+    pane._step()
+check("彈簧會把它補到目標", abs(bar.value() - pane._sp.target) <= 1, True)
 
 print("\n13. 設定頁的高度必須跟紀錄頁一樣，換頁時視窗不能跳動")
 win2 = sw.StatsWindow(dict(cfg), isl.EVENTS_PATH)

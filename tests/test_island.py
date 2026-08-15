@@ -278,7 +278,7 @@ w2.active_s = 0.0
 for label, text, font in (
     ("倒數（連續破百）", w2._status_sub(), w2._f_sub),
     ("提醒中（連續破百）", w2._reminding_sub(), w2._f_sub),
-    ("打招呼副標", "滑鼠移到螢幕上緣中間叫我", w2._f_sub),
+    ("打招呼副標", "游標移至螢幕上緣中央可呼叫", w2._f_sub),
     ("最長標題", "今天達標了", w2._f_title),
 ):
     need = QFontMetrics(font).horizontalAdvance(text)

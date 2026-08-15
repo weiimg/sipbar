@@ -130,6 +130,12 @@ VISUAL = {
     SATISFIED: ("#4FCF8A", 1.00, True),
 }
 
+# copy-style: off
+#
+# 以下是**角色的台詞**，不是介面文案。口語、第二人稱、語助詞都是刻意的——
+# 島是一個會渴會倒的東西，它說「口渴了」「你贏了」正是這個工具的設計核心。
+# 介面文案（設定項、選單、按鈕）走另一套標準，見 tests/test_copy_style.py。
+#
 # 可預測性是習慣化的根源，所以每次隨機挑，不重複到你背起來為止。
 MESSAGES = {
     THIRSTY: [
@@ -150,6 +156,7 @@ MESSAGES = {
 DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
 
 LATE_MESSAGES = ["小口就好", "夜深了，喝一小口", "淺嚐一下就好"]
+# copy-style: on
 
 
 
@@ -343,17 +350,21 @@ class Island(QWidget):
         設定變更會落進事件紀錄。不阻止使用者把目標從 10 調到 3——
         那是他的自我追蹤，不是考試——但熱力圖要看得出那天標準換過。
         """
-        old = self.cfg
-        self.cfg = cfg
-        changed = {k: (old.get(k), cfg.get(k))
-                   for k in set(old) | set(cfg) if old.get(k) != cfg.get(k)}
+        # **舊值一定要先複製一份。** 只存參考的話，只要呼叫端跟島共用同一個字典
+        # （紀錄視窗曾經就是），舊值會在比對之前就被就地改成新值，
+        # `changed` 永遠是空的 -> 直接 return -> 換螢幕、改目標全部沒有作用，
+        # 而且連一行事件紀錄都不會留下。實測就是這樣壞掉的。
+        old = dict(self.cfg)
+        self.cfg = dict(cfg)
+        changed = {k: (old.get(k), self.cfg.get(k))
+                   for k in set(old) | set(self.cfg) if old.get(k) != self.cfg.get(k)}
         if not changed:
             return
 
         log_event(self.day, "config", changed={k: v[1] for k, v in changed.items()})
 
         if "tick_seconds" in changed:
-            self.tick_timer.setInterval(int(cfg["tick_seconds"] * 1000))
+            self.tick_timer.setInterval(int(self.cfg["tick_seconds"] * 1000))
         if "screen_name" in changed:
             self._reposition()
         if "daily_target_drinks" in changed:
@@ -558,8 +569,10 @@ class Island(QWidget):
         """
         self._greeting = True
         self._peeking = True
+        # 主字是角色的聲音，副字是操作說明——兩者語域不同是刻意的：
+        # 島可以有個性，但「怎麼叫出它」必須是清楚的指示。
         self.message = "我在這裡"
-        self.sub_message = "滑鼠移到螢幕上緣中間叫我"
+        self.sub_message = "游標移至螢幕上緣中央可呼叫"
         self._target_reveal(1.0)
         self._target_expand(1.0)
         self._target_content(1.0, delay_ms=90)
@@ -1082,15 +1095,15 @@ class Island(QWidget):
         # 工具提示必須在 show() 之前設好：Windows 是在圖示註冊當下把提示寫進
         # HKCU\Control Panel\NotifyIconSettings 的，事後才設會留下一筆空白提示，
         # 滑過去什麼都看不到。
-        tray.setToolTip(f"喝水動態島　·　{self._status_sub()}")
+        tray.setToolTip(f"喝水動態島 — {self._status_sub()}")
         tray.activated.connect(self._tray_clicked)
         # 刻意不設 setContextMenu：右鍵由 _tray_clicked 接手，彈自繪的選單
         tray.show()
         # Windows 11 預設把新圖示摺進「^」，開機自啟時你不會知道它到底有沒有起來。
         tray.showMessage(
             "喝水動態島已啟動",
-            "圖示在工作列的「^」裡（顯示為 pythonw），可以拖出來固定。\n"
-            "或把滑鼠移到螢幕最上緣中央，島就會滑下來。",
+            "系統匣圖示顯示為 pythonw，可拖曳至工作列固定。\n"
+            "將游標移至螢幕上緣中央亦可隨時顯示。",
             QSystemTrayIcon.Information, 8000,
         )
         return tray
@@ -1118,7 +1131,7 @@ class Island(QWidget):
         if not hasattr(self, "tray"):
             return
         self.tray.setIcon(self._tray_icon())
-        self.tray.setToolTip(f"喝水動態島　·　{self._status_sub()}")
+        self.tray.setToolTip(f"喝水動態島 — {self._status_sub()}")
 
     def _tray_clicked(self, reason):
         if reason == QSystemTrayIcon.Trigger:
@@ -1129,26 +1142,47 @@ class Island(QWidget):
             # 是原生彈出視窗，改不動圓角與陰影——所以不設它，自己接右鍵。
             self._popup_menu(cursor_pos())
 
-    def _popup_menu(self, pos):
-        import menu as trymenu
-        target = self.cfg["daily_target_drinks"]
-        est = self.drinks * self.cfg["ml_per_drink_estimate"]
-        head = (f"今天補水 {self.drinks} / {target} 次",
-                f"約 {est} cc（估算）　·　{self._status_sub()}")
+    def _menu_head(self):
+        """選單頂端那兩行。**副標只放標題沒講過的東西。**
 
-        items = [("喝了", self.drink)]
+        第一版把 _status_sub() 整段接在後面，但那個字串本身就含「今天 N/M 次」，
+        跟標題完全重複——重複的部分把整行推到爆出容器外。
+        副標該回答的是標題沒回答的：喝了多少、下次什麼時候。
+        """
+        target = self.cfg["daily_target_drinks"]
+        title = f"今天 {self.drinks} / {target} 次"
+
         if self.paused_until:
-            items.append((f"取消暫停（原定到 {self.paused_until.strftime('%H:%M')}）",
-                          self._cancel_pause))
+            return title, f"已暫停，{self.paused_until.strftime('%H:%M')} 恢復"
+        est = self.drinks * self.cfg["ml_per_drink_estimate"]
+        if self.drinks >= target:
+            return title, f"約 {est} cc，今日已達標"
+        remain = int(max(0, self.interval_s - self.active_s) // 60)
+        when = "即將提醒" if remain <= 0 else f"下次約 {remain} 分後"
+        return title, f"約 {est} cc，{when}"
+
+    def _popup_menu(self, pos):
+        """選單項目一律用動作或去處來命名。
+
+        「喝了」是口語陳述不是指令；「看喝水紀錄」的「看」是雜訊——
+        選單項若是去某個地方，用名詞就夠了；「取消暫停」是雙重否定，
+        讀的人要在腦裡繞一圈才知道結果是「會再提醒」。
+        「結束」單獨出現有歧義：結束什麼？
+        """
+        import menu as traymenu
+
+        items = [("記錄補水", self.drink, False)]
+        if self.paused_until:
+            items.append(("恢復提醒", self._cancel_pause, False))
         else:
-            items.append(("暫停 2 小時", self.pause_2h))
-        items += [("看喝水紀錄", self.show_stats),
-                  ("設定", self.show_settings),
-                  (None, None),
-                  ("結束", self.quit_app)]
+            items.append(("暫停提醒 2 小時", self.pause_2h, False))
+        items += [("喝水紀錄", self.show_stats, False),
+                  ("設定", self.show_settings, False),
+                  (None, None, False),
+                  ("結束程式", self.quit_app, True)]
 
         # 留參考，否則彈出視窗會被 GC 掉
-        self._menu_ref = trymenu.TrayMenu(head, items)
+        self._menu_ref = traymenu.TrayMenu(self._menu_head(), items)
         self._menu_ref.popup_at(QPoint(*pos) if isinstance(pos, tuple) else pos)
 
     def _cancel_pause(self):

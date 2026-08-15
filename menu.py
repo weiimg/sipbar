@@ -52,7 +52,9 @@ class TrayMenu(QWidget):
         super().__init__()
         self.pal = theme.active()
         self.head = head                      # (主字, 副字)
-        self.items = items                    # [(label, callback) 或 (None, None)]
+        # (label, callback, muted)。label 為 None 就是分隔線。
+        # muted 給「結束程式」這種跟其他項目不同類、但還不到危險程度的動作。
+        self.items = [it if len(it) == 3 else (it[0], it[1], False) for it in items]
         self.hover = -1
 
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint |
@@ -68,7 +70,7 @@ class TrayMenu(QWidget):
 
         self._rows = []                       # (y, h, index)，index=-1 代表不可點
         y = PAD_V + HEAD_H + SEP_H
-        for i, (label, cb) in enumerate(self.items):
+        for i, (label, cb, _muted) in enumerate(self.items):
             if label is None:
                 y += SEP_H
                 continue
@@ -127,10 +129,8 @@ class TrayMenu(QWidget):
             return
         idx = self._row_at(event.position())
         self.close()
-        if idx >= 0:
-            cb = self.items[idx][1]
-            if cb:
-                cb()
+        if idx >= 0 and self.items[idx][1]:
+            self.items[idx][1]()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
@@ -163,16 +163,23 @@ class TrayMenu(QWidget):
         right = SHADOW + WIDTH - PAD_H
 
         # 頂端狀態：主字一行、副字一行。不可點，所以不給 hover。
+        #
+        # 兩行都先過省略號。**文字永遠不該有機會跑出容器**——即使呼叫端已經
+        # 盡量寫短，狀態字串是動態組出來的（連續天數破百、暫停到某個時刻…），
+        # 總有一天會超過。省略號是最後一道防線，不是備案。
         head_y = SHADOW + PAD_V
+        avail = right - left
         fm = QFontMetrics(self._f_head)
         p.setFont(self._f_head)
         p.setPen(pal.ink_a(255))
-        p.drawText(left, int(head_y + fm.ascent() + 2), self.head[0])
+        p.drawText(left, int(head_y + fm.ascent() + 2),
+                   fm.elidedText(self.head[0], Qt.ElideRight, avail))
         if self.head[1]:
             fs = QFontMetrics(self._f_sub)
             p.setFont(self._f_sub)
             p.setPen(pal.ink_a(150))
-            p.drawText(left, int(head_y + HEAD_H - fs.descent() - 2), self.head[1])
+            p.drawText(left, int(head_y + HEAD_H - fs.descent() - 2),
+                       fs.elidedText(self.head[1], Qt.ElideRight, avail))
 
         sep_y = head_y + HEAD_H + SEP_H // 2
         p.fillRect(int(left), int(sep_y), int(right - left), 1, pal.veil(20))
@@ -180,7 +187,7 @@ class TrayMenu(QWidget):
         fi = QFontMetrics(self._f_item)
         baseline = (fi.ascent() - fi.descent()) / 2
         for top, h, idx in self._rows:
-            label, cb = self.items[idx]
+            label, cb, muted = self.items[idx]
             y = SHADOW + top
             if idx == self.hover:
                 p.setPen(Qt.NoPen)
@@ -188,13 +195,14 @@ class TrayMenu(QWidget):
                 p.drawRoundedRect(QRectF(left - GRID, y + 2,
                                          right - left + GRID * 2, h - 4), 9, 9)
             p.setFont(self._f_item)
-            # 「結束」用第二層顏色：它跟其他項目不是同一類動作，
+            # muted 的項目降一階顏色：它跟其他項目不是同一類動作，
             # 但也還不到危險的程度——降一階就夠把它從主要動作裡分出來。
-            p.setPen(pal.ink_a(255) if label != "結束" else pal.ink_a(160))
-            p.drawText(int(left), int(y + h / 2 + baseline), label)
+            p.setPen(pal.ink_a(160 if muted else 255))
+            p.drawText(int(left), int(y + h / 2 + baseline),
+                       fi.elidedText(label, Qt.ElideRight, avail))
 
-        # 分隔線畫在「結束」之前
-        for i, (label, cb) in enumerate(self.items):
+        # 分隔線畫在被標記為分隔的位置之前
+        for i, (label, cb, _m) in enumerate(self.items):
             if label is None:
                 prev = [r for r in self._rows if r[2] < i]
                 if prev:
