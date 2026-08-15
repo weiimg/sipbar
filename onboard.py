@@ -107,10 +107,16 @@ HOW_BULLETS = ("平常我不會出現，時間到才從螢幕上緣滑下來",
                "點我一下就算喝了，點系統匣的圖示也可以",
                "沒有關閉按鈕，喝完我就自己回去了")
 HOW_SETTINGS = "覺得太吵或不夠，設定裡都可以改。從系統匣圖示的選單，或紀錄視窗右上角的齒輪進去。"
-# 第四頁：真的點一次。**「這次不算」一定要寫出來**——不寫的話，
-# 一個在意數字的人會猶豫要不要點，而這一步的全部目的就是讓他點下去。
-TRY_LEAD = "點我一下試試。這次不會算進今天的次數。"
-TRY_DONE = "就是這樣。之後時間到我會自己出現。"
+# 第四頁：在真的島上點一次。
+#
+# **視窗只負責指路，指令留給島本人。** 第一版兩邊都寫「點我一下試試」，
+# 但視窗在螢幕正中央、島在最上緣——使用者的視線在視窗上，眼前又有一個杯子圖案，
+# 他會去點那個圖案然後發現沒反應。**指令要出現在要被點的東西上。**
+#
+# 「這次不算」那句移到島身上（見 island.practice）：那才是他按下去之前
+# 最後看到的字，寫在視窗裡等於寫在他沒在看的地方。
+TRY_LEAD = "我跑到螢幕最上面了，看得到嗎？"
+TRY_DONE = "就是這樣。之後時間到我就會這樣出現。"
 # 它自己的名字。**維持白話的叫法**，不另外取一個。這個工具全篇都不用內部術語，
 # 角色也一樣：使用者看到的是一隻杯子，那它就叫杯子。
 NAME = "杯子"
@@ -532,6 +538,65 @@ class CupPortrait(sw.Graphic):
                            pixelface.WATER, pixelface.INK, cell=self.cell)
 
 
+class UpCue(sw.Graphic):
+    """往上指的箭頭，把視線從視窗帶到螢幕上緣。
+
+    **這一格原本放杯子的頭像，那是錯的。** 第四頁要點的是螢幕最上緣那顆真的
+    藥丸，而視窗在正中央；旁邊擺一個杯子圖案，使用者會直覺去點它。
+    **一個看起來像目標的東西，不能放在真正的目標旁邊。**
+
+    改成三個往上的箭頭，愈上面愈淡，整組緩緩往上飄——那是「往那邊看」，
+    沒有任何一部分看起來可以按。
+    """
+
+    W, H = 66, 72
+    COUNT = 3
+    SPAN = 16          # 箭頭之間的距離
+
+    def __init__(self):
+        super().__init__(self.W, self.H)
+        self.t = 0.0
+        self._last = time.perf_counter()
+        self.frame = QTimer(self)
+        self.frame.setInterval(16)
+        self.frame.timeout.connect(self._tick)
+
+    def start(self):
+        self._last = time.perf_counter()
+        self.frame.start()
+
+    def stop(self):
+        self.frame.stop()
+
+    def _tick(self):
+        now = time.perf_counter()
+        self.t += now - self._last
+        self._last = now
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
+        # 整組往上飄一格再回到原位，循環。用取餘數而不是正弦：
+        # 要的是「一直往同一個方向走」，正弦會變成上下擺盪。
+        drift = (self.t * 26) % self.SPAN
+        base = p.opacity()
+        for i in range(self.COUNT):
+            y = self.H - 14 - i * self.SPAN - drift
+            # 愈上面愈淡，加上飄到頂端時淡出，才不會突然消失
+            fade = clamp(1.0 - i / self.COUNT, 0.0, 1.0) * \
+                clamp((self.H - y) / self.H * 1.4, 0.0, 1.0)
+            p.setOpacity(base * fade * 0.9)
+            p.setPen(QPen(sw.C_ACCENT, 3, Qt.SolidLine, Qt.RoundCap,
+                          Qt.RoundJoin))
+            cx = self.W / 2
+            p.drawPolyline(QPolygonF([QPointF(cx - 11, y + 9),
+                                      QPointF(cx, y),
+                                      QPointF(cx + 11, y + 9)]))
+        p.setOpacity(base)
+
+
 def _speech(text, lead=None):
     """名字一行，台詞接在下面。
 
@@ -620,6 +685,7 @@ class OnboardWindow(QWidget):
         self._drag = None
 
         self.preview = IslandPreview()      # 第三頁，循環展示
+        self.up_cue = UpCue()               # 第四頁，把視線帶到螢幕上緣
         self.on_practice = on_practice      # 第四頁叫真的島出來，見 _page_try
         self.autostart = sw.Toggle(True)
 
@@ -732,6 +798,7 @@ class OnboardWindow(QWidget):
             # 把「在哪裡」也寫出來。這個程式平常完全隱藏，
             # 使用者不會自己想到齒輪在紀錄視窗右上角。
             sw.para(HOW_SETTINGS),
+            sw.setting_row("開機時啟動", self.autostart),
         ], [nxt])
 
     def _page_try(self):
@@ -747,10 +814,8 @@ class OnboardWindow(QWidget):
         start = Button("開始")
         start.clicked.connect(self._finish)
         self.try_lead = sw.para(TRY_LEAD)
-        return self._page("試一次", [
-            _speech(None, self.try_lead),
-            sw.setting_row("開機時啟動", self.autostart),
-        ], [start], portrait=CupPortrait(cell=6))
+        return self._page("試一次", [_speech(None, self.try_lead)], [start],
+                          portrait=self.up_cue)
 
     def _on_tried(self):
         self.try_lead.setText(TRY_DONE)
@@ -766,9 +831,12 @@ class OnboardWindow(QWidget):
         self.deck.show_page(index)
         # 展示動畫只在第三頁跑，離開就停：常駐工具不能為了看不見的動畫一直重繪。
         self.preview.stop()
+        self.up_cue.stop()
         if index == 2:
             self.preview.start()
-        elif index == 3 and self.on_practice:
+        elif index == 3:
+            self.up_cue.start()
+        if index == 3 and self.on_practice:
             # 叫真的島出來讓他練習。點下去由島自己處理，不計數也不落檔，
             # 完成之後回呼到 _on_tried 換文案。
             self.on_practice(self._on_tried)
@@ -796,6 +864,7 @@ class OnboardWindow(QWidget):
 
     def _finish(self):
         self.preview.stop()
+        self.up_cue.stop()
         self.finished.emit(self.autostart.on)
         self.close()
 

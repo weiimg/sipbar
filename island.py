@@ -737,6 +737,9 @@ class Island(QWidget):
         """
         self._practicing = True
         self._practice_cb = on_done
+        # **指令寫在這裡，不寫在引導視窗裡。** 視窗在螢幕正中央、島在最上緣，
+        # 使用者按下去之前最後看到的字是這一句；寫在視窗裡等於寫在他沒在看的
+        # 地方，而且兩邊都寫會變成兩個指令搶同一個動作。
         # copy-style: off
         self._enter(THIRSTY, message="點我一下", sub="這次不會算進今天的次數")
         # copy-style: on
@@ -814,19 +817,19 @@ class Island(QWidget):
             on_practice=self.practice)
 
     def _onboarding_done(self, autostart, first_run):
-        """引導按下「開始」之後。
-
-        接著讓真的動態島滑下來打一次招呼：引導裡演的動畫是在視窗裡，
-        跟它實際會出現在螢幕哪個位置是兩回事。演完再讓本尊出來一次，
-        才補得上那個落差。
-        """
+        """引導按下「開始」之後：存設定、標記已引導，然後安靜地結束。"""
         settings.set_autostart(autostart)
         self.cfg["onboarded"] = True
         self.cfg["greeted_version"] = settings.VERSION
         settings.save_config(self.cfg)
         if first_run:
             log_event(self.day, "onboarded")
-        QTimer.singleShot(500, self.greet)
+        # **引導完就不打招呼了。** greet() 存在的理由是「使用者不知道它在不在」，
+        # 但他剛剛才在最後一頁點過真的島，那個前提已經不成立；剛認識完又滑出來
+        # 說「嗨」是多的。
+        #
+        # 而且「什麼都沒發生」正好是這個工具的承諾：平常它不出現。
+        # 引導的最後一幕就是它安靜地消失，那比再演一次還準確。
 
     def quit_app(self):
         log_event(self.day, "quit", drinks=self.drinks)
