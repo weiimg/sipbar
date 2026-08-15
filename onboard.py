@@ -26,6 +26,7 @@
 預覽用的是跟本體同一套彈簧物理，所以引導裡的手感跟實際看到的一致。
 """
 
+import math
 import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl, Signal
@@ -106,6 +107,10 @@ HOW_BULLETS = ("平常我不會出現，時間到才從螢幕上緣滑下來",
                "點我一下就算喝了，點系統匣的圖示也可以",
                "沒有關閉按鈕，喝完我就自己回去了")
 HOW_SETTINGS = "覺得太吵或不夠，設定裡都可以改。從系統匣圖示的選單，或紀錄視窗右上角的齒輪進去。"
+# 第四頁：真的點一次。**「這次不算」一定要寫出來**——不寫的話，
+# 一個在意數字的人會猶豫要不要點，而這一步的全部目的就是讓他點下去。
+TRY_LEAD = "點我一下試試。這次不會算進今天的次數。"
+TRY_DONE = "就是這樣。之後時間到我會自己出現。"
 # 它自己的名字。**維持白話的叫法**，不另外取一個。這個工具全篇都不用內部術語，
 # 角色也一樣：使用者看到的是一隻杯子，那它就叫杯子。
 NAME = "杯子"
@@ -188,7 +193,9 @@ class IslandPreview(sw.Graphic):
     # 死時間要少。初版 4.2 秒的循環有 1.7 秒是空的，看起來像壞掉。
     T_APPEAR, T_POINT, T_CLICK, T_LEAVE, T_LOOP = 0.3, 1.2, 1.9, 2.6, 3.4
 
-    def __init__(self):
+    tapped = Signal()
+
+    def __init__(self, interactive=False):
         super().__init__(self.W, self.H)
         self.t = 0.0
         self.sp_drop = Spring(0.0, *PRESET["reveal"])
@@ -196,6 +203,15 @@ class IslandPreview(sw.Graphic):
         self.phase = "hidden"
         self._wall = None      # 桌布只畫一次，見 _build_wallpaper
         self._f = sw.font("caption")
+        # 互動模式：不循環，滑下來就停著等人點。**點下去不會記任何東西**——
+        # 這裡畫的是一張圖，跟島與 events.jsonl 沒有任何連線，
+        # 所以「這次不算今天的次數」不是靠寫程式擋，是它本來就碰不到。
+        self.interactive = interactive
+        self.tapped_once = False
+        self._tap_t = 0.0
+        self._pill = QRectF()          # 最後畫出來的位置，給命中測試用
+        if interactive:
+            self.setCursor(Qt.PointingHandCursor)
         self._last = time.perf_counter()
         self.frame = QTimer(self)
         self.frame.setInterval(16)
@@ -213,7 +229,17 @@ class IslandPreview(sw.Graphic):
         self.step(now - self._last)
         self._last = now
 
+    def mousePressEvent(self, event):
+        if (self.interactive and not self.tapped_once
+                and event.button() == Qt.LeftButton
+                and self._pill.contains(event.position())):
+            self.tapped_once = True
+            self._tap_t = self.t
+            self.tapped.emit()
+
     def step(self, dt):
+        if self.interactive:
+            return self._step_interactive(dt)
         self.t = (self.t + dt) % self.T_LOOP
         t = self.t
         if t < self.T_APPEAR:
@@ -229,6 +255,29 @@ class IslandPreview(sw.Graphic):
         else:
             self.phase = "leaving"
             self.sp_drop.target = self.sp_open.target = 0.0
+        self.sp_drop.step(dt)
+        self.sp_open.step(dt)
+        self.update()
+
+    def _step_interactive(self, dt):
+        """滑下來就停著等人點，點完才走。不循環。
+
+        **不畫假游標。** 循環展示時那隻假游標是在演給人看；這裡使用者自己的
+        游標就在畫面上，再畫一隻只會讓人分不清該動哪一隻。
+        改成藥丸外圈一道會呼吸的光暈，那是「可以點」而不是「我在點」。
+        """
+        self.t += dt
+        if not self.tapped_once:
+            waiting = self.t >= 0.4
+            self.phase = "waiting" if waiting else "hidden"
+            self.sp_drop.target = self.sp_open.target = 1.0 if waiting else 0.0
+        else:
+            since = self.t - self._tap_t
+            if since < 1.5:
+                self.phase = "done"
+            else:
+                self.phase = "leaving"
+                self.sp_drop.target = self.sp_open.target = 0.0
         self.sp_drop.step(dt)
         self.sp_open.step(dt)
         self.update()
@@ -269,8 +318,25 @@ class IslandPreview(sw.Graphic):
         openness = clamp(self.sp_open.value, 0.0, 1.2)
         w = lerp(self.PILL_MIN_W, self.PILL_MAX_W, clamp(openness, 0.0, 1.0))
         drop = clamp(self.sp_drop.value, 0.0, 1.0)
-        y = screen.top() - self.PILL_H + drop * (self.PILL_H + 12)
+        # 互動時停低一點：呼吸光暈往外長 12px，停在原本的位置會整圈被螢幕上緣
+        # 裁掉，看起來就只是一顆普通藥丸，「可以點」那個訊號整個消失。
+        settle = 26 if self.interactive else 12
+        y = screen.top() - self.PILL_H + drop * (self.PILL_H + settle)
         pill = QRectF(screen.center().x() - w / 2, y, w, self.PILL_H)
+        self._pill = QRectF(pill)      # 命中測試用的是真的畫出來的位置
+
+        if self.phase == "waiting":
+            # 會呼吸的光暈：告訴人「這裡可以點」。用正弦而不是彈簧——
+            # 它要一直循環，彈簧是給「有目標值」的動作用的。
+            pulse = 0.5 + 0.5 * math.sin(self.t * 3.4)
+            p.setPen(QPen(QColor(sw.C_ACCENT.red(), sw.C_ACCENT.green(),
+                                 sw.C_ACCENT.blue(), int(40 + 90 * pulse)),
+                          2 + 2 * pulse))
+            p.setBrush(Qt.NoBrush)
+            grow = 4 + 4 * pulse
+            p.drawRoundedRect(pill.adjusted(-grow, -grow, grow, grow),
+                              (self.PILL_H + grow * 2) / 2,
+                              (self.PILL_H + grow * 2) / 2)
 
         pg = QLinearGradient(pill.left(), pill.top(), pill.left(), pill.bottom())
         pg.setColorAt(0.0, QColor(30, 31, 36, 246))
@@ -308,7 +374,8 @@ class IslandPreview(sw.Graphic):
                 dx += self.DOT_D + self.DOT_GAP
             p.setOpacity(base)
 
-        if self.phase in ("pointing", "done"):
+        # 假游標只在循環展示時畫；互動時使用者自己的游標就在畫面上。
+        if not self.interactive and self.phase in ("pointing", "done"):
             self._draw_cursor(p, pill, done)
 
     def _draw_screen(self, p):
@@ -537,7 +604,11 @@ class Deck(QWidget):
 
 
 class OnboardWindow(QWidget):
-    """三頁引導。第二頁只在回答「還沒有」時出現。"""
+    """四頁引導。第二頁只在回答「還沒有」時出現。
+
+    最後一頁是**真的點一次**：看過跟做過是兩回事，而這個工具唯一的操作就是
+    「點一下」。演完之後讓他自己做一遍，那一下才會留在手上。
+    """
 
     finished = Signal(bool)          # 參數：開機時啟動要不要開
 
@@ -548,14 +619,16 @@ class OnboardWindow(QWidget):
         self.setWindowTitle("喝水提醒動態島")
         self._drag = None
 
-        self.preview = IslandPreview()
+        self.preview = IslandPreview()                  # 第三頁，循環展示
+        self.try_preview = IslandPreview(interactive=True)   # 第四頁，讓他自己點
         self.autostart = sw.Toggle(True)
 
         # 視窗自己排幾何，不掛 layout。掛了的話 Deck 的高度變化會回頭去改視窗的
         # 最小／最大高度，跟這裡逐格設定的高度打架，動畫會抖。
         self.deck = Deck(WIDTH - PAD * 2)
         self.deck.setParent(self)
-        for page in (self._page_water(), self._page_fill(), self._page_howto()):
+        for page in (self._page_water(), self._page_fill(), self._page_howto(),
+                     self._page_try()):
             self.deck.add(page)
 
         self.sp_win = Spring(0.0, *PRESET["enter"])
@@ -648,8 +721,8 @@ class OnboardWindow(QWidget):
                           portrait=CupPortrait(cell=6))
 
     def _page_howto(self):
-        start = Button("開始")
-        start.clicked.connect(self._finish)
+        nxt = Button("下一步")
+        nxt.clicked.connect(lambda: self._go(3))
         return self._page("這樣用", [
             self.preview,
             # 三條是同一組，行距要比它們跟上下文的距離短。用頁面的 S3 排會讓
@@ -659,8 +732,30 @@ class OnboardWindow(QWidget):
             # 把「在哪裡」也寫出來。這個程式平常完全隱藏，
             # 使用者不會自己想到齒輪在紀錄視窗右上角。
             sw.para(HOW_SETTINGS),
+        ], [nxt])
+
+    def _page_try(self):
+        """真的點一次。
+
+        **不擋**：「開始」隨時可以按，跟第二頁的「裝好了」同一條原則。
+        這一步是給手的，不是關卡；擋住只會讓想跳過的人更想關掉程式。
+
+        點下去不會記任何東西——那不是靠程式擋，是 IslandPreview 本來就碰不到
+        島與 events.jsonl。文案把這件事寫出來，因為在意數字的人不寫就不敢點。
+        """
+        start = Button("開始")
+        start.clicked.connect(self._finish)
+        self.try_lead = sw.para(TRY_LEAD)
+        self.try_preview.tapped.connect(self._on_tried)
+        return self._page("試一次", [
+            self.try_preview,
+            _speech(None, self.try_lead),
             sw.setting_row("開機時啟動", self.autostart),
         ], [start])
+
+    def _on_tried(self):
+        self.try_lead.setText(TRY_DONE)
+        self.deck.remeasure(3)
 
     # ------------------------------------------------------------ 流程
 
@@ -668,8 +763,14 @@ class OnboardWindow(QWidget):
         if index == self.deck.index:
             return
         self.deck.show_page(index)
+        # 兩個預覽各自只在自己那一頁跑，離開就停：常駐工具不能為了看不見的
+        # 動畫一直重繪。
+        self.preview.stop()
+        self.try_preview.stop()
         if index == 2:
             self.preview.start()
+        elif index == 3:
+            self.try_preview.start()
         # 中心線鎖在切換的那一刻。高度往兩邊長，視窗才不會愈走愈往下、
         # 到第三頁時掉出螢幕（實測 1080p 上會少 8px）。
         self._anchor_y = self.y() + self.height() / 2
@@ -694,6 +795,7 @@ class OnboardWindow(QWidget):
 
     def _finish(self):
         self.preview.stop()
+        self.try_preview.stop()
         self.finished.emit(self.autostart.on)
         self.close()
 

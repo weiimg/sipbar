@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""引導的三頁定格，深淺兩套。
+"""引導的每一頁定格，深淺兩套。
 
-三頁高度**不一樣**是刻意的：內容多少就多高，視窗用彈簧補間過去。
+各頁高度**不一樣**是刻意的：內容多少就多高，視窗用彈簧補間過去。
 所以這支不是檢查「三頁同高」，而是檢查兩件相反的事：
 
 1. 停下來的時候，每一頁都剛好包住自己的內容——不能有大片空白（讀起來像沒做完），
@@ -43,14 +43,16 @@ def shot_flow(theme_name):
     app.processEvents()
 
     frames = []
-    for i in range(3):
+    # 跟著實際頁數走，不寫死 3。加第四頁時就是靠這行自動納入檢查。
+    for i in range(len(win.deck.pages)):
         win._go(i)
         win.sp_h.snap()
         win._apply_height()
-        if i == 2:
+        if i in (2, 3):
+            pv = win.preview if i == 2 else win.try_preview
             t = 0.0
             while t < 1.0:          # 停在「島已經滑下來」那一格
-                win.preview.step(1 / 60)
+                pv.step(1 / 60)
                 t += 1 / 60
         app.processEvents()
 
@@ -78,7 +80,7 @@ def shot_flow(theme_name):
     check(before == after and before, "補間中途沒有壓扁內容",
           f"預覽尺寸 {before[0].width()}x{before[0].height()}" if before else "")
 
-    print(f"  三頁高度 {[f.height() for f in frames]}")
+    print(f"  各頁高度 {[f.height() for f in frames]}")
     return frames
 
 
@@ -168,7 +170,8 @@ check_transition()
 pad = 18
 w = max(f.width() for r in rows for f in r)
 h = max(f.height() for r in rows for f in r)
-sheet = QPixmap(pad + (w + pad) * 3, pad + (h + pad) * len(rows))
+cols = max(len(r) for r in rows)
+sheet = QPixmap(pad + (w + pad) * cols, pad + (h + pad) * len(rows))
 sheet.fill(QColor("#8A8D95"))
 p = QPainter(sheet)
 y = pad
