@@ -1,0 +1,13 @@
+# 文字檔在版本庫裡統一存成 LF，簽出時由各人的平台決定。
+# 不這樣做的話，Windows 與其他平台的人互相 commit 會產生整檔重寫的假差異。
+* text=auto
+
+# 二進位檔**絕對不能**做換行轉換——字體與圖示裡本來就有 0x0A / 0x0D 的位元組，
+# 被當成換行改掉，檔案就壞了，而且是靜默的：git 不會報錯，字體載不起來而已。
+*.otf binary
+*.ttf binary
+*.ico binary
+*.png binary
+
+# 批次檔要 CRLF，不然舊版 cmd.exe 會解析失敗。
+*.bat text eol=crlf
