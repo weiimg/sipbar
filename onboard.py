@@ -106,6 +106,9 @@ HOW_BULLETS = ("平常我不會出現，時間到才從螢幕上緣滑下來",
                "點我一下就算喝了，點系統匣的圖示也可以",
                "沒有關閉按鈕，喝完我就自己回去了")
 HOW_SETTINGS = "覺得太吵或不夠，設定裡都可以改。從系統匣圖示的選單，或紀錄視窗右上角的齒輪進去。"
+# 它自己的名字。**維持白話的叫法**，不另外取一個。這個工具全篇都不用內部術語，
+# 角色也一樣：使用者看到的是一隻杯子，那它就叫杯子。
+NAME = "杯子"
 # copy-style: on
 
 PAD = 32
@@ -286,19 +289,25 @@ class IslandPreview(sw.Graphic):
 
 
 class CupPortrait(sw.Graphic):
-    """杯子的肖像，放在牠自己講話的那幾頁旁邊。
+    """杯子本人，站在牠講話的那幾頁旁邊。
 
     **不是裝飾，是在回答「我」是誰。** 前兩頁用第一人稱講了六次「我」，
     但讀的人要到第三頁的動畫才看得到那是什麼。把臉放在講話的旁邊，
     那六個「我」當場就有了對象。
 
-    畫在深色方塊上，不是直接放在卡片上：`pixelface` 的顏色是為深色藥丸調的
-    （INK 是近白色、GLASS 是淺灰），擺到淺色卡片上臉會整個消失。
-    而且它實際出現時本來就是浮在深色藥丸裡，**肖像跟本尊長得一樣才不會騙人**。
+    ## 不放在深色方塊裡
+
+    初版把杯子畫在一個深色圓角方塊上，理由是 pixelface 的顏色是為深色藥丸調的。
+    但那塊近黑的方塊貼在白卡片上像貼紙，而且它在卡片（本身也是圓角容器）裡面
+    又是一層圓角容器——**框裡面again放框**，這一頁所有排版問題的共同來源。
+
+    改成杯壁顏色跟著主題走。臉本來就畫在藍色水面上，深淺兩色都讀得到，
+    只有杯壁需要調：原本的近白色在白卡片上幾乎看不見（實測比過四個色階）。
     """
 
-    PAD = 13
-    RADIUS = 20
+    # 淺色主題的杯壁。原本的 pixelface.GLASS 是 #CED4E0，那是配深色藥丸的，
+    # 放在 #FEFEFE 的卡片上淡到看不出輪廓。
+    GLASS_LIGHT = QColor(139, 150, 172)
     # 水位 0.8 不是狀態，是**為了看得出那是一個杯子**。滿水（1.0）會把整個杯子
     # 填成一塊藍色，杯壁跟水同高，讀起來是方塊不是杯子；0.8 露出杯緣，
     # 一眼就知道是容器。再低（0.65 以下）水面會切過眼睛，臉就糊了。
@@ -309,24 +318,31 @@ class CupPortrait(sw.Graphic):
     LEVEL = 0.8
 
     def __init__(self, cell=6, state=pixelface.NORMAL, level=LEVEL):
-        cup_w, cup_h = pixelface.cup_size(cell)
-        super().__init__(cup_w + self.PAD * 2, cup_h + self.PAD * 2)
+        super().__init__(*pixelface.cup_size(cell))
         self.cell, self.state, self.level = cell, state, level
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
-        box = QRectF(0, 0, self.width(), self.height())
-        g = QLinearGradient(box.left(), box.top(), box.left(), box.bottom())
-        g.setColorAt(0.0, QColor(30, 31, 36, 246))
-        g.setColorAt(1.0, QColor(14, 15, 18, 246))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(g))
-        p.drawRoundedRect(box, self.RADIUS, self.RADIUS)
-        pixelface.draw_cup(p, int(box.center().x()), int(box.center().y()),
-                           self.level, self.state, pixelface.GLASS,
+        glass = pixelface.GLASS if sw.PAL.dark else self.GLASS_LIGHT
+        pixelface.draw_cup(p, self.width() // 2, self.height() // 2,
+                           self.level, self.state, glass,
                            pixelface.WATER, pixelface.INK, cell=self.cell)
+
+
+def _speech(text, lead=None):
+    """名字一行，台詞接在下面。
+
+    **名字單獨一行、用強調色**是對話遊戲最好認的結構特徵，比對話框的外框更關鍵。
+    而且它順便回答了「說話的是誰」——前兩頁講了六次「我」，本來都沒有對象。
+
+    名字與台詞的間距用 S1（4），跟設定頁 LABEL_GAP 同一個道理：
+    它們是同一組，要貼緊；真正需要距離的是這一組跟下一組之間。
+    """
+    body = lead if lead is not None else sw.para(text)
+    return sw.col(sw.Label(NAME, "caption", sw.C_ACCENT.name()), body,
+                  spacing=sw.S1)
 
 
 def _bullet(text):
@@ -425,15 +441,31 @@ class OnboardWindow(QWidget):
 
     # ------------------------------------------------------------ 頁面
 
-    def _page(self, title, blocks, actions):
+    def _page(self, title, blocks, actions, portrait=None):
+        """一頁：標題、內容、右下角的動作。
+
+        `portrait` 給的話，整個內文區改成兩欄：左欄是標題與台詞，右欄站著杯子。
+
+        **不用負邊距去做「角色壓過內容上緣」那個效果。** 那是對話遊戲的常見手法，
+        但負邊距等於在網格外面偷位置，之後任何一次改字級都會讓它錯位。
+        分兩欄之後，杯子自然就比左欄的文字高出一截——同樣的視覺效果，
+        每一段間距都還落在 S1/S3/S4 上。
+        """
         page = QWidget()
         page.setAttribute(Qt.WA_TranslucentBackground)
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(sw.S3)
-        lay.addWidget(sw.Label(title, "title", sw.INK))
-        for b in blocks:
-            lay.addWidget(b)
+
+        head = sw.Label(title, "title", sw.INK)
+        if portrait is None:
+            lay.addWidget(head)
+            for b in blocks:
+                lay.addWidget(b)
+        else:
+            body = sw.col(head, *blocks, spacing=sw.S3)
+            lay.addWidget(sw.row((body, 1), portrait, spacing=sw.S4,
+                                 align=Qt.AlignTop))
         # 動作靠右下，跟內容之間空兩格。頁面現在是自然高度，沒有多餘空間可以
         # 把按鈕推遠，距離要自己給——貼著內文的按鈕會被讀成內文的一部分。
         lay.addSpacing(sw.S3)
@@ -445,13 +477,10 @@ class OnboardWindow(QWidget):
         no = Button("還沒有", primary=False)
         yes.clicked.connect(lambda: self._go(2))
         no.clicked.connect(self._no_water)
-        # 肖像跟牠講的話擺成一列，像對話框旁邊的頭像。垂直置中對齊：
-        # 段落在窄視窗會多一行，靠上對齊的話杯子就會跟著飄。
         return self._page("開始之前", [
-            sw.row(CupPortrait(cell=7), (sw.para(WATER_LEAD), 1),
-                   spacing=sw.S3, align=Qt.AlignVCenter),
+            _speech(WATER_LEAD),
             sw.Label("桌上現在有水嗎？", "headline", sw.INK),
-        ], [no, yes])
+        ], [no, yes], portrait=CupPortrait(cell=6))
 
     def _no_water(self):
         """彩蛋：回答「還沒有」就用瀏覽器播喝水歌，邊裝邊聽。
@@ -479,12 +508,10 @@ class OnboardWindow(QWidget):
         ok = Button("裝好了")
         ok.clicked.connect(lambda: self._go(2))
         self.fill_lead = sw.para(FILL_LEAD)
-        # 這一頁的杯子跟第一頁同一個樣子（笑臉、同樣的水位），只是小一號。
-        # 特別**不要**在這裡畫一個快沒水的杯子催他快去，理由見 CupPortrait.LEVEL。
-        return self._page("先去裝一壺", [
-            sw.row(CupPortrait(cell=6), (self.fill_lead, 1),
-                   spacing=sw.S3, align=Qt.AlignVCenter),
-        ], [ok])
+        # 這一頁的杯子跟第一頁同一個樣子（笑臉、同樣的水位）。特別**不要**在這裡
+        # 畫一個快沒水的杯子催他快去，理由見 CupPortrait.LEVEL。
+        return self._page("先去裝一壺", [_speech(None, self.fill_lead)], [ok],
+                          portrait=CupPortrait(cell=6))
 
     def _page_howto(self):
         start = Button("開始")
