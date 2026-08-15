@@ -30,8 +30,8 @@ import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QDesktopServices, QFontMetrics, QLinearGradient, QPainter,
-    QPen, QPolygonF,
+    QBrush, QColor, QDesktopServices, QFontMetrics, QImage, QLinearGradient,
+    QPainter, QPen, QPolygonF,
 )
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
@@ -176,14 +176,15 @@ class IslandPreview(sw.Graphic):
     「它從上面中間出現、點一下就走」，不是「它有多大」。
     """
 
-    W, H = 464, 214
-    # 21:9，因為那是這台機器的螢幕比例（3440x1440）。16:9 也可以，
-    # 但畫成使用者自己那台的形狀，「那是我的螢幕」這件事不用想。
-    SCREEN_W, SCREEN_H = 404, 173
-    TASKBAR_H = 14
-    PILL_MIN_W, PILL_MAX_W = 62, 186
-    PILL_H = 26
+    W, H = 464, 150
+    BEZEL = 8                  # 螢幕外框的厚度
+    FADE_H = 62                # 下緣羽化掉的高度
+    PILL_MIN_W, PILL_MAX_W = 42, 110
+    PILL_H = 30
     CUP_CELL = 2
+    DOTS = 7                   # 進度點，跟島上的一樣
+    DOT_D, DOT_GAP = 5, 4
+    DOTS_BEFORE, DOTS_AFTER = 3, 4      # 點一下就多一格
     # 死時間要少。初版 4.2 秒的循環有 1.7 秒是空的，看起來像壞掉。
     T_APPEAR, T_POINT, T_CLICK, T_LEAVE, T_LOOP = 0.3, 1.2, 1.9, 2.6, 3.4
 
@@ -232,25 +233,42 @@ class IslandPreview(sw.Graphic):
         self.update()
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        p.setRenderHint(QPainter.TextAntialiasing, True)
-        p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
+        # **先畫進一張帶透明度的圖層，最後再把下緣羽化掉。**
+        # 直接畫在 widget 上做不到：要淡出的是「螢幕外框＋桌布＋藥丸」整組東西，
+        # 那需要對已經畫好的像素做 alpha 運算，不是疊一層漸層色上去
+        # （疊色會變成「蓋一片卡片色」，換主題或換底色就穿幫）。
+        layer = QImage(self.W, self.H, QImage.Format_ARGB32_Premultiplied)
+        layer.fill(Qt.transparent)
+        lp = QPainter(layer)
+        lp.setRenderHint(QPainter.Antialiasing, True)
 
-        screen = self._draw_screen(p)
-
+        screen = self._draw_screen(lp)
         drop = clamp(self.sp_drop.value, 0.0, 1.0)
-        if drop < 0.01:
-            return
+        if drop >= 0.01:
+            # **藥丸要被螢幕邊界裁掉**。它是從螢幕外面滑進來的，不裁的話會浮在
+            # 螢幕上方，那正好是要說明的位置關係裡最關鍵的一段。
+            lp.save()
+            lp.setClipRect(screen)
+            self._draw_pill(lp, screen)
+            lp.restore()
 
-        # **藥丸要被螢幕邊界裁掉**。它是從螢幕外面滑進來的，不裁的話會浮在
-        # 螢幕上方，那正好是要說明的位置關係裡最關鍵的一段。
-        p.save()
-        p.setClipRect(screen)
+        fade = QLinearGradient(0, self.H - self.FADE_H, 0, self.H)
+        fade.setColorAt(0.0, QColor(0, 0, 0, 255))
+        fade.setColorAt(1.0, QColor(0, 0, 0, 0))
+        lp.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+        lp.fillRect(QRectF(0, self.H - self.FADE_H, self.W, self.FADE_H),
+                    QBrush(fade))
+        lp.end()
 
+        p = QPainter(self)
+        p.setOpacity(clamp(ease(self.reveal), 0.0, 1.0))
+        p.drawImage(0, 0, layer)
+
+    def _draw_pill(self, p, screen):
         openness = clamp(self.sp_open.value, 0.0, 1.2)
         w = lerp(self.PILL_MIN_W, self.PILL_MAX_W, clamp(openness, 0.0, 1.0))
-        y = screen.top() - self.PILL_H + drop * (self.PILL_H + 10)
+        drop = clamp(self.sp_drop.value, 0.0, 1.0)
+        y = screen.top() - self.PILL_H + drop * (self.PILL_H + 12)
         pill = QRectF(screen.center().x() - w / 2, y, w, self.PILL_H)
 
         pg = QLinearGradient(pill.left(), pill.top(), pill.left(), pill.bottom())
@@ -262,66 +280,65 @@ class IslandPreview(sw.Graphic):
 
         done = self.phase == "done"
         cup_w = pixelface.cup_size(self.CUP_CELL)[0]
-        pixelface.draw_cup(p, int(pill.left() + 12 + cup_w / 2),
+        pixelface.draw_cup(p, int(pill.left() + 10 + cup_w / 2),
                            int(pill.center().y()),
                            1.0 if done else 0.22,
                            "SATISFIED" if done else "THIRSTY", pixelface.GLASS,
                            pixelface.WATER_DONE if done else pixelface.WATER,
                            pixelface.INK, cell=self.CUP_CELL)
 
+        # **進度點，不寫字。** 這張圖要說的是「它會出現、點一下就走」，
+        # 訊息內容不在說明範圍內；而且縮小之後的字比杯子還難認，
+        # 讀的人會停下來辨識它，注意力就從動作跑到文字上了。
+        # 點數是真的資訊：點一下就多亮一格，那是這個工具唯一的計數方式。
         if openness > 0.35:
-            fm = QFontMetrics(self._f)
-            p.setFont(self._f)
             base = p.opacity()
             p.setOpacity(base * clamp((openness - 0.35) / 0.4, 0.0, 1.0))
-            p.setPen(QColor(245, 245, 247))
-            p.drawText(int(pill.left() + 18 + cup_w),
-                       int(pill.center().y() + (fm.ascent() - fm.descent()) / 2),
-                       "已記錄" if done else "該喝水了")
+            filled = self.DOTS_AFTER if done else self.DOTS_BEFORE
+            span = self.DOTS * self.DOT_D + (self.DOTS - 1) * self.DOT_GAP
+            dx = pill.right() - 10 - span
+            for i in range(self.DOTS):
+                on = i < filled
+                p.setBrush(QBrush(pixelface.WATER_DONE if (on and done)
+                                  else pixelface.WATER if on
+                                  else QColor(255, 255, 255, 55)))
+                p.drawEllipse(QRectF(dx, pill.center().y() - self.DOT_D / 2,
+                                     self.DOT_D, self.DOT_D))
+                dx += self.DOT_D + self.DOT_GAP
             p.setOpacity(base)
 
         if self.phase in ("pointing", "done"):
-            self._draw_cursor(p, pill, self.phase == "done")
-        p.restore()
+            self._draw_cursor(p, pill, done)
 
     def _draw_screen(self, p):
-        """一台縮小的電腦：桌布、工作列。回傳螢幕的矩形。
+        """一台縮小的電腦：外框、桌布。回傳螢幕內容的矩形。
 
-        工作列是**讓人一眼認出這是桌面**的關鍵。只畫一塊漸層的話那是一張色卡，
-        底下加一條帶圖示的橫條，才會被讀成 Windows 的桌面。
+        **只畫上半台。** 下緣由 paintEvent 羽化掉——這張圖要說的事情全部發生在
+        螢幕頂端，把整台畫完只是把重點縮小。切一半再淡出，讀的人自己會補完
+        「下面還有」，而且視線留在上緣。
         """
-        x = (self.W - self.SCREEN_W) / 2
-        y = (self.H - self.SCREEN_H) / 2
-        screen = QRectF(x, y, self.SCREEN_W, self.SCREEN_H)
+        outer = QRectF(0, 0, self.W, self.H)
+        # 外框用接近真的螢幕邊框的深色，**兩個主題都一樣，不跟著翻**：
+        # 它代表的是一台實體螢幕，不是介面的一部分。
+        # 第一版給了中性灰（52,55,63），跟桌布的深藍太接近，整塊讀起來像一張卡片
+        # 而不是一台螢幕——邊框要夠深，桌布才會被看成「亮起來的那一面」。
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(QColor(22, 24, 28)))
+        p.drawRoundedRect(outer, 14, 14)
+        # 頂緣一道極淡的高光，塑膠外殼的反光。少了它整塊會像一個洞。
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(outer.adjusted(0.5, 0.5, -0.5, -0.5), 14, 14)
 
+        screen = QRectF(self.BEZEL, self.BEZEL,
+                        self.W - self.BEZEL * 2, self.H - self.BEZEL)
         wall = QLinearGradient(screen.left(), screen.top(),
                                screen.right(), screen.bottom())
         wall.setColorAt(0.0, QColor(46, 59, 85))
         wall.setColorAt(1.0, QColor(78, 62, 96))
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(wall))
-        p.drawRoundedRect(screen, 8, 8)
-
-        bar = QRectF(screen.left(), screen.bottom() - self.TASKBAR_H,
-                     screen.width(), self.TASKBAR_H)
-        p.save()
-        p.setClipRect(screen)          # 讓工作列吃到螢幕下緣的圓角
-        p.setBrush(QBrush(QColor(0, 0, 0, 90)))
-        p.drawRect(bar)
-        p.setBrush(QBrush(QColor(255, 255, 255, 120)))
-        icon, gap = 6, 5
-        total = icon * 4 + gap * 3
-        ix = bar.center().x() - total / 2
-        for _ in range(4):
-            p.drawRoundedRect(QRectF(ix, bar.center().y() - icon / 2, icon, icon),
-                              1.5, 1.5)
-            ix += icon + gap
-        p.restore()
-
-        # 螢幕外框：淺色主題下深色桌布已經夠明顯，深色主題需要一圈邊才分得出來
-        p.setPen(QPen(sw.PAL.veil(40), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(screen.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
+        p.drawRoundedRect(screen, 6, 6)
         return screen
 
     @staticmethod

@@ -83,36 +83,43 @@ def shot_flow(theme_name):
 
 
 def check_clipping():
-    """滑入時藥丸必須被那台縮小螢幕的上緣裁掉。
+    """滑入時藥丸必須被螢幕上緣裁掉，不能畫到外框那一圈上面。
 
     整張示意圖的意思就靠這一段：**它是從螢幕外面滑進來的。** 沒有裁切的話
-    藥丸會浮在螢幕上方，看起來像一個貼在圖上面的標籤，位置關係就沒說到。
+    藥丸會浮在外框上，看起來像貼在圖上面的標籤，位置關係就沒說到。
     這也是為什麼不再需要「螢幕上緣」那行小字——需要旁白的示意圖等於沒說清楚。
+
+    **不比顏色。** 外框（22,24,28）跟藥丸（30,31,36 -> 14,15,18）幾乎同色，
+    用色差判斷會漏。改成比「藥丸還沒出現」與「滑到一半」兩張圖的外框那條帶：
+    只要有一個像素不同，就是漏出去了。
     """
-    print("\n裁切（藥丸不能畫到縮小螢幕外面）")
+    print("")
+    print("裁切（藥丸不能畫到螢幕外框上）")
     sw.apply_theme("light")
     sw._FONTS.clear()
     pv = onboard.IslandPreview()
     pv.reveal = 1.0
     pv.resize(pv.W, pv.H)
-    card = sw.PAL.card_top
-    sy = (pv.H - pv.SCREEN_H) // 2
+
+    def band():
+        pm = QPixmap(pv.W, pv.H)
+        pm.fill(sw.PAL.card_top)
+        pv.render(pm)
+        img = pm.toImage()
+        return [img.pixelColor(x, y).rgba()
+                for y in range(pv.BEZEL)
+                for x in range(pv.W // 2 - 90, pv.W // 2 + 90)]
+
+    pv.sp_drop.snap(0.0)
+    pv.sp_open.snap(0.0)
+    baseline = band()
+
     worst, t = 0, 0.0
     while t < 1.2:
         pv.step(1 / 60)
         t += 1 / 60
-        pm = QPixmap(pv.W, pv.H)
-        pm.fill(card)
-        pv.render(pm)
-        img = pm.toImage()
-        for y in range(max(0, sy - 12), sy):
-            for x in range(pv.W // 2 - 100, pv.W // 2 + 100):
-                c = img.pixelColor(x, y)
-                if (abs(c.red() - card.red()) > 30
-                        or abs(c.green() - card.green()) > 30
-                        or abs(c.blue() - card.blue()) > 30):
-                    worst += 1
-    check(worst == 0, "滑入全程都沒有畫到螢幕外面", f"溢出 {worst} 個像素")
+        worst = max(worst, sum(1 for a, b in zip(baseline, band()) if a != b))
+    check(worst == 0, "滑入全程外框都沒有被藥丸蓋到", f"不同的像素 {worst} 個")
 
 
 def check_transition():
