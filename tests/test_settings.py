@@ -227,8 +227,15 @@ for c in win.cards:
 
 win.seg.set_index(1)                     # 今天 -> 紀錄
 check("換分頁後視窗維持不透明", win.sp_win.value, 1.0)
-check("換分頁有重播卡片", all(c.sp.target == 0.0 or c.sp.value < 1.0
-                              for c in win.cards), True)
+
+# 換過去的**那一瞬間**，新頁面的卡片必須已經是全透明的。
+# 不是的話就代表「先換頁、後壓暗」，中間會被畫出一幀全亮的畫面——
+# 使用者看到的是亮一下再淡入，也就是「閃一下」。
+check("換頁瞬間新卡片已壓到透明",
+      [round(c._fx.opacity(), 3) for c in win.cards],
+      [0.0] * len(win.cards))
+# 而且第一張要立刻開始淡入，不能排一個延遲計時器空在那裡
+check("第一張卡沒有空窗期", win.cards[0].sp.target, 1.0)
 
 win.sp_win.snap(1.0)
 for c in win.cards:

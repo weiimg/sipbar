@@ -1399,9 +1399,7 @@ class StatsWindow(QWidget):
             # 開窗本身的淡入由 open_window 呼叫 play_in() 負責。
             self.play_cards()
         else:
-            for c in self.cards:
-                c.sp.snap(1.0)
-                c.set_reveal(1.0)
+            self._settle(self.cards)
             self.sp_win.snap(1.0)
             self.setWindowOpacity(1.0)
 
@@ -1468,10 +1466,8 @@ class StatsWindow(QWidget):
             self.sub_lbl.setText("‹ 喝水紀錄")          # 麵包屑，可點
             self.sub_lbl.setStyleSheet(f"color:{C_ACCENT.name()};background:transparent")
             self.sub_lbl.setCursor(Qt.PointingHandCursor)
-            self.root.setCurrentIndex(1)
-            self.cards = self.settings_page.cards
+            cards = self.settings_page.cards
         else:
-            self.root.setCurrentIndex(0)
             if self._stats_stale:
                 # 目標次數變了，環、連續天數、成就的每個數字都要重算。
                 # 重建放在「離開設定頁的那一刻」，不是改的當下——
@@ -1482,11 +1478,20 @@ class StatsWindow(QWidget):
             self.sub_lbl.setText(f"每日目標 {self.data['target']} 次")
             self.sub_lbl.setStyleSheet(f"color:{INK3};background:transparent")
             self.sub_lbl.setCursor(Qt.ArrowCursor)
-            self.cards = self.page_cards[self.seg.index]
+            cards = self.page_cards[self.seg.index]
+
+        # 壓暗 -> 換頁 -> 淡入。中間不能留給 Qt 任何一次重繪的機會，
+        # 否則會先閃一幀全亮的新頁面。
+        if animate:
+            self._prime(cards)
+        self.root.setCurrentIndex(0 if mode == "stats" else 1)
+        self.cards = cards
         self._fit_height()
         self.update()
         if animate:
             self.play_cards()
+        else:
+            self._settle(cards)
 
     def _on_config_changed(self, cfg):
         """設定頁改了東西。存檔已經在設定頁做掉，這裡負責往上通知島。"""
@@ -1502,13 +1507,35 @@ class StatsWindow(QWidget):
         self.settings_page.cfg = dict(self.cfg)
 
     def _switch_page(self, i):
+        # 順序不能反：先把新頁面壓暗，再換過去。見 _prime()。
+        cards = self.page_cards[i]
+        self._prime(cards)
         self.stack.setCurrentIndex(i)
-        self.cards = self.page_cards[i]
+        self.cards = cards
         # 換頁重播進場：卡片依序滑入，讓人看見「這是一組新的東西」。
         # 用 play_cards 不是 play_in——視窗外框與標題沒有換，不該跟著閃。
         self.play_cards()
 
     # ------------------------------------------------------------ 動畫
+
+    @staticmethod
+    def _prime(cards):
+        """把卡片壓到全透明。**一定要在切換頁面之前做。**
+
+        QStackedWidget 換頁是立刻生效的，而新頁面的卡片還留著上次離開時的
+        不透明度 1.0。先換頁再壓暗，中間就會被畫出一幀全亮的畫面——
+        眼睛看到的是「亮一下 → 全黑 → 淡入」，那就是使用者說的閃。
+        壓暗與換頁之間不能有任何一次重繪的機會。
+        """
+        for c in cards:
+            c.sp.value = c.sp.velocity = c.sp.target = 0.0
+            c.set_reveal(0.0)
+
+    @staticmethod
+    def _settle(cards):
+        for c in cards:
+            c.sp.snap(1.0)
+            c.set_reveal(1.0)
 
     def play_in(self):
         """開窗：整個視窗淡入，然後卡片依序進場。"""
@@ -1516,19 +1543,27 @@ class StatsWindow(QWidget):
         self.sp_win.tune(*PRESET["enter"])
         self.sp_win.value = self.sp_win.velocity = 0.0
         self.sp_win.target = 1.0
-        self.play_cards()
+        self.play_cards(start_delay=40)
 
-    def play_cards(self):
-        """換頁：只有卡片重新進場，視窗本身不動。
+    def play_cards(self, start_delay=0):
+        """卡片重新進場，視窗本身不動。
 
         換頁不能重播 play_in()。那會把整個視窗的不透明度從 0 拉回 1，
         標題、外框、分頁控制項全部跟著閃一次——那不是換頁，看起來像視窗關掉重開。
         **只有真正換掉的東西該動**，沒換的東西動了就是在騙使用者說它變了。
+
+        `start_delay` 只給開窗用：那時視窗自己也在淡入，卡片晚一點進來才有層次。
+        換頁時必須是 0——頁面已經換掉了，還空著幾十毫秒不動，
+        那段空白比動畫本身更顯眼。
         """
         for i, card in enumerate(self.cards):
             card.sp.value = card.sp.velocity = card.sp.target = 0.0
             card.set_reveal(0.0)
-            QTimer.singleShot(40 + i * STAGGER_MS, lambda c=card: self._start(c))
+            delay = start_delay + i * STAGGER_MS
+            if delay <= 0:
+                card.sp.target = 1.0        # 第一張立刻開始，不排計時器
+            else:
+                QTimer.singleShot(delay, lambda c=card: self._start(c))
         self._kick()
 
     def _start(self, card):
