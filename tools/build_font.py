@@ -63,7 +63,7 @@ OFL 要求衍生物同樣用 OFL 散布並附上授權，見 assets/fonts/README
     python tools/build_font.py
 
 來源放 tools/fontsrc/（跟著版本庫走，理由見該資料夾的 README），
-成品寫進 assets/fonts/。需要 `pip install fonttools`，只有建置需要。
+成品寫進 assets/fonts/。需要 `pip install fonttools skia-pathops`，只有建置需要。
 
 **改完一定要跑 `tests/test_font_build.py`。** 這裡每一種失敗方式都是靜默的：
 字體開得起來、程式跑得動、只有畫出來才看得出不對。
@@ -77,6 +77,7 @@ from fontTools.pens.qu2cuPen import Qu2CuPen
 from fontTools.pens.reverseContourPen import ReverseContourPen
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import TTFont
+from fontTools.ttLib.removeOverlaps import removeOverlaps
 from fontTools.ttLib.scaleUpem import scale_upem
 from fontTools.varLib import instancer
 
@@ -144,13 +145,25 @@ LICENSE_URL = "https://scripts.sil.org/OFL"
 
 
 def latin_source(wght):
-    """把可變的 Inter 定成一個字重的靜態字體，並縮到 Noto 的 upem。
+    """把可變的 Inter 定成一個字重的靜態字體、合併重疊輪廓、縮到 Noto 的 upem。
 
     upem 一定要先對齊（Inter 2048、Noto 1000），否則字形貼進去會是原來的兩倍大。
     scale_upem 會連 hmtx 一起換算，所以要在讀寬度之前做。
+
+    ## 合併重疊是必要的，不是保險
+
+    **Inter 的 `#` 是四條同方向的橫豎條疊在一起**（`+` 兩條、`×` 兩條、`4` 兩條），
+    靠非零環繞填成實心。TrueType 這樣畫沒問題，**但 CFF 的柵格化假設輪廓不重疊**——
+    直接搬過去，筆畫交叉的地方會在小字級變成白的。
+
+    這個症狀騙過兩道檢查：256px 的逐像素比對是乾淨的（0.57%），
+    字樣圖上看得到卻被我當成點陣放大的假象。**它只在介面真正用的 15px 出現**，
+    最後是使用者回報「筆畫交叉的地方會變白色」才抓到。
+    tests/test_font_build.py 第 8 節現在就在 15px 上數這種洞。
     """
     font = instancer.instantiateVariableFont(
         TTFont(INTER), {"wght": wght, "opsz": OPSZ}, inplace=False)
+    removeOverlaps(font)
     scale_upem(font, 1000)
     return font
 

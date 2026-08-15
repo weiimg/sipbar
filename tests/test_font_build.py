@@ -261,5 +261,66 @@ for cp in build_font.KEEP_NOTO:
         wrong_keep.append(f"U+{cp:04X} {chr(cp)!r} 被換掉了")
 check("KEEP_NOTO 裡的字元確實沒被換到", wrong_keep or "全對", "全對")
 
+print("\n8. 換進去的字形不能有重疊輪廓")
+# **這一節是使用者回報「筆畫交叉的地方會變白色」修出來的。**
+#
+# Inter 的 `#` 是四條同方向的橫豎條疊在一起（`+` 兩條、`×` 兩條、`4` 兩條），
+# 靠非零環繞填成實心。TrueType 這樣畫沒問題，但 CFF 的柵格化假設輪廓不重疊，
+# 直接搬過去，筆畫交叉處在小字級會變白。
+#
+# **它騙過了前面兩道檢查**：第 6 節在 256px 逐像素比對是乾淨的（0.57%），
+# 字樣圖上看得到卻被當成點陣放大的假象。症狀只在介面真正用的 15px 出現。
+#
+# 所以這裡不數像素——數像素要挑對字級，挑錯就漏。改成檢查輪廓本身。
+#
+# 判準是**有號面積**：各輪廓的有號面積相加，在沒有重疊時剛好等於實際填色的面積
+# （外框正、內孔負）。同方向的輪廓一重疊，重疊處就被算兩次，總和大於實際面積。
+# 把圖形 simplify() 之後重算，兩個數字不一樣就代表原本有重疊。
+#
+# 第一版比的是「simplify 前後的線段數」，結果 `:` `;` `M` `R` `Z` 全部誤報——
+# simplify 就算沒有重疊也會重排線段。**線段數是實作細節，面積才是幾何事實。**
+import pathops  # noqa: E402
+
+from fontTools.pens.areaPen import AreaPen  # noqa: E402
+from fontTools.pens.recordingPen import RecordingPen  # noqa: E402
+
+built = TTFont(os.path.join(build_font.OUT, build_font.WEIGHTS[0][0]))
+built_glyphs = built.getGlyphSet()
+b_cmap = built.getBestCmap()
+
+
+def signed_area(draw_into):
+    pen = AreaPen()
+    draw_into(pen)
+    return abs(pen.value)
+
+
+overlapping = []
+for cp in build_font.SUBSTITUTE:
+    if cp not in b_cmap:
+        continue
+    path = pathops.Path()
+    built_glyphs[b_cmap[cp]].draw(path.getPen())
+    before = signed_area(built_glyphs[b_cmap[cp]].draw)
+    path.simplify()
+    after = signed_area(path.draw)
+    # 容差給 0.5%：qu2cu 轉曲線本來就會有微小誤差，重疊造成的差是整塊面積等級的
+    if before and abs(before - after) / before > 0.005:
+        overlapping.append(f"U+{cp:04X} {chr(cp)!r} 多算了 {before - after:.0f}")
+check("102 個換進去的字形都沒有重疊輪廓", overlapping[:6] or "全對", "全對")
+
+# 中文那邊不能被 removeOverlaps 波及——它只跑在 Inter 上，Noto 原封不動。
+cjk_diff = []
+for ch in "中水續補動態島顯示":
+    cp = ord(ch)
+    if cp not in b_cmap or cp not in n_cmap:
+        continue
+    a_pen, b_pen = RecordingPen(), RecordingPen()
+    src.getGlyphSet()[n_cmap[cp]].draw(a_pen)
+    built_glyphs[b_cmap[cp]].draw(b_pen)
+    if a_pen.value != b_pen.value:
+        cjk_diff.append(ch)
+check("中文字形跟來源逐點相同", cjk_diff or "全對", "全對")
+
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗"))
 sys.exit(1 if fails else 0)

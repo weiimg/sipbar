@@ -11,8 +11,11 @@
 可變字體、Noto Sans TC 的靜態 OTF 也已經不在同一個位置，改成隨用隨抓的話，
 哪天上游換了檔名或格式，建置就再也重現不出同一份成品。
 
-建置需要 `fonttools`（只有建置需要，跑程式不需要）：
+建置需要兩個套件（**只有建置需要，跑程式不需要**）：
 
-    pip install fonttools
+    pip install fonttools skia-pathops
+
+`skia-pathops` 是拿來合併重疊輪廓的。Inter 的 `#` `+` `×` `4` 都是同方向的
+筆畫疊在一起，CFF 的柵格化假設輪廓不重疊，不合併的話筆畫交叉處在小字級會變白。
 
 授權都是 SIL OFL 1.1，見 `assets/fonts/` 裡的兩份 `*-OFL.txt`。
