@@ -158,14 +158,16 @@ inter.save(buf)
 inter_id = QFontDatabase.addApplicationFontFromData(buf.getvalue())
 INTER_FAMILY = QFontDatabase.applicationFontFamilies(inter_id)[0]
 
-PX = 256                        # 小於這個就開始量到柵格化的雜訊，見上面
-CELL = PX * 2
+# 名字不能叫 PX：第 3 節的 em() 會讀那個全域來換算 hmtx，被蓋掉之後
+# 第 7 節拿 256 的期望值去比 100px 量到的寬度，三個沒換的字元全部誤報成被換掉。
+RASTER_PX = 256                 # 小於這個就開始量到柵格化的雜訊，見上面
+CELL = RASTER_PX * 2
 
 
 def raster(family, ch, tabular_feature):
     f = QFont()
     f.setFamilies([family])
-    f.setPixelSize(PX)
+    f.setPixelSize(RASTER_PX)
     f.setWeight(QFont.Medium)
     if tabular_feature:
         # 成品的數字直接就是等寬那一組；要跟它比，Inter 這邊得把 tnum 打開。
@@ -176,7 +178,7 @@ def raster(family, ch, tabular_feature):
     p.setRenderHint(QPainter.TextAntialiasing, True)
     p.setFont(f)
     p.setPen(QColor(255, 255, 255))
-    p.drawText(QPoint(PX // 6, int(PX * 1.2)), ch)
+    p.drawText(QPoint(RASTER_PX // 6, int(RASTER_PX * 1.2)), ch)
     p.end()
     return img
 
@@ -209,6 +211,55 @@ for cp in build_font.SUBSTITUTE:
         broken.append(f"{ch!r} 差 {ratio:.1%}")
 check("轉出來的字形跟 Inter 一致", broken[:5] or "全對", "全對")
 print(f"       差最多的是 {worst[0]!r}，{worst[1]:.2%} 的像素不同（門檻 1%）")
+
+print("\n7. 介面用到的每個非中文字元，都要判斷過要不要換")
+# **這一節是修 bug 修出來的。** 初版用「Latin-1 補充區用不到」這個猜測排除整個區塊，
+# 結果「3440×1440」變成兩個 Inter 數字夾一個 Noto 乘號——大一號、重一號、
+# 左右還帶著中文字體的留白。判準不是碼位落在哪個區塊，是它出現在什麼字之間。
+#
+# 所以這裡不檢查「換得對不對」（那是設計判斷），只檢查**有沒有判斷過**：
+# 每個字元要嘛在 SUBSTITUTE、要嘛在 KEEP_NOTO 並附理由。漏掉就擋下來。
+import io as _io2  # noqa: E402
+import re as _re  # noqa: E402
+
+STRING = _re.compile('"([^"]*)"')
+
+
+def is_cjk(ch):
+    cp = ord(ch)
+    return 0x3000 <= cp <= 0x9FFF or 0xFF00 <= cp <= 0xFFEF
+
+
+undecided = {}
+for name in ("island.py", "stats_window.py", "menu.py", "onboard.py", "settings.py"):
+    for lineno, line in enumerate(_io2.open(os.path.join(APP, name),
+                                            encoding="utf-8"), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        for m in STRING.finditer(line):
+            for ch in m.group(1):
+                cp = ord(ch)
+                if ch.isascii() or is_cjk(ch):
+                    continue
+                if cp in build_font.SUBSTITUTE or cp in build_font.KEEP_NOTO:
+                    continue
+                undecided.setdefault(f"U+{cp:04X} {ch!r}", f"{name}:{lineno}")
+check("沒有未判斷的字元",
+      [f"{k}（{v}）" for k, v in undecided.items()] or "全部判斷過", "全部判斷過")
+if undecided:
+    print("       把它加進 build_font.SUBSTITUTE（夾在拉丁字之間）"
+          "或 KEEP_NOTO（前後是中文，要附理由）")
+
+# 不換的那些，字形必須真的還是 Noto 的
+wrong_keep = []
+for cp in build_font.KEEP_NOTO:
+    if cp not in n_cmap:
+        continue
+    want = em(src, n_cmap, cp)
+    got = qm.horizontalAdvance(chr(cp))
+    if abs(got - want) > 1.0:
+        wrong_keep.append(f"U+{cp:04X} {chr(cp)!r} 被換掉了")
+check("KEEP_NOTO 裡的字元確實沒被換到", wrong_keep or "全對", "全對")
 
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗"))
 sys.exit(1 if fails else 0)
