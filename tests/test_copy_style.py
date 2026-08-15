@@ -53,6 +53,31 @@ BANNED = {
 STRING = re.compile('"([^"]{3,})"')
 CJK = re.compile("[\u4e00-\u9fff]")
 
+
+def restated(text):
+    """\u9017\u865f\u5169\u908a\u51fa\u73fe\u540c\u4e00\u500b\u8a5e\uff0c\u591a\u534a\u662f\u5f8c\u534a\u53e5\u628a\u524d\u534a\u53e5\u518d\u8b1b\u4e00\u6b21\u3002
+
+    \u6293\u5230\u904e\u7684\u5be6\u4f8b\uff1a\u300c\u4ee5\u5728\u96fb\u8166\u524d\u7684\u6642\u9593\u8a08\u7b97\uff0c\u96e2\u958b\u96fb\u8166\u4e0d\u7b97\u300d\u2014\u2014
+    \u7b2c\u4e00\u53e5\u5df2\u7d93\u628a\u8a71\u8aaa\u5b8c\uff0c\u7b2c\u4e8c\u53e5\u53ea\u662f\u63db\u500b\u8aaa\u6cd5\u91cd\u8907\uff0c\u8b80\u7684\u4eba\u5f97\u8b80\u5169\u904d\u624d\u78ba\u5b9a\u6c92\u6709\u65b0\u8cc7\u8a0a\u3002
+
+    \u9019\u662f**\u5197\u8d05**\u4e0d\u662f\u7528\u8a5e\u4e0d\u7576\uff0c\u6240\u4ee5\u4e0a\u9762\u90a3\u4efd\u9055\u7981\u8a5e\u6e05\u55ae\u6293\u4e0d\u5230\u5b83\u3002
+    \u7528\u300c\u5169\u500b\u5b50\u53e5\u5171\u7528\u4e00\u500b\u96d9\u5b57\u8a5e\u300d\u7576\u8a0a\u865f\uff1a\u5be6\u6e2c\u5c0d\u73fe\u6709\u7684\u6240\u6709\u591a\u5b50\u53e5\u6587\u6848\u96f6\u8aa4\u5831
+    \uff08\u300c\u79fb\u9664\u6240\u6709\u88dc\u6c34\u7d00\u9304\u8207\u9023\u7e8c\u5929\u6578\uff0c\u8a2d\u5b9a\u4fdd\u7559\u300d\u300c\u63a8\u4f30\u503c\uff0c\u7d2f\u7a4d\u8db3\u5920\u7d00\u9304\u5f8c\u81ea\u52d5\u6821\u6e96\u300d
+    \u9019\u4e9b\u90fd\u662f\u524d\u5f8c\u5404\u8b1b\u4e00\u4ef6\u4e8b\uff0c\u4e0d\u6703\u5171\u7528\u8a5e\uff09\u3002
+
+    \u56de\u50b3\u5171\u7528\u7684\u90a3\u500b\u8a5e\uff0c\u6c92\u6709\u5c31\u56de None\u3002
+    """
+    parts = [p for p in re.split("[\uff0c\u3002]", text) if len(p) >= 4]
+    for i, a in enumerate(parts):
+        grams_a = {a[k:k + 2] for k in range(len(a) - 1) if CJK.match(a[k:k + 2] or " ")}
+        grams_a = {g for g in grams_a if len(g) == 2 and CJK.match(g[0]) and CJK.match(g[1])}
+        for b in parts[i + 1:]:
+            grams_b = {b[k:k + 2] for k in range(len(b) - 1)}
+            shared = grams_a & grams_b
+            if shared:
+                return sorted(shared)[0]
+    return None
+
 fails = []
 checked = 0
 
@@ -90,6 +115,10 @@ for name in TARGETS:
             for word, why in BANNED.items():
                 if word in text:
                     fails.append((name, lineno, text, word, why))
+            dup = restated(text)
+            if dup:
+                fails.append((name, lineno, text, dup,
+                              "冗贅：逗號兩邊都出現這個詞，後半句多半沒有新資訊"))
 
 print(f"檢查了 {checked} 個介面字串")
 for name, lineno, text, word, why in fails:

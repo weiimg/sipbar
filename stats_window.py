@@ -1571,7 +1571,7 @@ class SettingsPage(QWidget):
         self.interval.changed.connect(self._on_interval)
         card.add(setting_row("提醒間隔",
                              row(self.interval, Label("分鐘", "body", INK3), spacing=S2),
-                             "以在電腦前的時間計算，離開電腦不算"))
+                             "以在電腦前的時間計算"))
         card.add(Divider())
 
         # 夜間放慢是「提醒間隔」的補充條件，不是另一個主題——它先前自成一張
@@ -1664,9 +1664,9 @@ class SettingsPage(QWidget):
         card.add(GRID)
         # 隱私聲明放這裡而不是體重欄底下：這是使用者會主動來找的地方，
         # 而輸入欄的說明行該留給那一欄的結果。
-        card.add(para("體重與所有設定僅儲存於本機，本程式無網路連線。"))
-        card.add(para("每日目標依國民健康署一般性建議與體重推算，非醫療建議。"
-                      "本工具僅涵蓋使用電腦期間，不含流汗量大的日子所需的額外補充。"))
+        card.add(para("本程式無網路連線，資料僅儲存於本機。"))
+        card.add(para("每日目標依國民健康署的公開資料與體重推算，不構成醫療建議。"
+                      "僅涵蓋使用電腦期間，未計入運動或流汗的額外需求。"))
         return card
 
     def _schedule_note(self):
