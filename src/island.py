@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 
 from PySide6.QtCore import QPoint, QRectF, Qt, QTimer
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QFontMetrics, QIcon, QLinearGradient,
+    QBrush, QColor, QCursor, QFont, QFontMetrics, QIcon, QLinearGradient,
     QPainter, QPen, QPixmap, QRadialGradient,
 )
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QWidget
@@ -97,14 +97,16 @@ ACCENT = QColor("#4FA8E8")
 # 改成跟著螢幕寬走，兩端夾住：太窄打不到，太寬會誤觸。
 #
 # 這兩個上下限是**實體像素**。它們講的是「手能不能瞄準」與「會不會誤觸」，
-# 那是眼睛與滑鼠的事，不是座標系的事。而 Qt 給的螢幕寬是邏輯像素，
-# 高 DPI 下兩者差好幾倍——直接拿邏輯像素去夾，防呆自己會變成災情：
+# 那是眼睛與滑鼠的事，而使用者的手是在實體像素裡移動的。
 #
-#   1366 的小筆電 @ 200% 縮放：邏輯寬只剩 683，被 MIN 撐到熱區佔螢幕 41%
-#   1920 FHD     @ 200% 縮放：29%
+# 但 `peek_half_w()` 的回傳值要拿去跟 `QScreen.geometry()` 比，那是邏輯像素。
+# 所以夾之前先除以 dpr 換算過去；乘回 dpr 就是使用者真正要跨過的距離，
+# 在任何縮放下都是同一個實體寬度。
 #
-# 上緣中段四成都會叫出島，那正是註解上一段說要避免的「誤觸」。
-# 所以夾之前先把上下限換算回邏輯像素。
+# 這件事要跟 `cursor_pos()` 一起看才完整——光把上下限換算好沒有用，
+# 比較式的另一端（游標）當初回的是實體像素，兩邊座標系不同的話夾多寬都不對。
+# 那個 bug 讓熱區整個偏離螢幕中央（偏到 `實體寬 /(2×dpr)`），
+# 在 200% 縮放下照著文件瞄準上緣正中央永遠叫不出島。理由見 cursor_pos()。
 PEEK_HALF_MIN, PEEK_HALF_MAX = 140, 320
 PEEK_WIDTH_RATIO = 0.093
 PEEK_EDGE_PX = 10
@@ -197,9 +199,26 @@ _kernel32.GetTickCount64.restype = ctypes.c_ulonglong
 
 
 def cursor_pos():
-    pt = wintypes.POINT()
-    _user32.GetCursorPos(ctypes.byref(pt))
-    return pt.x, pt.y
+    """游標位置，**邏輯像素**，跟 QScreen.geometry() 同一個座標系。
+
+    這裡不用 Win32 的 `GetCursorPos`。它跟旁邊那幾支不一樣——閒置偵測與單一
+    實例鎖是 Qt 沒有的東西，非 ctypes 不可；游標位置 Qt 本來就有，而且只有
+    Qt 這條給的是對的座標。
+
+    Qt6 預設把程序設成 per-monitor DPI aware，於是 `GetCursorPos` 回的是
+    **實體像素**，而 `QScreen.geometry()` 回的是**邏輯像素**。100% 縮放時兩者
+    相同，所以這個 bug 可以躺很久不被發現；一旦使用者把顯示縮放調到 200%，
+    兩個呼叫端就同時壞掉：
+
+    - `_peek_tick` 拿實體 x 去減邏輯中心，熱區中心跑到 `實體寬 /(2×dpr)`，
+      照文件瞄準螢幕上緣正中央永遠叫不出島
+    - `_popup_menu` 把實體座標交給 Qt 定位選單，選單會開在別的地方
+
+    `QCursor.pos()` 另外處理了混合 DPI 的多螢幕——那不是「除以一個 dpr」
+    做得出來的，每台螢幕的換算係數不一樣。
+    """
+    p = QCursor.pos()
+    return p.x(), p.y()
 
 
 def idle_seconds():

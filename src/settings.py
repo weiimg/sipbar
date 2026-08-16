@@ -113,6 +113,11 @@ _OLD_DATA_DIR = os.path.join(
 _REAL_PATHS = frozenset(
     os.path.normcase(os.path.abspath(p))
     for p in (CONFIG_PATH, STATE_PATH, EVENTS_PATH,
+              # crash.log 也要在防線內。它不像另外三個那樣攸關使用者的紀錄，
+              # 但沒列進來的話，任何測試或臨時腳本只要走到 crashlog.record()
+              # 就會往使用者真實的資料夾 append，而「防線沒有攔截到任何寫入」
+              # 那條斷言照樣回報 []——防線在那條路上是瞎的。
+              os.path.join(DATA_DIR, "crash.log"),
               os.path.join(_OLD_DATA_DIR, "config.json"),
               os.path.join(_OLD_DATA_DIR, "state.json"),
               os.path.join(_OLD_DATA_DIR, "events.jsonl")))   # 先凍結，後面誰改路徑都不影響

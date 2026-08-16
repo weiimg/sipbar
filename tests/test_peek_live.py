@@ -27,10 +27,10 @@ w.tick_timer.stop()
 
 scr = QApplication.primaryScreen().geometry()
 # 測熱區邊緣而不是正中心：能打到邊緣才代表實務上摸得到
-target_x = scr.center().x() + isl.PEEK_HALF_W - 20
+target_x = scr.center().x() + isl.peek_half_w(scr.width(), QApplication.primaryScreen().devicePixelRatio()) - 20
 target_y = scr.top() + isl.PEEK_EDGE_PX - 2
 print(f"螢幕 {scr.width()}x{scr.height()} top={scr.top()} center.x={scr.center().x()}")
-print(f"熱區 x in [{scr.center().x() - isl.PEEK_HALF_W}, {scr.center().x() + isl.PEEK_HALF_W}]  y<={scr.top() + isl.PEEK_EDGE_PX}")
+print(f"熱區 x in [{scr.center().x() - isl.peek_half_w(scr.width(), QApplication.primaryScreen().devicePixelRatio())}, {scr.center().x() + isl.peek_half_w(scr.width(), QApplication.primaryScreen().devicePixelRatio())}]  y<={scr.top() + isl.PEEK_EDGE_PX}")
 
 saved = isl.cursor_pos()
 ctypes.windll.user32.SetCursorPos(target_x, target_y)
@@ -44,7 +44,7 @@ def phase1():
     # 這個測試會搶走真實游標。使用者同時在用滑鼠時游標會被移走，
     # 那是干擾不是失敗——先確認游標還在熱區，不在就標記略過。
     x, y = isl.cursor_pos()
-    in_zone = abs(x - scr.center().x()) <= isl.PEEK_HALF_W and y <= scr.top() + isl.PEEK_EDGE_PX
+    in_zone = abs(x - scr.center().x()) <= isl.peek_half_w(scr.width(), QApplication.primaryScreen().devicePixelRatio()) and y <= scr.top() + isl.PEEK_EDGE_PX
     if not in_zone:
         results["skipped"] = f"游標被移到 ({x}, {y})，不在熱區"
     w._peek_tick()

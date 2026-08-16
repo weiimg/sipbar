@@ -185,6 +185,9 @@ print(f"       實際 {mask_w}px（藥丸 {isl.PILL_MIN[0]}px + 陰影，視窗 
 print("\n14. 頂端探頭：不依賴系統匣的入口")
 scr = QApplication.primaryScreen().geometry()
 CURSOR = [scr.center().x(), 0]
+# 這個替身裝上去就不拆了（後面的探頭測試都靠它），所以真本尊要先留一份——
+# 第 25b 節要驗的是本尊的座標系，驗替身沒有意義。
+REAL_CURSOR_POS = isl.cursor_pos
 isl.cursor_pos = lambda: (CURSOR[0], CURSOR[1])
 
 w.drinks = 2
@@ -564,24 +567,47 @@ w24._menu_dismissed()
 check("選單關掉後補收回去", w24.sp_reveal.target, 0.0)
 isl.cursor_pos = _saved_cursor
 
-print("\n25. 探頭熱區的寬度不能被顯示縮放放大")
-# 上下限講的是「手能不能瞄準」與「會不會誤觸」，那是實體尺寸。
-# Qt 給的螢幕寬是邏輯像素，直接拿去夾的話，防呆自己會變成災情：
-# 1366 的小筆電在 200% 縮放下，熱區會被 MIN 撐到佔螢幕寬 41%——
-# 上緣中段四成都會叫出島。修正前後的數字見 DESIGN.md。
+print("\n25. 探頭熱區在任何顯示縮放下都是同一個實體大小")
+# **一定要量實體像素。** 上下限講的是「手能不能瞄準」「會不會誤觸」，那是眼睛
+# 與滑鼠的事；使用者的手也是在實體像素裡移動的。
+#
+# 第一版的這條測試量的是「佔邏輯寬的比例」，結果測試綠燈但東西是壞的——
+# 那個指標不是使用者感受到的那個。量錯座標系的測試比沒有測試更糟，
+# 它會發出「已經驗過了」的訊號。
 _bad = []
 for _phys in (1366, 1920, 2560, 3440, 3840):
-    _ratios = []
+    _widths = []
     for _sc in (1.0, 1.25, 1.5, 2.0):
         _lw = int(_phys / _sc)
-        _ratios.append(isl.peek_half_w(_lw, _sc) * 2 / _lw * 100)
-    # 同一台實體螢幕，不管使用者把縮放調到多少，熱區佔的比例應該一樣
-    if max(_ratios) - min(_ratios) > 0.5:
-        _bad.append((_phys, [round(r, 1) for r in _ratios]))
-check("同一台螢幕在四種縮放下熱區比例一致", _bad, [])
-check("小筆電 @200% 不會被撐到誤觸區",
-      round(isl.peek_half_w(683, 2.0) * 2 / 683 * 100, 1) < 25.0, True)
+        # peek_half_w 回的是邏輯像素（跟 geometry() 同一個座標系），
+        # 乘回 dpr 才是使用者的手要跨過的實際距離。
+        _widths.append(isl.peek_half_w(_lw, _sc) * 2 * _sc)
+    if max(_widths) - min(_widths) > 4:          # 4px 是整數取整的餘裕
+        _bad.append((_phys, [round(w) for w in _widths]))
+check("同一台螢幕在四種縮放下實體熱區寬度一致", _bad, [])
+check("上下限是實體像素：1366 @200% 仍是 280 實體像素",
+      round(isl.peek_half_w(683, 2.0) * 2 * 2.0), 280)
 check("dpr 給 0 或 None 也不能除爆", isl.peek_half_w(1920, 0), isl.peek_half_w(1920, 1.0))
+
+print("\n25b. 游標座標必須跟 geometry() 同一個座標系")
+# 這一條是上一條的前提。熱區的比較式是 abs(游標x - geometry().center().x())，
+# 兩邊的座標系一旦不同，夾多寬都沒有意義。
+# Qt6 預設把程序設成 per-monitor DPI aware，Win32 的 GetCursorPos 回實體像素，
+# 而 QScreen.geometry() 回邏輯像素——100% 縮放時兩者相同，所以這個 bug
+# 可以躺很久不被發現。
+from PySide6.QtGui import QCursor as _QCursor  # noqa: E402
+_qt = _QCursor.pos()
+check("cursor_pos() 回的是 Qt 的邏輯座標", REAL_CURSOR_POS(), (_qt.x(), _qt.y()))
+# 反過來也要擋住：如果哪天有人改回 Win32 的 GetCursorPos，這一條會在
+# 100% 縮放下照樣通過（那時兩者相同），所以另外比一次實體座標。
+import ctypes as _ct  # noqa: E402
+from ctypes import wintypes as _wt  # noqa: E402
+_pt = _wt.POINT()
+_ct.WinDLL("user32").GetCursorPos(_ct.byref(_pt))
+_dpr = QApplication.primaryScreen().devicePixelRatio()  # noqa: F811
+check("而且在縮放不是 1 時，跟 Win32 的實體座標確實不同",
+      (REAL_CURSOR_POS()[0] == _pt.x) if _dpr == 1.0 else (REAL_CURSOR_POS()[0] != _pt.x),
+      True)
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。

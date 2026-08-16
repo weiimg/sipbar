@@ -85,8 +85,20 @@ def _trim(p):
         pass
 
 
+_installed = False
+
+
 def install():
-    """掛上兩條攔截路徑。由 island.main() 呼叫一次。"""
+    """掛上兩條攔截路徑。由 island.main() 呼叫一次。
+
+    重複呼叫會直接返回。不擋的話 `prev` 會抓到上一次裝的 hook，一次崩潰就
+    經過兩層 record()，crash.log 裡每筆都出現兩份——看起來像崩潰了兩次。
+    """
+    global _installed
+    if _installed:
+        return
+    _installed = True
+
     prev = sys.excepthook
 
     def hook(exc_type, exc, tb):
@@ -144,11 +156,13 @@ def summary():
         size = os.path.getsize(p)
         with open(p, "r", encoding="utf-8", errors="replace") as f:
             lines = [ln for ln in f if ln.strip()]
-        stamps = [ln.split()[0] for ln in lines
-                  if ln[:4].isdigit() and "T" in ln[:20]]
+        stamps = [ln for ln in lines if ln[:4].isdigit() and "T" in ln[:20]]
         if not stamps:
             return f"有紀錄（{size} bytes）"
-        return f"{len(stamps)} 筆，最後一次 {stamps[-1]}"
+        # 只回筆數，不回時間。這段會進「診斷資訊」的剪貼簿，而時間戳會透露
+        # 「這台機器那個時間在使用中」。要對時間的話，crash.log 本身就有——
+        # 那份是使用者自己決定要不要附上的。
+        return f"{len(stamps)} 筆"
     except Exception:                                   # noqa: BLE001
         return "讀取失敗"
 

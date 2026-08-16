@@ -2042,8 +2042,11 @@ class SettingsPage(QWidget):
             f" @ {scr.devicePixelRatio():.2f}x",
             f"字體 {'內嵌' if typeface.ensure_loaded()[0] else '系統 fallback'}",
             f"主題 {self.cfg.get('theme')}／臉 {self.cfg.get('face_style')}",
+            # 只放推導出來的目標，**不放體重**。體重是個人健康資料，而且目標
+            # 已經是它算出來的結果，對修 bug 沒有額外資訊——這一段會被貼進
+            # 公開的 issue 裡。
             f"目標 {appsettings.effective_target(self.cfg)} 次"
-            f"（體重 {self.cfg.get('weight_kg') or '未填'}）",
+            f"（{'依體重推導' if not self.cfg.get('target_manual') else '手動指定'}）",
             f"間隔 {self.cfg.get('interval_min')} 分",
             f"崩潰紀錄 {crashlog.summary()}",
         ]
