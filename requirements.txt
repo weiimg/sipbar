@@ -1,0 +1,8 @@
+# 執行 Sipbar 需要的全部東西，就這一個。
+#
+# 用 Essentials 而不是完整的 PySide6：程式只碰 QtCore、QtGui、QtWidgets，
+# 三個都在 Essentials 裡，完整包會多下載一整套用不到的 Addons。
+# 已經裝了完整的 PySide6 也不用改，它本來就含這些模組。
+PySide6-Essentials>=6.11
+
+# 重建字體、重畫圖示、跑完整測試要的東西在 requirements-dev.txt，單純使用不用裝。

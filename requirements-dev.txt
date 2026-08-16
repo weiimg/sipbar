@@ -1,0 +1,12 @@
+# 只有要重建產出物或跑完整測試才需要。**單純使用 Sipbar 不用裝這些。**
+-r requirements.txt
+
+# tools/build_font.py：把 Inter 的拉丁字形合進 Noto Sans TC，產生 assets/fonts/ 的兩個 OTF
+fonttools>=4.63
+skia-pathops>=0.9.2   # 合併重疊輪廓；不做的話筆畫交叉處在小字級會變白
+
+# make_icon.py：產生 icon.ico
+Pillow>=12.2
+
+# tests/lottie_probe.py、tests/render_pixel_face.py：Lottie 動畫的評估腳本
+rlottie-python>=1.3.8
