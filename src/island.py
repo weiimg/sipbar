@@ -37,6 +37,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QWidget
 
+import crashlog                               # 閃退時把 traceback 留下來
 import pixelface                              # 像素杯與表情
 import settings                               # 路徑、設定、推導、開機自啟
 import typeface                               # 隨程式散布的字體
@@ -1425,6 +1426,10 @@ def main():
     # 其他任何人（測試、臨時驗證腳本、互動式 shell）碰到真實路徑一律當場拋例外。
     # 要在 load_config() 之前——設定檔不存在時它會寫一份預設值出去。
     settings.arm_real_writes()
+    # 要在舉手之後、其他任何事情之前。從這一行開始，任何沒被接住的例外都會
+    # 留下 traceback——在此之前崩潰的話，程式還沒碰到使用者的資料，
+    # 而且那種崩潰從 console 跑一次就看得到。
+    crashlog.install()
     # 改名的遷移。資料夾那份在 load_config() 裡（它得先搬完才有東西可讀），
     # 自啟這份在這裡——它跟設定檔無關，而且要在使用者有機會去動開關之前做完，
     # 否則面板讀到的是「沒有自啟」，一按就寫了新的，舊的那筆從此沒人管。
