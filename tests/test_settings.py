@@ -12,13 +12,13 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 # 台灣 Windows 的主控台預設是 cp950，而被驗的 UI 文案裡有 Big5 沒有的字（麵包屑的 ‹）。
 # 不放寬錯誤處理的話，測試會在「印出結果」那一步崩掉——看起來像測試沒過，其實是主控台
-# 印不出來。**驗文案的測試不能因為文案本身而掛掉。**
+# 印不出來。驗文案的測試不能因為文案本身而掛掉。
 sys.stdout.reconfigure(errors="replace")
 
 import settings as ap  # noqa: E402
 
 # ---------------------------------------------------------------- 沙箱
-# **這段一定要在任何測試之前。**
+# 這段一定要在任何測試之前。
 # 這支測試會呼叫 SettingsPage._emit()，而 _emit() 會 save_config()——
 # 沒有沙箱的話，它寫的是使用者真實的 %LOCALAPPDATA%\WaterPet\config.json，
 # 跑一次測試就把人家調好的設定洗成測試用的預設值。
@@ -167,7 +167,7 @@ check("沒調過目標就不標記", untouched["target_manual"], False)
 print("\n7b. 引導只給第一次啟動的人看")
 # 舊版寫的設定檔沒有這個鍵。對已經用了兩週的人跳出「桌上現在有水嗎」是搞錯對象。
 check("升級的舊設定檔視為看過了", ap._upgrade_keys({"interval_min": 60})["onboarded"], True)
-# 但**不能**因此讓中途關掉引導的新使用者也再也看不到：
+# 但不能因此讓中途關掉引導的新使用者也再也看不到：
 # 全新安裝寫進檔案的是明確的 False，setdefault 不會去動已經存在的鍵。
 check("新安裝寫的 False 不會被蓋成 True",
       ap._upgrade_keys({"onboarded": False})["onboarded"], False)
@@ -214,7 +214,7 @@ try:
     check("舊資料夾留著當備份",
           os.path.exists(os.path.join(_old_dir, "events.jsonl")), True)
     check("再跑一次不重覆搬", ap._migrate_data_dir(), 0)
-    # **沙箱裡不能去撈使用者真實的資料夾。** 舊路徑是從現在的 DATA_DIR 同層推的，
+    # 沙箱裡不能去撈使用者真實的資料夾。舊路徑是從現在的 DATA_DIR 同層推的，
     # 寫死絕對路徑的話，跑一次測試就會把真實紀錄複製進沙箱。
     _empty = tempfile.mkdtemp(prefix="wp_rename_empty_")
     ap.DATA_DIR = _empty
@@ -318,7 +318,7 @@ check("設定變更有傳出去", bool(got), True)
 check("傳出去的是新值", got[-1]["interval_min"], 60)
 
 print("\n11b. 設定頁改的值要真的傳到島（含副作用）")
-# **關鍵是視窗跟島共用同一份 cfg 的情況**——實際執行時 island.show_stats()
+# 關鍵是視窗跟島共用同一份 cfg 的情況——實際執行時 island.show_stats()
 # 就是把 self.cfg 直接傳進去的。上一版測試傳的是獨立字典，剛好繞過這個 bug：
 # 視窗就地改掉島的字典 -> apply_config 比對「舊值」時舊值早就是新值 ->
 # changed 是空的 -> 提早 return -> 換螢幕、改目標全部沒作用，也不留事件紀錄。
@@ -355,7 +355,7 @@ for c in win.cards:
 win.seg.set_index(1)                     # 今天 -> 紀錄
 check("換分頁後視窗維持不透明", win.sp_win.value, 1.0)
 
-# 換過去的**那一瞬間**，新頁面的卡片必須已經是全透明的。
+# 換過去的那一瞬間，新頁面的卡片必須已經是全透明的。
 # 不是的話就代表「先換頁、後壓暗」，中間會被畫出一幀全亮的畫面——
 # 使用者看到的是亮一下再淡入，也就是「閃一下」。
 check("換頁瞬間新卡片已壓到透明",
@@ -396,7 +396,7 @@ ov = win._confirm
 check("按下清除紀錄會開 popup", ov.isVisible(), True)
 check("遮罩蓋滿整個視窗", ov.size(), win.size())
 
-# **這一條是這次改版的理由，不是裝飾。** 舊版就地確認時，「刪除」與「清除紀錄」
+# 這一條是這次改版的理由，不是裝飾。舊版就地確認時，「刪除」與「清除紀錄」
 # 水平重疊 33px，兩顆又都靠右對齊——手快點兩下、或第一下以為沒反應再補一下，
 # 第二下就落在「刪除」上，而清除紀錄不可復原。
 # 釘住「兩者不得相交」，之後任何人把確認搬回原地都會在這裡被擋下來。
@@ -452,7 +452,7 @@ normal = sw.open_window(dict(cfg), isl.EVENTS_PATH)
 _app.processEvents()
 check("直接開設定的高度 == 直接開紀錄的高度", direct.height(), normal.height())
 check("開起來就停在設定頁", direct.mode, "settings")
-# 設定頁現在可捲動，所以不再要求「塞得進內容區」。真正該守的是**沒有一張卡被壓扁**——
+# 設定頁現在可捲動，所以不再要求「塞得進內容區」。真正該守的是沒有一張卡被壓扁——
 # 那是版面塌掉時的症狀，跟捲不捲動無關。
 # 不拿 sizeHint 當基準：自動換行的 QLabel 在寬度未定時會多報高度，
 # 拿它比會誤判。版面塌掉時的症狀很極端（實測卡片被壓成 13px），
@@ -470,7 +470,7 @@ for _w in (direct, normal):
 print("\n12f. 捲動區不能是透明的洞（會讓滑鼠穿透到底下的視窗）")
 # 視窗開了 WA_TranslucentBackground，而 Windows 上完全透明的像素會讓點擊穿透。
 # 捲動區的視口若不填背景，那一整塊就變成洞：看起來透明、點下去操作到底下的瀏覽器。
-# **這個 bug 離線渲染抓不到**——grab() 不經過視窗合成，洞在圖裡是實心的，
+# 這個 bug 離線渲染抓不到——grab() 不經過視窗合成，洞在圖裡是實心的，
 # 所以只能從屬性上檢查。
 from PySide6.QtGui import QImage  # noqa: E402
 
@@ -532,14 +532,14 @@ for _ in range(60):
 check("彈簧會把它補到目標", abs(bar.value() - pane._sp.target) <= 1, True)
 
 print("\n12i. 卡片高度要剛好，不能多也不能少（視窗可以被拉寬拉窄）")
-# **QVBoxLayout 不會把 heightForWidth 可靠地往下傳。** 「關於」卡裡有會換行的段落，
+# QVBoxLayout 不會把 heightForWidth 可靠地往下傳。「關於」卡裡有會換行的段落，
 # 實測版面的 sizeHint 比 heightForWidth 多 66px，而空間是照前者分配的：
 # 多出來的塞給「顯示」卡（兩張卡中間憑空多一大塊空白），需要更高時又不給
 # （段落被切掉）。使用者兩個都遇到了，回報「跑掉了」。
 #
-# 視窗可以拖曳縮放，所以要在**好幾個寬度**上驗，不能只驗預設值。
+# 視窗可以拖曳縮放，所以要在好幾個寬度上驗，不能只驗預設值。
 #
-# 用自己的視窗，而且**保持顯示中**：隱藏的視窗不會重排，拿它量會量到上一次
+# 用自己的視窗，而且保持顯示中：隱藏的視窗不會重排，拿它量會量到上一次
 # 的殘值（第一版沿用 12e 那個已經 hide() 掉的視窗，卡片永遠停在 318）。
 fit_win = sw.open_window(dict(cfg), isl.EVENTS_PATH, on_settings=True)
 fit_win.frame.stop()
@@ -582,7 +582,7 @@ h_settings = win2.height()
 check("兩種模式同高", h_settings, h_stats)
 
 print("\n14. 防線：只有真的程式可以寫真實資料檔")
-# 上面 8b 那條看門狗只驗「路徑有沒有指到沙箱」，擋不住忘了設路徑的**新**測試。
+# 上面 8b 那條看門狗只驗「路徑有沒有指到沙箱」，擋不住忘了設路徑的新測試。
 # 這一條驗的是程式裡的防線本身有沒有在運作。
 _probe = []
 try:

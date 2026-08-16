@@ -28,12 +28,12 @@ BUDGET_MS = 10.0                 # Phase 0 判準
 def load(path):
     """一律用 from_data，不要用 from_file。
 
-    from_file() 把路徑交給 rlottie 的 C API，路徑含非 ASCII 字元時會**靜默失敗**：
+    from_file() 把路徑交給 rlottie 的 C API，路徑含非 ASCII 字元時會靜默失敗：
     不丟例外，回一個 0 幀 0x0 的空動畫。本專案就住在「喝水提醒桌寵」裡，
     from_file() 在這裡永遠載不起來。
 
     連帶的重點：規劃寫「載入失敗一律 fallback 回幾何臉」，但靜默失敗不會觸發
-    try/except——**fallback 的判斷必須是 totalframe() > 0，不是接例外。**
+    try/except——fallback 的判斷必須是 totalframe() > 0，不是接例外。
     """
     with open(path, "r", encoding="utf-8") as f:
         anim = LottieAnimation.from_data(f.read())

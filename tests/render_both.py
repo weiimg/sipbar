@@ -65,7 +65,7 @@ for label, path, boost in (("剛開始：今天第一天達標", SPARSE, False),
     win.refresh(animate=False)
     app.processEvents()
     # 不捲動之後改成拍每一頁。稀疏狀態只有一頁（沒有紀錄時不分頁），
-    # 豐富狀態三頁——**兩者的頁數不同本身就是要看的東西**。
+    # 豐富狀態三頁——兩者的頁數不同本身就是要看的東西。
     shots = []
     for i in range(win.stack.count()):
         win.seg.set_index(i, animate=False)

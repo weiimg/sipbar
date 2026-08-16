@@ -74,7 +74,7 @@ p.end()
 out = os.path.join(SCRATCH, "stats_window.png")
 sheet.save(out)
 
-# 高度驗證。**這一項要留著**：日後往任何一頁加東西，會先在這裡被擋下來，
+# 高度驗證。這一項要留著：日後往任何一頁加東西，會先在這裡被擋下來，
 # 而不是等使用者看到被切掉的字。不捲動的面板沒有「往下拉就看得到」這條退路。
 avail = win.stack.height()
 print(f"視窗 {win.width()}x{win.height()}　內容可用 {avail}px")

@@ -3,24 +3,24 @@ r"""把 Inter 的拉丁字形合進 Noto Sans TC，產生隨程式散布的單�
 
 ## 為什麼一定要合成一個檔
 
-**只要 Qt 需要為任何一個字做字體回退，它就會把一整份中文字符表載進記憶體。**
+只要 Qt 需要為任何一個字做字體回退，它就會把一整份中文字符表載進記憶體。
 
 實測（tests/test_font_memory.py 的量法，島畫出文字之後的私有記憶體）：
 
 | 做法 | 記憶體 |
 |---|---|
-| 只掛 Noto Sans TC（單一家族，自己蓋得住全部的字） | 56 MB |
+| 只掛 Noto Sans TC（單一家族，自己蓋得住全部的字）| 56 MB |
 | `setFamilies(["Inter", "Noto Sans TC"])` | 396 MB |
 | 只掛 Inter，中文交給系統回退 | 394 MB |
 | 兩個獨立字體，各自只畫自己蓋得到的字 | 56 MB |
 
-貴的不是 Inter（2,849 個字符），是**被迫整份載入的 Noto**（20,745 個）。
+貴的不是 Inter（2,849 個字符），是被迫整份載入的 Noto（20,745 個）。
 所以 CSS 那種 `font-family: Inter, "Noto Sans TC"` 的寫法在這裡直接封死：
 一個常駐的桌面工具吃 400MB 是會被解除安裝的等級。
 
 「兩個獨立字體」那條路成本是零，但會讓同一張卡裡出現兩種數字設計
 （「08:00」是 Inter、正上方的「23:00 起改為每 109 分」是 Noto），
-那看起來像 bug 不像設計。所以走這裡：**離線合成，出貨單一家族。**
+那看起來像 bug 不像設計。所以走這裡：離線合成，出貨單一家族。
 
 ## 為什麼是換字形，不是 fontTools.merge
 
@@ -36,23 +36,23 @@ Noto 是 CFF（PostScript 曲線），Inter 是 glyf（TrueType 曲線），`mer
 
 ## 換與不換的判準
 
-**看它出現在什麼字之間，不是看碼位落在哪個區塊。**
+看它出現在什麼字之間，不是看碼位落在哪個區塊。
 
-- **U+0020 空白**：不換。它在「今天 3/7 次」這種句子裡是中英之間的間隔，
+- U+0020 空白：不換。它在「今天 3/7 次」這種句子裡是中英之間的間隔，
   Noto 的空白是配著中文調的，換成拉丁度量的會讓中英夾雜的行擠在一起。
-- **U+00B7、U+2039、U+2192**：不換，見 `KEEP_NOTO`。它們前後都是中文。
-- **U+00D7 乘號**：換。它用在「3440×1440」，兩邊都是 Inter 的數字。
+- U+00B7、U+2039、U+2192：不換，見 `KEEP_NOTO`。它們前後都是中文。
+- U+00D7 乘號：換。它用在「3440×1440」，兩邊都是 Inter 的數字。
 
-最後那一條是修出來的：初版用「Latin-1 補充區用不到」這個**猜測**把整個區塊排除，
+最後那一條是修出來的：初版用「Latin-1 補充區用不到」這個猜測把整個區塊排除，
 結果設定頁的螢幕解析度就變成兩個 Inter 數字夾一個 Noto 乘號——大一號、重一號、
 左右還帶著中文字體的留白，使用者回報「字破圖了」。
 
 `tests/test_font_build.py` 第 7 節現在會掃介面字串裡所有非 ASCII、非中日韓的字元，
-不在 `SUBSTITUTE` 也不在 `KEEP_NOTO` 的一律擋下來——**不准再靠猜的決定範圍。**
+不在 `SUBSTITUTE` 也不在 `KEEP_NOTO` 的一律擋下來——不准再靠猜的決定範圍。
 
 ## 授權
 
-兩份都是 SIL OFL 1.1，而且**都沒有宣告 Reserved Font Name**（授權檔的著作權行
+兩份都是 SIL OFL 1.1，而且都沒有宣告 Reserved Font Name（授權檔的著作權行
 沒有「with Reserved Font Name」），所以衍生字體可以散布。但仍然改名：
 成品既不是 Inter 也不是 Noto Sans TC，掛著任一個原名都是在誤導。
 
@@ -65,7 +65,7 @@ OFL 要求衍生物同樣用 OFL 散布並附上授權，見 assets/fonts/README
 來源放 tools/fontsrc/（跟著版本庫走，理由見該資料夾的 README），
 成品寫進 assets/fonts/。需要 `pip install fonttools skia-pathops`，只有建置需要。
 
-**改完一定要跑 `tests/test_font_build.py`。** 這裡每一種失敗方式都是靜默的：
+改完一定要跑 `tests/test_font_build.py`。這裡每一種失敗方式都是靜默的：
 字體開得起來、程式跑得動、只有畫出來才看得出不對。
 """
 
@@ -110,13 +110,13 @@ SUBSTITUTE = (
        0x2026]                           # …
 )
 
-# 明確不換的那些，附理由。**不是「還沒處理」，是判斷過留下來的。**
+# 明確不換的那些，附理由。不是「還沒處理」，是判斷過留下來的。
 #
 # `×` 一開始也在這裡，理由寫「Latin-1 補充區用不到」——那是猜的，而它正好用在
 # 「3440×1440」上：兩邊都是 Inter 的數字，中間夾一個 Noto 的乘號，
 # 大一號、重一號、左右還是中文字體的留白，看起來就是破圖。
 #
-# 所以判準不是碼位落在哪個區塊，是**它出現在什麼字之間**。
+# 所以判準不是碼位落在哪個區塊，是它出現在什麼字之間。
 # tests/test_font_build.py 第 7 節會掃介面字串，任何不在這兩份清單裡的字元都會擋下來。
 KEEP_NOTO = {
     0x00B7: "· 島的小標分隔（連續 5 天 · 下次約 30 分後），兩邊都是中文",
@@ -131,7 +131,7 @@ KEEP_NOTO = {
 # 換過去等於把這個性質弄丟。
 #
 # Inter 有等寬數字，掛在 tnum 這個 OpenType 特性底下，是另一組字形（.tf 結尾、
-# 全部 648 寬）。**直接取那一組，不要在執行期開 tnum**——字體裡就只有一種數字，
+# 全部 648 寬）。直接取那一組，不要在執行期開 tnum——字體裡就只有一種數字，
 # 呼叫端不會有機會忘記開。
 TABULAR = set(range(0x30, 0x3A))
 
@@ -152,12 +152,12 @@ def latin_source(wght):
 
     ## 合併重疊是必要的，不是保險
 
-    **Inter 的 `#` 是四條同方向的橫豎條疊在一起**（`+` 兩條、`×` 兩條、`4` 兩條），
-    靠非零環繞填成實心。TrueType 這樣畫沒問題，**但 CFF 的柵格化假設輪廓不重疊**——
+    Inter 的 `#` 是四條同方向的橫豎條疊在一起（`+` 兩條、`×` 兩條、`4` 兩條），
+    靠非零環繞填成實心。TrueType 這樣畫沒問題，但 CFF 的柵格化假設輪廓不重疊——
     直接搬過去，筆畫交叉的地方會在小字級變成白的。
 
     這個症狀騙過兩道檢查：256px 的逐像素比對是乾淨的（0.57%），
-    字樣圖上看得到卻被我當成點陣放大的假象。**它只在介面真正用的 15px 出現**，
+    字樣圖上看得到卻被我當成點陣放大的假象。它只在介面真正用的 15px 出現，
     最後是使用者回報「筆畫交叉的地方會變白色」才抓到。
     tests/test_font_build.py 第 8 節現在就在 15px 上數這種洞。
     """
@@ -236,7 +236,7 @@ def substitute(noto, inter, codepoints):
             continue
         if cp in TABULAR:
             i_name = tnum.get(i_name, i_name)
-        # **Noto Sans TC 是 CID-keyed CFF**：字形叫 cid00017 不叫 zero，而且
+        # Noto Sans TC 是 CID-keyed CFF：字形叫 cid00017 不叫 zero，而且
         # 18 個 FontDict 各有自己的 Private（這一族的 nominalWidthX 是 651）。
         # T2 charstring 的寬度是相對 nominalWidthX 編碼的，拿錯一本 Private
         # 產出來的字寬度會整個偏掉，而且不會有任何錯誤。
@@ -244,8 +244,8 @@ def substitute(noto, inter, codepoints):
         private = top.FDArray[fd_index].Private
 
         width = int(round(i_glyphs[i_name].width))
-        # **T2 charstring 的寬度是相對 nominalWidthX 編碼的，而 T2CharStringPen
-        # 直接把你給的數字原封塞進去。** 傳實際寬度的話，解出來會是
+        # T2 charstring 的寬度是相對 nominalWidthX 編碼的，而 T2CharStringPen
+        # 直接把你給的數字原封塞進去。傳實際寬度的話，解出來會是
         # `nominalWidthX + 你給的值`——648 的數字變成 1299，畫出來剛好兩倍寬。
         # 而且 hmtx 是對的，所以從 hmtx 檢查完全看不出問題（實測就是這樣過了一輪，
         # 直到 test_island 的 17b 用字體度量量出「連續 128 天…」多了 72px）。
@@ -256,7 +256,7 @@ def substitute(noto, inter, codepoints):
         pen = T2CharStringPen(pen_width, i_glyphs)
         # 兩層轉換，順序是由內往外包：
         #
-        # 1. **輪廓方向反過來。** TrueType 的外輪廓是順時針，PostScript 是逆時針。
+        # 1. 輪廓方向反過來。TrueType 的外輪廓是順時針，PostScript 是逆時針。
         #    非零環繞規則下只要內外相對方向一致就填得對，所以不反也畫得出來
         #    （實測兩種版本在螢幕上看不出差別）。反過來是因為那是 CFF 的慣例，
         #    字體檢查工具與部分 hinting 引擎會據此判斷，不是為了修某個看得到的 bug。

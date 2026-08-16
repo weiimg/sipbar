@@ -1,6 +1,6 @@
 """隨程式散布的字體：載入、驗證、產生 QFont。
 
-**為什麼是內嵌字體，不是 fallback chain。**
+為什麼是內嵌字體，不是 fallback chain。
 
 業界三種做法，由輕到重：靠系統字體（Windows 的 font linking 自動接手中日韓）、
 fallback chain（CSS 的 `font-family`，Qt 對應 `setFamilies`）、內嵌字體。
@@ -15,7 +15,7 @@ ClearType 次像素渲染，只能靠字重補。
 而且是靜默的：使用者不會看到任何錯誤，只會覺得這程式的字很糊。
 
 `FALLBACKS` 因此不是主力，是字體檔掉了之後的最後保險。真正的保證是 `ensure_loaded()`
-把檔案載進來，並且**驗證真的拿到了**——`setFamily()` 要不到會靜默替換成別的字體，
+把檔案載進來，並且驗證真的拿到了——`setFamily()` 要不到會靜默替換成別的字體，
 這是 Qt 的老陷阱，本專案已經被同一類「靜默失敗」咬過五次（IE 開不了 HTML、
 mock 掉輸入的測試、rlottie 的中文路徑、QBuffer 提早回收、offscreen 平台參數）。
 
@@ -27,11 +27,11 @@ import os
 
 from PySide6.QtGui import QFont, QFontDatabase, QFontInfo
 
-# 隨程式散布的字體是**合成品**：Inter 的拉丁字形 + Noto Sans TC 的中文，
+# 隨程式散布的字體是合成品：Inter 的拉丁字形 + Noto Sans TC 的中文，
 # 由 tools/build_font.py 產生。它既不是 Inter 也不是 Noto Sans TC，所以另外命名。
 #
-# 為什麼要合成而不是掛兩個字體：**只要 Qt 需要為任何一個字做回退，
-# 它就會把一整份中文字符表載進記憶體**（實測 56MB -> 396MB）。
+# 為什麼要合成而不是掛兩個字體：只要 Qt 需要為任何一個字做回退，
+# 它就會把一整份中文字符表載進記憶體（實測 56MB -> 396MB）。
 # 完整的量測與其他做法的比較寫在 tools/build_font.py 的 docstring 裡。
 FAMILY = "WaterPet Sans TC"
 
@@ -45,7 +45,7 @@ BUNDLED = ("WaterPetSansTC-Bold.otf", "WaterPetSansTC-Medium.otf")
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONT_DIR = os.path.join(_ROOT, "assets", "fonts")
 
-# **只有隨附字體載不起來時才會用到這串。** 平常路徑一個字體都不多掛——
+# 只有隨附字體載不起來時才會用到這串。平常路徑一個字體都不多掛——
 # 理由見 make()：中文字體進了字體序列就會被整份載進記憶體，一個要價數百 MB。
 # 這裡不放 FAMILY：那是合成品，系統上不可能裝著，載不起來就是真的沒有。
 FALLBACKS = ("Noto Sans TC", "Microsoft JhengHei UI", "Microsoft JhengHei",
@@ -126,13 +126,13 @@ def make(px, weight, tracking=0.0, family=None):
         # 所以這裡叫是安全的，而且省掉一個「忘了初始化就靜默降級」的陷阱。
         ok, _ = ensure_loaded()
 
-        # **字體序列裡每多一個中文字體，就多幾百 MB。**
+        # 字體序列裡每多一個中文字體，就多幾百 MB。
         # 實測（tests/test_font_memory.py）：序列只有 Noto Sans TC 時，島畫出文字後
         # 佔 89MB；加上 Microsoft JhengHei UI 變成 612MB、handle 從 342 漲到 1153。
         # Qt 為了決定每個字元由誰來畫，會把序列上每個字體的字符表都載進來，
         # 而中文字體動輒三萬個字符。
         #
-        # 所以隨附字體載成功時就**只用它一個**，不掛保險——保險在這裡不是免費的，
+        # 所以隨附字體載成功時就只用它一個，不掛保險——保險在這裡不是免費的，
         # 而且 Qt 本來就有自己的系統級字元回退，缺字不會變成豆腐。
         # 只有隨附字體真的載不起來，才值得付這個代價去指定偏好的替補。
         families = [FAMILY] if ok else list(FALLBACKS)

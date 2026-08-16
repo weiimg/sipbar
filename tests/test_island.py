@@ -291,7 +291,7 @@ avail = pips_left - 16 - text_x
 w2.streak = 128          # 三位數的連續天數是最長情況，要一起驗
 w2.interval_s = 100 * 60
 w2.active_s = 0.0
-# 真正的最長情況是**深夜版**的倒數，白天版量不到它。第一版加深夜標示時
+# 真正的最長情況是深夜版的倒數，白天版量不到它。第一版加深夜標示時
 # 就是只驗了白天版才漏掉：當時的寫法實測 264px、可用 262px，剛好被截 2px。
 w2._is_late = lambda hour=None: False
 _sub_day = w2._status_sub()
@@ -431,7 +431,7 @@ for _label, _a, _b, _st in (("展開 0->1", 0.0, 1.0, isl.NORMAL),
         print(f"       實際變化序列：{_runs}")
 
 print("\n22. 提醒中把目標調低到已達成，島要走掉，不能卡在畫面上")
-# **tick() 的達標守門是 `return`**，它只擋「不再發新的提醒」，擋不掉已經在畫面上
+# tick() 的達標守門是 `return`，它只擋「不再發新的提醒」，擋不掉已經在畫面上
 # 的那一個。所以提醒中把每日目標調低（或改體重讓推導值下降），島就卡在
 # 「拜託」配「今天 7/7 次」，一路留到隔天換日。使用者截圖回報的就是這個。
 w22 = isl.Island(dict(cfg, daily_target_drinks=8))
@@ -463,7 +463,7 @@ w22b.tick()
 check("目標調高之後還能再提醒", w22b.state, isl.THIRSTY)
 
 print("\n22b. 已達標卻卡在提醒中的狀態，重啟後也要收掉")
-# **這一節才是真正咬到使用者的那條路。** 第一版只補了 apply_config（在設定裡
+# 這一節才是真正咬到使用者的那條路。第一版只補了 apply_config（在設定裡
 # 把目標調低），但狀態會跨重啟保存——島一旦卡住，每次開機都把那個狀態原封接回來，
 # 重開程式等於把同一個 bug 重建一次。使用者實測「沒有改善」，state.json 裡就是
 # drinks=7 / state=WEAK / 目標 7。
@@ -489,7 +489,7 @@ check("而且是滑走", w22d.sp_reveal.target, 0.0)
 check("存檔跟著更新，不會再接回來", isl.load_state()["state"], "NORMAL")
 
 print("\n23. 引導的練習點擊不能留下任何痕跡")
-# 引導最後一頁寫著「這次不會算進今天的次數」。**那是對使用者的承諾，要能驗。**
+# 引導最後一頁寫著「這次不會算進今天的次數」。那是對使用者的承諾，要能驗。
 # drink() 裡每一行都有副作用（次數、累積時間、重擲間隔、寫 events、存檔），
 # 練習那條路必須在最前面就 return。
 w23 = isl.Island(dict(cfg))
@@ -525,7 +525,7 @@ w23.drink()
 check("練習之後恢復正常計數", w23.drinks, before[0] + 1)
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
-# **Qt 會吞掉 slot 裡拋出的例外**——只把 traceback 印到 stderr 然後繼續跑。
+# Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，
 # 而它其實已經闖進真實資料。這一條把印出來的 traceback 變成可斷言的事實。
 check("防線沒有攔截到任何寫入", isl.settings.real_write_violations(), [])

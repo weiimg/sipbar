@@ -31,7 +31,7 @@ CHILD = textwrap.dedent(r'''
     import typeface
     {tweak}
     import island as isl, settings
-    # **沙箱一定要在 load_config() 與建 Island 之前。**
+    # 沙箱一定要在 load_config() 與建 Island 之前。
     # 這個子行程會建一個真的 Island，而 Island 每分鐘、以及補水、暫停、結束時
     # 都會 save_state()。不隔離的話，量一次記憶體就把使用者真實的
     # state.json（當天喝幾次、累積多久、目前狀態）覆蓋成這個測試的殘值。
@@ -82,7 +82,7 @@ def measure(label, tweak):
                          text=True, cwd=APP, timeout=180)
     if out.returncode != 0:
         # stderr 可能是 None（子行程根本沒起來），直接切片會自己爆掉，
-        # 而那個 TypeError 會把**真正的失敗原因**整個蓋掉——
+        # 而那個 TypeError 會把真正的失敗原因整個蓋掉——
         # 實測就是這樣讓「子行程寫進真實 state.json 被擋下」看起來像測試自己壞了。
         print(f"  FAIL  {label}：子行程失敗\n{(out.stderr or '（沒有 stderr）')[-600:]}")
         return None
@@ -90,7 +90,7 @@ def measure(label, tweak):
 
 
 fails = []
-# **離屏平台量不到這件事。** offscreen 不會真的去載字符表，正常組與對照組
+# 離屏平台量不到這件事。offscreen 不會真的去載字符表，正常組與對照組
 # 都會回報同一個數字，於是對照組「沒有變肥」，看起來像測試線壞掉。
 # 不出聲的話，下一個人會去追一個不存在的回歸——所以這裡把原因先講掉。
 if os.environ.get("QT_QPA_PLATFORM") == "offscreen":

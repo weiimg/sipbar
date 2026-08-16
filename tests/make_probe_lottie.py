@@ -26,7 +26,7 @@ def v(k):
 def kf(pairs, linear=False):
     """pairs: [(frame, value), ...]
 
-    linear=False 用 easeInOut——播起來好看，但**停在中間某一幀時讀不準**：
+    linear=False 用 easeInOut——播起來好看，但停在中間某一幀時讀不準：
     實測時間軸 30% 的位置水其實還有 89%。這正是「為了播一次而設計」的素材通病。
     linear=True 讓時間軸位置直接等於水位，適合被當進度條刷。
     """
@@ -35,7 +35,7 @@ def kf(pairs, linear=False):
         node = {"t": t, "s": s if isinstance(s, list) else [s]}
         if i < len(pairs) - 1:
             if linear:
-                # 線性要給對角線上的控制點。**不能只是把 i/o 拿掉**——
+                # 線性要給對角線上的控制點。不能只是把 i/o 拿掉——
                 # 沒有 handle 的 keyframe 在 rlottie 是「保持」，整段動畫會靜止不動，
                 # 而且不會報錯，只會得到一張不會變的圖。
                 node["i"] = {"x": [1.0], "y": [1.0]}
