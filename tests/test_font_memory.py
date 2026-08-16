@@ -16,7 +16,7 @@ import subprocess
 import sys
 import textwrap
 
-APP = r"E:\Claude Project\Claude Inbox\喝水提醒桌寵"
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP)
 
 LIMIT_MB = 200          # 正常約 90MB；破 200 就是有人又把中文字體加進序列了
@@ -30,6 +30,17 @@ CHILD = textwrap.dedent(r'''
     import typeface
     {tweak}
     import island as isl, settings
+    # **沙箱一定要在 load_config() 與建 Island 之前。**
+    # 這個子行程會建一個真的 Island，而 Island 每分鐘、以及補水、暫停、結束時
+    # 都會 save_state()。不隔離的話，量一次記憶體就把使用者真實的
+    # state.json（當天喝幾次、累積多久、目前狀態）覆蓋成這個測試的殘值。
+    # 這個洩漏是 settings 的誤寫防線抓出來的——在那之前它一直安靜地發生。
+    import os as _os, tempfile as _tf
+    _box = _tf.mkdtemp(prefix="wp_fontmem_")
+    settings.DATA_DIR = isl.DATA_DIR = _box
+    settings.CONFIG_PATH = _os.path.join(_box, "config.json")
+    settings.STATE_PATH = isl.STATE_PATH = _os.path.join(_box, "state.json")
+    settings.EVENTS_PATH = isl.EVENTS_PATH = _os.path.join(_box, "events.jsonl")
     app = QApplication(["app"])
     typeface.ensure_loaded()
     cfg = settings.load_config()
@@ -69,12 +80,22 @@ def measure(label, tweak):
     out = subprocess.run([sys.executable, "-c", src], capture_output=True,
                          text=True, cwd=APP, timeout=180)
     if out.returncode != 0:
-        print(f"  FAIL  {label}：子行程失敗\n{out.stderr[-600:]}")
+        # stderr 可能是 None（子行程根本沒起來），直接切片會自己爆掉，
+        # 而那個 TypeError 會把**真正的失敗原因**整個蓋掉——
+        # 實測就是這樣讓「子行程寫進真實 state.json 被擋下」看起來像測試自己壞了。
+        print(f"  FAIL  {label}：子行程失敗\n{(out.stderr or '（沒有 stderr）')[-600:]}")
         return None
     return int(out.stdout.strip().splitlines()[-1])
 
 
 fails = []
+# **離屏平台量不到這件事。** offscreen 不會真的去載字符表，正常組與對照組
+# 都會回報同一個數字，於是對照組「沒有變肥」，看起來像測試線壞掉。
+# 不出聲的話，下一個人會去追一個不存在的回歸——所以這裡把原因先講掉。
+if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+    print("  !!  QT_QPA_PLATFORM=offscreen：字符表不會被載入，這支測試量不準。")
+    print("      要驗字體記憶體請用真實顯示跑（把這個環境變數拿掉）。")
+
 print("島畫出文字之後的私有記憶體")
 
 normal = measure("正常（隨附字體）", "")

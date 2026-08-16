@@ -993,9 +993,13 @@ class HourStepper(Graphic):
     W, H = 116, CTRL_H
     ZONE = 36           # 左右各留這麼寬當按鈕；圖示只有 8px，點擊區要大得多
 
-    def __init__(self, hour):
+    def __init__(self, hour, midnight_as_24=False):
         super().__init__(self.W, self.H)
         self.hour = int(hour) % 24
+        # 午夜要寫 24:00 還是 00:00，看這個時刻在句子裡是「開始」還是「結束」。
+        # 就寢時間是一天的結束，寫 00:00 會被讀成「今天開始」；起床時間相反，
+        # 00:00 就是 00:00。所以由呼叫端指定，不在這裡自作主張。
+        self._m24 = midnight_as_24
         self.setCursor(Qt.PointingHandCursor)
         self._f = font(CTRL_TYPE)
 
@@ -1042,7 +1046,7 @@ class HourStepper(Graphic):
             p.drawLine(QPoint(int(tip), int(cy)), QPoint(int(arm), int(cy + 5)))
 
         fm = QFontMetrics(self._f)
-        text = f"{self.hour:02d}:00"
+        text = "24:00" if (self.hour == 0 and self._m24) else f"{self.hour:02d}:00"
         p.setFont(self._f)
         p.setPen(PAL.ink_a(255))
         p.drawText(int(self.W / 2 - fm.horizontalAdvance(text) / 2),
@@ -1420,71 +1424,131 @@ class ScrollPane(QWidget):
         self._sync_fades()
 
 
-class DangerAction(QWidget):
-    """破壞性動作：點一下先進入確認狀態，就地問「確定要刪除嗎？」。
+class DangerRow(QWidget):
+    """破壞性動作的入口。只有「說明 + 一顆紅色的觸發」，確認交給 ConfirmOverlay。
 
-    不用系統對話框，兩個理由：
-    一是 QMessageBox 會在這片自繪的深色版面中間開一個 Windows 的洞；
-    二是對話框會蓋住使用者正要刪的東西，人看不到自己在刪什麼。
-
-    確認狀態會自己收回去。留著一顆armed 的刪除鍵在畫面上，
-    下一次不小心點到就真的刪了。
+    **就地確認拿掉了。** 前一版點一下會原地變成「確定要清除所有紀錄嗎？取消 刪除」，
+    問題是**確認鍵長在觸發鍵剛剛的位置**：實測「刪除」與「清除紀錄」水平重疊 33px，
+    兩顆又都靠右對齊。手快點兩下、或第一下沒反應再補一下，第二下就落在「刪除」上，
+    而清除紀錄不可復原。這不是機率很低的意外，是版面把它擺在那裡。
     """
 
-    confirmed = Signal()
+    requested = Signal()
 
-    REVERT_MS = 8000
-
-    def __init__(self, label, prompt, confirm_text="刪除"):
+    def __init__(self, note, action_text="清除紀錄"):
         super().__init__()
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedHeight(ROW_FLAT)
-        self._armed = False
-
-        self.idle_lbl = Label(label, "caption", INK3, elide=True)
-        self.action = TapLabel("清除紀錄", C_DANGER)
-        self.action.clicked.connect(self._arm)
-
-        self.prompt_lbl = Label(prompt, "body", INK)
-        self.cancel = TapLabel("取消", INK2)
-        self.cancel.clicked.connect(self._disarm)
-        self.confirm = TapLabel(confirm_text, C_DANGER)
-        self.confirm.clicked.connect(self._fire)
+        self.note = Label(note, "caption", INK3, elide=True)
+        self.action = TapLabel(action_text, C_DANGER)
+        self.action.clicked.connect(self.requested)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(S3)
-        lay.addWidget(self.idle_lbl, 1)
-        lay.addWidget(self.prompt_lbl, 1)
-        lay.addWidget(self.cancel)
+        lay.addWidget(self.note, 1)
         lay.addWidget(self.action)
-        lay.addWidget(self.confirm)
 
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._disarm)
-        self._sync()
 
-    def _sync(self):
-        self.idle_lbl.setVisible(not self._armed)
-        self.action.setVisible(not self._armed)
-        self.prompt_lbl.setVisible(self._armed)
-        self.cancel.setVisible(self._armed)
-        self.confirm.setVisible(self._armed)
+class ConfirmOverlay(QWidget):
+    """確認用的小 popup，開在視窗**裡面**。
 
-    def _arm(self):
-        self._armed = True
-        self._sync()
-        self._timer.start(self.REVERT_MS)
+    為什麼是 popup 而不是就地確認：見 DangerRow。popup 真正的價值是**把確認鍵
+    放到游標剛剛不在的地方**，順手點不到；蓋住整個視窗則讓它非答不可。
 
-    def _disarm(self):
-        self._timer.stop()
-        self._armed = False
-        self._sync()
+    為什麼不用 QMessageBox：它會在這片自繪的版面中間開一個 Windows 的洞。
+    「要不要打斷使用者」跟「要不要用系統元件」是兩件事，前者要、後者不要，
+    所以自己畫一個，維持同一套語言。
+
+    取消的路有三條（按鈕、Esc、點卡片外面），刪除只有一條。
+    不可復原的動作，兩邊的成本本來就不該對稱。
+    """
+
+    accepted = Signal()
+
+    CARD_W = 380
+    CORNER = 18
+
+    def __init__(self, parent, title, body, confirm_text="刪除"):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        self.card = QWidget(self)
+        self.card.setAttribute(Qt.WA_TranslucentBackground)
+        lay = QVBoxLayout(self.card)
+        lay.setContentsMargins(PAD, PAD, PAD, PAD)
+        lay.setSpacing(S3)
+        lay.addWidget(Label(title, "headline", INK))
+        lay.addWidget(para(body, "caption", INK2))
+        self.cancel = TapLabel("取消", INK2)
+        self.cancel.clicked.connect(self.dismiss)
+        self.confirm = TapLabel(confirm_text, C_DANGER)
+        self.confirm.clicked.connect(self._fire)
+        lay.addWidget(row("stretch", self.cancel, self.confirm, spacing=S4))
+        self.hide()
+
+    # -------------------------------------------------------- 開關
+
+    def ask(self):
+        parent = self.parentWidget()
+        self.setGeometry(0, 0, parent.width(), parent.height())
+        self._layout_card()
+        self.show()
+        self.raise_()
+        self.setFocus(Qt.OtherFocusReason)
+
+    def dismiss(self):
+        self.hide()
 
     def _fire(self):
-        self._disarm()
-        self.confirmed.emit()
+        self.hide()
+        self.accepted.emit()
+
+    # -------------------------------------------------------- 版面與繪製
+
+    def _layout_card(self):
+        w = min(self.CARD_W, max(240, self.width() - SHADOW * 2 - PAD * 2))
+        h = self.card.layout().heightForWidth(w)
+        if h <= 0:
+            h = self.card.sizeHint().height()
+        self.card.setGeometry(int((self.width() - w) / 2),
+                              int((self.height() - h) / 2), w, h)
+
+    def resizeEvent(self, event):
+        self._layout_card()
+
+    def mousePressEvent(self, event):
+        # 點卡片外面＝取消。**只認取消，不認確認**——誤觸要落在安全的那一邊。
+        if not self.card.geometry().contains(event.position().toPoint()):
+            self.dismiss()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.dismiss()
+        else:
+            super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        # 遮罩要裁進視窗的圓角裡，不然四個角會冒出四塊直角的暗色。
+        body = QRectF(SHADOW, SHADOW, self.width() - SHADOW * 2, self.height() - SHADOW * 2)
+        clip = QPainterPath()
+        clip.addRoundedRect(body, 22, 22)
+        p.setClipPath(clip)
+        p.fillRect(body, QColor(0, 0, 0, 150))
+        p.setClipping(False)
+
+        card = QRectF(self.card.geometry())
+        draw_soft_shadow(p, card, SHADOW_ALPHAS, offset_y=SHADOW_OFFSET_Y,
+                         corner=self.CORNER)
+        g = QLinearGradient(card.left(), card.top(), card.left(), card.bottom())
+        g.setColorAt(0.0, C_CARD_TOP)
+        g.setColorAt(1.0, C_CARD_BOTTOM)
+        p.setBrush(QBrush(g))
+        p.setPen(QPen(PAL.veil(30), 1))
+        p.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5),
+                          self.CORNER, self.CORNER)
 
 
 def build_empty_card(d):
@@ -1508,6 +1572,7 @@ class SettingsPage(QWidget):
     """
 
     changed = Signal(dict)          # 丟出整份新的 cfg
+    reset_requested = Signal()      # 使用者按了「清除紀錄」，確認交給視窗
     reset_done = Signal()
     replay_onboarding = Signal()    # 「重看使用說明」，由島負責開那個視窗
     # 主題另外發一個訊號：換主題要把整個視窗重建（文字顏色是在建立 QLabel 時
@@ -1546,9 +1611,10 @@ class SettingsPage(QWidget):
         lay.addSpacing(S5)
         lay.addWidget(Divider())
         lay.addSpacing(S3)
-        self.danger = DangerAction("移除所有補水紀錄與連續天數，設定保留",
-                                   "確定要清除所有紀錄嗎？")
-        self.danger.confirmed.connect(self._on_reset)
+        self.danger = DangerRow("移除所有補水紀錄與連續天數，設定保留")
+        # 確認的 popup 由視窗開，不是這一頁——它要蓋住整個視窗，
+        # 而這一頁被關在捲動區裡面，蓋不出去。
+        self.danger.requested.connect(self.reset_requested)
         lay.addWidget(self.danger)
         lay.addSpacing(S3)
 
@@ -1638,7 +1704,7 @@ class SettingsPage(QWidget):
         self.interval.changed.connect(self._on_interval)
         card.add(setting_row("提醒間隔",
                              row(self.interval, Label("分鐘", "body", INK3), spacing=S2),
-                             "以在電腦前的時間計算"))
+                             "以鍵盤滑鼠的活動時間計算"))
         card.add(Divider())
 
         # 夜間放慢是「提醒間隔」的補充條件，不是另一個主題——它先前自成一張
@@ -1647,10 +1713,17 @@ class SettingsPage(QWidget):
         #
         # 放回它所屬的脈絡：緊接在間隔後面，讀起來就是「平常 75 分，晚上改 109 分」。
         # 說明只寫這個數字**從哪來**，不寫**為什麼要有這個機制**——理由屬於 README。
-        late = self.cfg.get("late_night_start_hour", 23)
-        late_min = appsettings.late_night_interval(self.cfg)
-        self.late_lbl = Label(f"{late:02d}:00 起改為每 {late_min} 分", "body", INK2)
-        card.add(setting_row("夜間自動放慢", self.late_lbl, self._schedule_note()))
+        # 這一列問的是**就寢時間**，不是「夜間幾點開始放慢」。理由跟底下問起床
+        # 而不問換日完全相同：後者是系統概念，使用者得自己反推（「我兩點睡，
+        # 減三小時，所以填 23 點」）；就寢時間是他本來就知道的事實。
+        # 深夜起點是它的導出值，寫在說明裡當結果看，不再是可以獨立亂設的參數。
+        self.bedtime = HourStepper(
+            self.cfg.get("bedtime_hour", appsettings.DEFAULTS["bedtime_hour"]),
+            midnight_as_24=True)
+        self.bedtime.changed.connect(self._on_bedtime)
+        # hint 傳 Label 而不是字串：間隔改了、就寢改了，這行都要跟著重算。
+        self.late_lbl = Label(self._late_text(), "caption", INK3, elide=True)
+        card.add(setting_row("預計就寢時間", self.bedtime, self.late_lbl))
         card.add(Divider())
 
         # 問「起床時間」而不是「換日時間」：後者是系統概念，使用者得反推該填什麼；
@@ -1731,9 +1804,19 @@ class SettingsPage(QWidget):
         card.add(Divider())
 
         # 引導只在第一次啟動時跑，忘記怎麼用的人需要一條回去的路。
-        again = TapLabel("重看", C_ACCENT.name())
+        #
+        # 叫「使用導覽」不叫「使用說明」：打開來的是五頁的互動導覽、最後還要
+        # 真的點一次島，不是一份文件。而且引導自己的出口就寫「略過導覽」，
+        # 同一個東西在兩個地方要用同一個名字。
+        #
+        # 動作寫「再看一次」。**看得到這一列的人一定看過了**——沒跑完引導的人
+        # 根本進不到設定，所以「開始」是假的，那也正好是引導最後一頁那顆按鈕
+        # 的字，兩邊會撞名。
+        # 而「重看」雖然意思對，中文介面裡不會這樣講：它是口語的縮寫，
+        # 讀起來像講到一半。動作標籤要是完整的動詞片語。
+        again = TapLabel("再看一次", C_ACCENT.name())
         again.clicked.connect(self.replay_onboarding)
-        card.add(info_row("使用說明", "", again))
+        card.add(info_row("使用導覽", "", again))
         card.add(GRID)
         # 隱私聲明放這裡而不是體重欄底下：這是使用者會主動來找的地方，
         # 而輸入欄的說明行該留給那一欄的結果。
@@ -1749,7 +1832,9 @@ class SettingsPage(QWidget):
         """深夜模式的起點是怎麼來的。不能一律標「自動判定」——
         資料還不夠時用的是回退值，標成自動判定就是介面在說謊。
         """
-        if not self.cfg.get("auto_schedule", True):
+        # 使用者自己設過就寢時間就不再是推算的——這裡要先擋掉，否則資料不夠時
+        # 會對著他親手填的值說「推估值」。
+        if not self.cfg.get("auto_schedule", True) or self.cfg.get("bedtime_manual"):
             return "手動指定"
         # 有沒有夠多天的資料可以取中位數，決定了它是真的算出來的還是猜的
         wake = self.cfg.get("day_rollover_hour", 8)
@@ -1782,6 +1867,18 @@ class SettingsPage(QWidget):
         self._refresh_target_label()
         self._emit()
 
+    def _on_bedtime(self, hour):
+        """改了就寢時間。深夜起點是它的導出值，當場重算。
+
+        設了就標記手動，之後不再被推導覆蓋——跟起床時間同一套規則。
+        推導只負責給初始值，使用者一旦表態就聽他的。
+        """
+        self.cfg["bedtime_hour"] = hour
+        self.cfg["bedtime_manual"] = True
+        self.cfg["late_night_start_hour"] = appsettings.late_start_from_bedtime(hour)
+        self._refresh_late_label()
+        self._emit()
+
     def _on_interval(self, i):
         self.cfg["interval_min"] = appsettings.INTERVAL_CHOICES[i]
         self._refresh_late_label()      # 深夜間隔是主間隔的倍數，會跟著變
@@ -1792,15 +1889,40 @@ class SettingsPage(QWidget):
         self.cfg["day_rollover_hour"] = hour
         # 動過就不再被推導覆蓋。推導只負責給初始值，使用者一旦表態就聽他的。
         self.cfg["wake_manual"] = True
-        self.cfg["late_night_start_hour"] = appsettings.infer_late_hour(
-            appsettings.EVENTS_PATH, hour)
+        # 就寢時間也是從起床時間推的，所以要一起重算；深夜起點再從就寢導出。
+        # **不要在這裡直接算深夜起點**——那會繞過就寢時間，變成第二條推導路徑，
+        # 於是畫面上寫的就寢時間跟程式實際用的深夜起點對不起來。
+        if not self.cfg.get("bedtime_manual"):
+            self.cfg["bedtime_hour"] = appsettings.infer_bedtime(
+                appsettings.EVENTS_PATH, hour)
+        self.cfg["late_night_start_hour"] = appsettings.late_start_from_bedtime(
+            self.cfg.get("bedtime_hour", appsettings.DEFAULTS["bedtime_hour"]))
+        # 就寢的值可能被上面重算過，步進器要跟著走，否則畫面上還停在舊值。
+        # emit=False：這是同步顯示，不是使用者的操作，發訊號會被當成他手動設過。
+        self.bedtime.set_hour(self.cfg["bedtime_hour"], emit=False)
         self._refresh_late_label()
         self._emit()
 
-    def _refresh_late_label(self):
-        late = self.cfg.get("late_night_start_hour", 23)
+    def _late_text(self):
+        """深夜放慢這列顯示什麼。
+
+        **就寢時間要寫出來。** 這一列的數字全部是從它導出的（深夜起點 = 就寢
+        往前 3 小時），不寫的話使用者看到「23:00 起改為每 44 分」，無從得知
+        程式假設他 02:00 睡——而那個假設是推導出來的，可能是錯的。
+        寫出來之後，不對就看得出來；看不出來的假設沒有人會去修。
+        """
+        late = self.cfg.get("late_night_start_hour",
+                            appsettings.DEFAULTS["late_night_start_hour"])
         mins = appsettings.late_night_interval(self.cfg)
-        self.late_lbl.setText(f"{late:02d}:00 起改為每 {mins} 分")
+        tail = f"{late:02d}:00 起改為每 {mins} 分"
+        # 只有「資料還不夠、這個值是猜的」才特別標出來。推算成功或使用者自己設過
+        # 都不必說——沒消息就是好消息，每一行常駐的字都要自己賺到位置。
+        if self._schedule_note().startswith("推估"):
+            return f"推估值，{tail}"
+        return tail
+
+    def _refresh_late_label(self):
+        self.late_lbl.setText(self._late_text())
 
     def _on_theme(self, i):
         self.cfg["theme"] = self._theme_keys[i]
@@ -1831,7 +1953,7 @@ class SettingsPage(QWidget):
             subprocess.Popen(["explorer", appsettings.DATA_DIR])
 
     def _on_reset(self):
-        """確認已經在 DangerAction 裡就地問過了，這裡只負責執行。"""
+        """確認已經由視窗的 ConfirmOverlay 問過了，這裡只負責執行。"""
         appsettings.reset_data()
         self.reset_done.emit()
 
@@ -1854,6 +1976,7 @@ class StatsWindow(QWidget):
         self._stats_stale = False     # 設定改過，回紀錄那邊時要重算
         self._drag = None
         self._closing = False
+        self._confirm = None          # 確認用的 popup，按下「清除紀錄」才建
         self.cards = []
 
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
@@ -2003,6 +2126,7 @@ class StatsWindow(QWidget):
     def _make_settings_page(self):
         page = SettingsPage(self.cfg)
         page.changed.connect(self._on_config_changed)
+        page.reset_requested.connect(self._ask_reset)
         page.reset_done.connect(self._on_reset_done)
         page.theme_changed.connect(self._on_theme_changed)
         page.replay_onboarding.connect(self._on_replay_onboarding)
@@ -2318,8 +2442,32 @@ class StatsWindow(QWidget):
     def mouseReleaseEvent(self, event):
         self._drag = None
 
+    def resizeEvent(self, event):
+        # popup 開著的時候視窗仍可能改高度（換頁、換主題）。不跟著長的話，
+        # 遮罩會露出一條沒被蓋到的邊，而那條邊底下的東西是點得到的。
+        super().resizeEvent(event)
+        if self._confirm is not None and self._confirm.isVisible():
+            self._confirm.setGeometry(0, 0, self.width(), self.height())
+
+    def _ask_reset(self):
+        """開確認的 popup。每次都重建：主題換過之後顏色是寫死在元件裡的，
+        留著舊的會在淺色主題上出現一張深色的卡。
+        """
+        if self._confirm is not None:
+            self._confirm.deleteLater()
+        self._confirm = ConfirmOverlay(
+            self, "清除所有紀錄？",
+            "移除所有補水紀錄與連續天數，設定保留。此動作無法復原。")
+        self._confirm.accepted.connect(self.settings_page._on_reset)
+        self._confirm.ask()
+
     def keyPressEvent(self, event):
+        # popup 開著的時候，Esc 是「關掉 popup」不是「關掉視窗」——
+        # 一個鍵同時能取消確認又能關掉整個視窗，使用者按下去不知道會發生哪件事。
         if event.key() == Qt.Key_Escape:
+            if self._confirm is not None and self._confirm.isVisible():
+                self._confirm.dismiss()
+                return
             self.close()
 
 

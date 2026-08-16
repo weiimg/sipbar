@@ -1,12 +1,21 @@
 # -*- coding: utf-8 -*-
 """首次啟動的引導。
 
-## 為什麼只問一件事
+## 為什麼問這兩件事
 
-規劃文件當初列了四題（水壺、體重、幾點睡、螢幕），但那是程式還不會自己推導時
-寫的。現在目標有預設、起床時間會從活動紀錄推、單螢幕根本不顯示螢幕選項——
-**第一天問得到、而且問了會改變成敗的，只剩「桌上有沒有水」，而那根本不是設定，
-是一個行為介入。**
+規劃文件當初列了四題（水壺、體重、幾點睡、螢幕）。目標有預設、單螢幕根本不顯示
+螢幕選項，所以那兩題拿掉了；**「桌上有沒有水」留著，因為它根本不是設定，
+是一個行為介入**，而且是唯一答錯就會讓整個工具失效的問題。
+
+「幾點睡」一度也被拿掉，理由是「作息會從活動紀錄推」。**那個理由對第一次啟動
+不成立**：引導跑的時候紀錄是空的，推導定義上不可能運作，只能吃回退值
+（起床 08:00、就寢往回推），而回退值內建「睡滿 8 小時」的假設。
+對作息不規律的人，那個值會錯上好幾週——推導需要連續 4 小時以上的安靜時段
+才給答案，作息越亂越推不出來，於是**最需要被問的人反而永遠問不到**。
+
+所以作息那一頁回來了，而且問的是「幾點起床、幾點就寢」這兩個他本來就知道的
+事實，不是「深夜幾點開始放慢」那種要他自己反推的系統概念。
+答過就標記為手動，之後推導不再覆蓋。
 
 規劃文件裡最重的一句：
 
@@ -100,9 +109,12 @@ WATER_SONG_URL = "https://youtu.be/P5YaZlGD1lI"
 # 加了驚嘆號就變成廣告。**全部都有等於全部都沒有。**
 WATER_LEAD = ("你只要先做一件事：把水放在手邊。"
               "要走去廚房的話我幫不上忙，但水在旁邊，時間就交給我！")
-FILL_LEAD = "先去裝，我在這等你！其他都不用設定。"
+# 原本結尾有一句「其他都不用設定。」，作息那一頁加進來之後它就變成假的——
+# 下一頁馬上就在問起床與就寢。承諾「不用設定」再立刻要人設定，
+# 比一開始就不承諾傷得更重：它把使用者對這個工具說話算不算數的判斷一起賠掉。
+FILL_LEAD = "先去裝，我在這等你！"
 # 彩蛋真的開起來了才這樣寫。開失敗還說「配了首歌」就是介面在說謊。
-FILL_LEAD_SONG = "先去裝，我在這等你，順便配了首歌！其他都不用設定。"
+FILL_LEAD_SONG = "先去裝，我在這等你，順便配了首歌！"
 HOW_BULLETS = ("平常我不會出現，時間到才從螢幕上緣滑下來",
                "點我一下就算喝了，點系統匣的圖示也可以",
                "沒有關閉按鈕，喝完我就自己回去了")
@@ -128,6 +140,12 @@ SHADOW_SIGMA = 11.0
 SHADOW_OFFSET_Y = 7
 RADIUS = 22
 CHROME = (SHADOW + PAD) * 2     # 內容以外的上下留白，視窗高度 = 內容 + 這個
+ACTION_H = 44                   # 動作列的高度＝主要按鈕的高度（見 Button.__init__）
+TITLE_H = 44                    # 標題列的高度。取各頁最高的那個字，其餘補到一樣
+# 內容與動作列之間的留白。原本用 S3（實測內容到按鈕只有 32px），在「作息」那頁
+# 特別擠——那頁最後一列是實心的時間步進器，緊接著就是按鈕，兩塊實心的東西
+# 之間沒有喘息。動作列不是內容的一部分，要看得出是另一個區塊。
+ACTION_GAP = 40
 
 
 class Button(sw.Graphic):
@@ -140,10 +158,21 @@ class Button(sw.Graphic):
         super().__init__(QFontMetrics(f).horizontalAdvance(text) + 56,
                          44 if primary else 30)
         self.text, self.primary, self._f = text, primary, f
+        self._enabled = True
         self.setCursor(Qt.PointingHandCursor)
 
+    def set_enabled(self, on):
+        """停用時要**看起來**也按不下去。只擋住點擊、外觀不變的話，
+        使用者會以為是程式壞了而不是「還有一步沒做」。
+        """
+        if on == self._enabled:
+            return
+        self._enabled = on
+        self.setCursor(Qt.PointingHandCursor if on else Qt.ArrowCursor)
+        self.update()
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if self._enabled and event.button() == Qt.LeftButton:
             self.clicked.emit()
 
     def paintEvent(self, event):
@@ -155,12 +184,15 @@ class Button(sw.Graphic):
         p.setFont(self._f)
         if self.primary:
             p.setPen(Qt.NoPen)
-            p.setBrush(sw.C_ACCENT)
+            # 停用時不是把整顆調淡，是換成「沒有顏色的槽」：淡一點的強調色
+            # 看起來像還在載入，灰槽才讀得出是「現在不能按」。
+            p.setBrush(sw.C_ACCENT if self._enabled else sw.PAL.veil(22))
             p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()),
                               self.height() / 2, self.height() / 2)
-            p.setPen(QColor(255, 255, 255, 245))
+            p.setPen(QColor(255, 255, 255, 245) if self._enabled
+                     else sw.PAL.ink_a(96))
         else:
-            p.setPen(sw.PAL.ink_a(170))
+            p.setPen(sw.PAL.ink_a(170 if self._enabled else 96))
         p.drawText(int((self.width() - fm.horizontalAdvance(self.text)) / 2),
                    int(self.height() / 2 + (fm.ascent() - fm.descent()) / 2),
                    self.text)
@@ -675,26 +707,52 @@ class OnboardWindow(QWidget):
     「點一下」。演完之後讓他自己做一遍，那一下才會留在手上。
     """
 
-    finished = Signal(bool)          # 參數：開機時啟動要不要開
+    # 參數：引導期間做過的所有設定。用 dict 而不是逐個位置參數——
+    # 引導多問一題就要改一次簽章的話，呼叫端一定會有人漏掉。
+    finished = Signal(dict)
 
-    def __init__(self, on_practice=None):
+    def __init__(self, on_practice=None, wake=8, bedtime=0):
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setWindowTitle("喝水提醒動態島")
+        self.setWindowTitle(appsettings.APP_TITLE)
         self._drag = None
 
         self.preview = IslandPreview()      # 第三頁，循環展示
         self.up_cue = UpCue()               # 第四頁，把視線帶到螢幕上緣
         self.on_practice = on_practice      # 第四頁叫真的島出來，見 _page_try
         self.autostart = sw.Toggle(True)
+        # 就寢用 24:00 而不是 00:00：就寢是一天的結束，00:00 會被讀成「今天開始」。
+        # 起床沒有這個問題，00:00 就是 00:00。
+        self.wake_pick = sw.HourStepper(wake)
+        self.bed_pick = sw.HourStepper(bedtime, midnight_as_24=True)
 
         # 視窗自己排幾何，不掛 layout。掛了的話 Deck 的高度變化會回頭去改視窗的
         # 最小／最大高度，跟這裡逐格設定的高度打架，動畫會抖。
         self.deck = Deck(WIDTH - PAD * 2)
         self.deck.setParent(self)
-        for page in (self._page_water(), self._page_fill(), self._page_howto(),
-                     self._page_try()):
+        # 走過的頁，給「上一步」用。用堆疊而不是「目前頁 − 1」：裝水那頁是
+        # 條件式的，答「有」會從第一頁直接跳到作息，減一就會退到一頁沒走過的。
+        self._history = []
+
+        # 每一頁的「略過導覽」。由 _page() 自動加，頁面自己不用記得——
+        # 出口只有一個位置這件事，要靠結構保證，不是靠每頁作者自律。
+        self.skip_links = []
+
+        # 作息排在水壺之後、教學之前：前兩頁定的是「他自己的條件」，
+        # 後兩頁教的是「這東西怎麼用」。混在一起會讓兩種頁面互相稀釋。
+        #
+        # **頁碼一律用名字取，不要寫數字。** 這個檔案裡的頁碼原本寫死在四處
+        #（_go 的動畫切換、_on_tried 的重量、各頁按鈕的目的地、渲染測試），
+        # 作息頁插進來時全部指向錯的頁——示範動畫跑到作息頁上、真的島在教學頁
+        # 彈出來、量錯頁面高度。**沒有一個會報錯**，只會安靜地做錯事。
+        pages = (("water", self._page_water()),
+                 ("fill", self._page_fill()),
+                 ("schedule", self._page_schedule()),
+                 ("howto", self._page_howto()),
+                 ("try", self._page_try()))
+        self.page_index = {name: i for i, (name, _) in enumerate(pages)}
+        for _, page in pages:
             self.deck.add(page)
 
         self.sp_win = Spring(0.0, *PRESET["enter"])
@@ -731,24 +789,67 @@ class OnboardWindow(QWidget):
         lay.setSpacing(sw.S3)
 
         head = sw.Label(title, "title", sw.INK)
+        # **標題高度要釘死。** QLabel 的高度是照文字外框算的，同一個字級之下
+        # 「開始之前」44px、「作息」40px——每換一頁，底下所有東西就跟著位移
+        # 幾像素，看起來像每一頁的標頭高度都不一樣。
+        # 靠上對齊而不是置中：釘死之後字仍要從同一條線開始，置中會讓
+        # 高度不同的字各自往下掉一點，等於換個方式再抖一次。
+        head.setFixedHeight(TITLE_H)
+        head.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         if portrait is None:
             lay.addWidget(head)
             for b in blocks:
                 lay.addWidget(b)
         else:
             body = sw.col(head, *blocks, spacing=sw.S3)
-            lay.addWidget(sw.row((body, 1), portrait, spacing=sw.S4,
-                                 align=Qt.AlignTop))
+            # **插圖要比標題低一截。** 右上角現在有「略過導覽」，插圖若跟標題切齊，
+            # 兩者只差 8px，會被讀成同一組；「試一次」那頁更糟——那頁的插圖是
+            # 一組向上的箭頭，緊貼在連結底下就變成「箭頭指著略過導覽」，
+            # 而它要指的是螢幕上緣。往下讓開一格，兩件事就分開了。
+            lay.addWidget(sw.row((body, 1),
+                                 sw.col(portrait, margins=(0, sw.S5, 0, 0)),
+                                 spacing=sw.S4, align=Qt.AlignTop))
         # 動作靠右下，跟內容之間空兩格。頁面現在是自然高度，沒有多餘空間可以
         # 把按鈕推遠，距離要自己給——貼著內文的按鈕會被讀成內文的一部分。
-        lay.addSpacing(sw.S3)
-        lay.addWidget(sw.row("stretch", *actions, spacing=sw.S3))
+        #
+        # 「略過導覽」固定在動作列的**最左邊**，每一頁都由這裡自動加上去。
+        # 位置的理由：這是桌面精靈不是手機引導，慣例是「次要動作靠左、主要動作
+        # 靠右」（安裝程式都是這樣）。放左下還有兩個好處——離「開始」最遠，
+        # 放棄流程的動作不該貼著完成流程的動作；右上角是角色的地盤（杯子、
+        # 向上箭頭），擠進去會讓箭頭看起來在指它。
+        # **動作列的高度要釘死。** 它裡面有一個 QLabel（略過導覽），而 QLabel 的
+        # 垂直政策是 Preferred——版面有多的空間就會把它拉高，整列跟著從 44 變成 66，
+        # 頁面再跟著多 22px，看起來就是「下面留太寬」。
+        # 釘成主要按鈕的高度、內容垂直置中，這一列就再也吸不到多餘的空間。
+        lay.addSpacing(ACTION_GAP)
+        bar = sw.row(self._skip_link(), "stretch", *actions, spacing=sw.S3,
+                     align=Qt.AlignVCenter)
+        bar.setFixedHeight(ACTION_H)
+        lay.addWidget(bar)
         return page
+
+    def _skip_link(self):
+        """一頁一個。共用同一個 widget 做不到——一個 widget 只能待在一個版面裡，
+        加到第二頁的當下就會從第一頁消失。
+        """
+        link = sw.TapLabel("略過導覽", sw.INK3)
+        link.setFont(sw.font("caption"))
+        link.clicked.connect(self._skip)
+        self.skip_links.append(link)
+        return link
+
+    def _back_button(self):
+        """「上一步」。**第一頁沒有**——那裡沒有回頭路，放一顆按不動的鈕
+        比不放更糟。其餘每頁都有，讓人知道走錯了退得回去。
+        """
+        b = Button("上一步", primary=False)
+        b.clicked.connect(self._back)
+        return b
 
     def _page_water(self):
         yes = Button("有，繼續")
         no = Button("還沒有", primary=False)
-        yes.clicked.connect(lambda: self._go(2))
+        yes.clicked.connect(lambda: self._go(self.page_index["schedule"]))
         no.clicked.connect(self._no_water)
         return self._page("開始之前", [
             _speech(WATER_LEAD),
@@ -772,23 +873,45 @@ class OnboardWindow(QWidget):
         self.fill_lead.setText(FILL_LEAD_SONG if played else FILL_LEAD)
         # 換過字才量高度。兩句都只有一行，但那是現在——文案一改就可能變兩行，
         # 而頁面的高度是在 Deck.add() 時量的，不重量就會裁掉最後一行。
-        self.deck.remeasure(1)
-        self._go(1)
+        self.deck.remeasure(self.page_index["fill"])
+        self._go(self.page_index["fill"])
 
     def _page_fill(self):
         # 不擋：按鈕隨時可以按。文案已經把話講清楚，第一次用就被鎖住
         # 只會讓人直接關掉程式。
         ok = Button("裝好了")
-        ok.clicked.connect(lambda: self._go(2))
+        ok.clicked.connect(lambda: self._go(self.page_index["schedule"]))
         self.fill_lead = sw.para(FILL_LEAD)
         # 這一頁的杯子跟第一頁同一個樣子（笑臉、同樣的水位）。特別**不要**在這裡
         # 畫一個快沒水的杯子催他快去，理由見 CupPortrait.LEVEL。
-        return self._page("先去裝一壺", [_speech(None, self.fill_lead)], [ok],
+        return self._page("先去裝一壺", [_speech(None, self.fill_lead)],
+                          [self._back_button(), ok],
                           portrait=CupPortrait(cell=6))
+
+    def _page_schedule(self):
+        """問起床與就寢。**兩個放同一頁**，因為它們合起來才是一件事：
+        這一天有多長。拆成兩頁會讓它們讀起來像兩個無關的設定。
+
+        問的是他知道的事實，不是系統概念——深夜幾點開始放慢由就寢往前推 3 小時
+        算出來，不拿出來問。理由跟設定頁那一列相同。
+        """
+        nxt = Button("下一步")
+        nxt.clicked.connect(lambda: self._go(self.page_index["howto"]))
+        picks = sw.col(
+            sw.row(sw.Label("起床", "headline", sw.INK), "stretch",
+                   self.wake_pick, spacing=sw.S3),
+            sw.row(sw.Label("就寢", "headline", sw.INK), "stretch",
+                   self.bed_pick, spacing=sw.S3),
+            spacing=sw.S2)
+        return self._page("作息", [
+            sw.Label("習慣幾點起床、幾點就寢？", "headline", sw.INK),
+            sw.para("提醒只在起床後發送，就寢前三小時自動放慢。"),
+            picks,
+        ], [self._back_button(), nxt])
 
     def _page_howto(self):
         nxt = Button("下一步")
-        nxt.clicked.connect(lambda: self._go(3))
+        nxt.clicked.connect(lambda: self._go(self.page_index["try"]))
         return self._page("這樣用", [
             self.preview,
             # 三條是同一組，行距要比它們跟上下文的距離短。用頁面的 S3 排會讓
@@ -799,7 +922,7 @@ class OnboardWindow(QWidget):
             # 使用者不會自己想到齒輪在紀錄視窗右上角。
             sw.para(HOW_SETTINGS),
             sw.setting_row("開機時啟動", self.autostart),
-        ], [nxt])
+        ], [self._back_button(), nxt])
 
     def _page_try(self):
         """在**真的島**上點一次。
@@ -808,38 +931,55 @@ class OnboardWindow(QWidget):
         「把游標移到螢幕上緣那顆藥丸、按下去」，而**位置是這個動作的一半**——
         在引導視窗裡點一張縮小的圖，練不到那半。所以這裡叫真的島出來。
 
-        **不擋**：「開始」隨時可以按，跟第二頁的「裝好了」同一條原則。
-        這一步是給手的，不是關卡；擋住只會讓想跳過的人更想關掉程式。
+        **這一頁會擋**，跟前面幾頁的「不擋」相反，而且是刻意的：這是整份引導裡
+        唯一「做過」與「看過」有差的一步。這個工具最大的問題是平常完全隱藏，
+        沒有真的把游標移上去點過一次的人，之後找不到它。灰掉的「開始」也在說
+        同一件事——還有一步沒做，而不是這裡沒東西。
+
+        **擋住不能變成關不掉**，但出口不放在這一頁：視窗右上角常駐一條
+        「略過導覽」，每一頁都在。出口只有一個、位置固定，比在最後一頁臨時
+        長出第二顆按鈕清楚得多——後者會讓人分不清哪一個才是正常的路。
         """
-        start = Button("開始")
-        start.clicked.connect(self._finish)
+        self.start_btn = Button("開始")
+        self.start_btn.clicked.connect(self._finish)
+        self.start_btn.set_enabled(False)
         self.try_lead = sw.para(TRY_LEAD)
-        return self._page("試一次", [_speech(None, self.try_lead)], [start],
+        return self._page("試一次", [_speech(None, self.try_lead)],
+                          [self._back_button(), self.start_btn],
                           portrait=self.up_cue)
 
     def _on_tried(self):
         self.try_lead.setText(TRY_DONE)
-        self.deck.remeasure(3)
+        # 練到了才解鎖。這是「開始」唯一的解鎖條件。
+        self.start_btn.set_enabled(True)
+        self.deck.remeasure(self.page_index["try"])
         self._h_from = self._h_to = self.deck.natural()
         self._apply_height()
 
     # ------------------------------------------------------------ 流程
 
-    def _go(self, index):
+    def _back(self):
+        """回到上一頁。沒走過就不動——第一頁不該有「上一步」，也不會有。"""
+        if self._history:
+            self._go(self._history.pop(), remember=False)
+
+    def _go(self, index, remember=True):
         if index == self.deck.index:
             return
+        if remember:
+            self._history.append(self.deck.index)
         self.deck.show_page(index)
-        # 展示動畫只在第三頁跑，離開就停：常駐工具不能為了看不見的動畫一直重繪。
+        # 展示動畫只在教學頁跑，離開就停：常駐工具不能為了看不見的動畫一直重繪。
         self.preview.stop()
         self.up_cue.stop()
-        if index == 2:
+        if index == self.page_index["howto"]:
             self.preview.start()
-        elif index == 3:
+        elif index == self.page_index["try"]:
             self.up_cue.start()
-        if index == 3 and self.on_practice:
-            # 叫真的島出來讓他練習。點下去由島自己處理，不計數也不落檔，
-            # 完成之後回呼到 _on_tried 換文案。
-            self.on_practice(self._on_tried)
+            if self.on_practice:
+                # 叫真的島出來讓他練習。點下去由島自己處理，不計數也不落檔，
+                # 完成之後回呼到 _on_tried 換文案。
+                self.on_practice(self._on_tried)
         # 中心線鎖在切換的那一刻。高度往兩邊長，視窗才不會愈走愈往下、
         # 到第三頁時掉出螢幕（實測 1080p 上會少 8px）。
         self._anchor_y = self.y() + self.height() / 2
@@ -862,10 +1002,38 @@ class OnboardWindow(QWidget):
         # 是兩次合成，會看到框先變高再跳位。
         self.setGeometry(self.x(), top, self.width(), h)
 
+    def can_finish(self):
+        """「開始」按不按得下去：練過了才行。
+
+        **檢查放在這裡而不是只放在按鈕的滑鼠事件裡。** 擋在 mousePressEvent
+        只擋得住滑鼠——任何其他觸發 clicked 的路徑（日後加鍵盤操作、程式直接呼叫、
+        測試）都會整個穿過去，而閘門看起來還在。守在終點才是真的守住。
+        """
+        return self.start_btn._enabled
+
+    def _skip(self):
+        """略過導覽。**刻意不經過 can_finish()**——它是閘門的例外，不是繞過閘門的
+        後門：走這條就是明說「我不練了」，設定照樣存（作息用目前的值），
+        引導也照樣標記為看過。含糊地放行才是問題，明講的出口不是。
+        """
+        self._emit_finish()
+
     def _finish(self):
+        if not self.can_finish():
+            return
+        self._emit_finish()
+
+    def _emit_finish(self):
         self.preview.stop()
         self.up_cue.stop()
-        self.finished.emit(self.autostart.on)
+        # 作息標記為手動：他剛剛親口回答過，推導不該再去蓋掉。
+        self.finished.emit({
+            "autostart": self.autostart.on,
+            "day_rollover_hour": self.wake_pick.hour,
+            "wake_manual": True,
+            "bedtime_hour": self.bed_pick.hour,
+            "bedtime_manual": True,
+        })
         self.close()
 
     # ------------------------------------------------------------ 外觀
@@ -927,14 +1095,17 @@ class OnboardWindow(QWidget):
         self._drag = None
 
 
-def open_window(on_finished, on_practice=None):
+def open_window(on_finished, on_practice=None, wake=8, bedtime=0):
     """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。
 
-    `on_practice(done_cb)` 由島提供：第四頁會叫它，讓真的島出來讓人點一次。
+    `on_practice(done_cb)` 由島提供：最後一頁會叫它，讓真的島出來讓人點一次。
     沒給的話那一頁就只有文字（測試與單獨執行 onboard.py 時是這條路）。
+
+    `wake` / `bedtime` 是作息那一頁的起始值。傳現有設定進來，重看使用說明的人
+    才不會看到一組跟他實際設定無關的數字、然後按完「開始」把自己的設定洗掉。
     """
     typeface.ensure_loaded()
-    win = OnboardWindow(on_practice=on_practice)
+    win = OnboardWindow(on_practice=on_practice, wake=wake, bedtime=bedtime)
     win.finished.connect(on_finished)
     screen = QApplication.primaryScreen().availableGeometry()
     # 對齊螢幕中心，不是對齊第一頁的中心：後面兩頁高度不同，鎖住中心線

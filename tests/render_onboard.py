@@ -13,12 +13,13 @@ import os
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, r"E:\Claude Project\Claude Inbox\喝水提醒桌寵")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import onboard  # noqa: E402
 import stats_window as sw  # noqa: E402
 
-from PySide6.QtGui import QColor, QPainter, QPixmap  # noqa: E402
+from PySide6.QtCore import Qt, QPointF  # noqa: E402
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication(sys.argv)
@@ -68,14 +69,20 @@ def shot_flow(theme_name):
         frames.append(win.grab())
 
     # 補間中途：把高度停在一半，頁面的內部尺寸不能跟著縮。
+    #
+    # 要驗的是**放著預覽動畫的那一頁**，因為它是唯一有固定尺寸內容的頁面。
+    # 頁碼用找的不是寫死的：作息頁插進來時它從 2 變成 3，而寫死的版本不會報錯，
+    # 只會在另一頁上找不到預覽、拿兩個空清單去比，然後以一句看不懂的訊息紅掉。
+    howto = next(i for i, pg in enumerate(win.deck.pages)
+                 if pg.findChildren(type(win.preview)))
     win._go(0)
-    win._h_from, win._h_to = win.deck.natural(2), win.deck.natural(0)
-    win.deck.show_page(2)
-    before = [w.size() for w in win.deck.pages[2].findChildren(type(win.preview))]
+    win._h_from, win._h_to = win.deck.natural(howto), win.deck.natural(0)
+    win.deck.show_page(howto)
+    before = [w.size() for w in win.deck.pages[howto].findChildren(type(win.preview))]
     win.sp_h.value = 0.5
     win._apply_height()
     app.processEvents()
-    after = [w.size() for w in win.deck.pages[2].findChildren(type(win.preview))]
+    after = [w.size() for w in win.deck.pages[howto].findChildren(type(win.preview))]
     check(before == after and before, "補間中途沒有壓扁內容",
           f"預覽尺寸 {before[0].width()}x{before[0].height()}" if before else "")
 
@@ -181,6 +188,71 @@ for frames in rows:
         x += w + pad
     y += h + pad
 p.end()
+
+print("")
+print("最後一步：練過了才能按「開始」")
+# 這一頁跟前面幾頁的「不擋」相反，是刻意的：這是整份引導裡唯一「做過」與
+# 「看過」有差的一步，而這個工具最大的問題就是平常完全隱藏、找不到。
+_cb = {}
+_done = []
+gw = onboard.open_window(lambda r: _done.append(r),
+                         on_practice=lambda fn: _cb.update(fn=fn))
+gw.frame.stop()
+app.processEvents()
+gw._go(gw.page_index["try"])
+app.processEvents()
+check(not gw.start_btn._enabled, "還沒練習時「開始」是灰的")
+check(len(gw.skip_links) == len(gw.deck.pages), "每一頁都有「略過導覽」",
+      f"連結 {len(gw.skip_links)} 個 / 頁面 {len(gw.deck.pages)} 頁")
+
+gw.start_btn.mousePressEvent(QMouseEvent(
+    QMouseEvent.MouseButtonPress, QPointF(5, 5),
+    Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+app.processEvents()
+check(not _done, "灰的時候點下去不會結束引導")
+# **也要擋直接發訊號的路徑。** 檢查只寫在 mousePressEvent 的話，日後加鍵盤操作
+# 或任何程式呼叫都會整個穿過去，而閘門看起來還在。
+gw.start_btn.clicked.emit()
+app.processEvents()
+check(not _done, "直接觸發 clicked 也擋得住")
+
+_cb["fn"]()                      # 使用者真的在島上點了一下
+app.processEvents()
+check(gw.start_btn._enabled, "練習完成後「開始」才亮起來")
+
+# 擋住不能變成關不掉：這個視窗沒有 Esc 也沒有關閉鍵，練習若因故觸發不了
+# （島沒出來、螢幕判定有問題），使用者只剩工作管理員一條路。
+# 出口是動作列最左邊的「略過導覽」，每一頁都在、位置固定。
+#
+# **位置要在這裡釘死。** 這是桌面精靈不是手機引導：慣例是次要動作靠左、
+# 主要動作靠右。放左下還有兩個實際理由——離「開始」最遠（放棄流程的動作不該
+# 貼著完成流程的動作），以及右上角是角色的地盤（杯子、向上箭頭），
+# 擠進去會讓箭頭看起來在指它。
+_try = gw.deck.pages[gw.page_index["try"]]
+_link = [w for w in _try.findChildren(sw.TapLabel) if w.text() == "略過導覽"][0]
+_lx = _link.mapTo(gw, _link.rect().topLeft())
+_sx = gw.start_btn.mapTo(gw, gw.start_btn.rect().topLeft())
+_cue = gw.up_cue.mapTo(gw, gw.up_cue.rect().bottomRight())
+check(_lx.x() < _sx.x(), "「略過導覽」在動作列最左，主要動作在最右",
+      f"連結 x={_lx.x()} / 開始 x={_sx.x()}")
+check(_lx.y() > _cue.y(), "在向上箭頭的下方，不會被讀成箭頭指的目標",
+      f"連結 y={_lx.y()} / 箭頭底部 y={_cue.y()}")
+
+_skipped = []
+gw2 = onboard.open_window(lambda r: _skipped.append(r), on_practice=lambda fn: None)
+gw2.frame.stop()
+app.processEvents()
+_first = [w for w in gw2.deck.pages[0].findChildren(sw.TapLabel)
+          if w.text() == "略過導覽"]
+check(len(_first) == 1, "第一頁就有「略過導覽」")
+gw2._go(gw2.page_index["try"])
+app.processEvents()
+check(not gw2.start_btn._enabled, "略過導覽存在時「開始」仍然是灰的")
+gw2._skip()
+app.processEvents()
+check(bool(_skipped), "略過導覽走得掉，不必先練習")
+gw.hide()
+gw2.hide()
 
 out = os.path.join(SCRATCH, "onboard.png")
 sheet.save(out)

@@ -7,7 +7,12 @@ import sys
 import tempfile
 from datetime import datetime, timedelta
 
-sys.path.insert(0, r"E:\Claude Project\Claude Inbox\喝水提醒桌寵")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 台灣 Windows 的主控台預設是 cp950，而被驗的 UI 文案裡有 Big5 沒有的字（麵包屑的 ‹）。
+# 不放寬錯誤處理的話，測試會在「印出結果」那一步崩掉——看起來像測試沒過，其實是主控台
+# 印不出來。**驗文案的測試不能因為文案本身而掛掉。**
+sys.stdout.reconfigure(errors="replace")
 
 import settings as ap  # noqa: E402
 
@@ -124,6 +129,27 @@ check("手動的起床時間不被推導蓋掉", manual["day_rollover_hour"], 11
 # 落在合理範圍外就退回「起床 − 11 小時」。
 check("起床時間與活動矛盾時退回推估值", manual["late_night_start_hour"], 0)
 
+print("\n6c. 深夜起點是就寢時間的導出值，不是獨立參數")
+# 使用者設的是「就寢時間」（他知道的事實），不是「深夜幾點開始」（系統概念）。
+check("就寢 02:00 -> 深夜起點 23:00", ap.late_start_from_bedtime(2), 23)
+check("就寢 24:00 -> 深夜起點 21:00", ap.late_start_from_bedtime(0), 21)
+# infer_bedtime 必須是 infer_late_hour 的反函式。兩份各自推導一定會漂開，
+# 而畫面上寫的就寢時間跟程式實際用的深夜起點一旦對不起來，介面就在說謊。
+check("推導的就寢與深夜起點互為反函式",
+      ap.late_start_from_bedtime(ap.infer_bedtime(p, 9)), ap.infer_late_hour(p, 9))
+# 手動設過就不再被推導覆蓋——跟 wake_manual 同一套規則
+man = dict(ap.DEFAULTS)
+man["bedtime_manual"] = True
+man["bedtime_hour"] = 3
+ap.apply_auto_schedule(man, p)
+check("手動的就寢時間不被推導蓋掉", man["bedtime_hour"], 3)
+check("深夜起點仍從手動值重算", man["late_night_start_hour"], 0)
+# 沒標記手動就該被推導接管
+auto = dict(ap.DEFAULTS)
+auto["bedtime_hour"] = 3
+ap.apply_auto_schedule(auto, p)
+check("沒設過就交給推導", auto["bedtime_hour"], ap.infer_bedtime(p, auto["day_rollover_hour"]))
+
 print("\n7. 舊鍵名升級，使用者調過的值不能弄丟")
 raw = {"interval_min": 60, "interval_jitter_min": 12,
        "late_night_interval_min": 90, "daily_target_drinks": 10}
@@ -163,6 +189,41 @@ try:
 finally:
     ap.DATA_DIR, ap.CONFIG_PATH, ap.LEGACY_CONFIG_PATH = _dir, _cfg, _legacy
 
+print("\n8c. 改名：舊資料夾整份接過來，只做一次")
+# 改名前叫 WaterPet。不搬的話使用者的設定與紀錄會變孤兒——程式建一個空的
+# 新資料夾，而他的紀錄還躺在舊的裡面，沒有任何錯誤訊息。
+_mig = tempfile.mkdtemp(prefix="wp_rename_")
+_old_dir = os.path.join(_mig, ap.OLD_APP_NAME)
+_new_dir = os.path.join(_mig, ap.APP_NAME)
+os.makedirs(_old_dir)
+json.dump({"weight_kg": 65, "interval_min": 60},
+          open(os.path.join(_old_dir, "config.json"), "w"))
+json.dump({"drinks": 9}, open(os.path.join(_old_dir, "state.json"), "w"))
+open(os.path.join(_old_dir, "events.jsonl"), "w").write('{"event":"drink"}\n')
+_keep = (ap.DATA_DIR, ap.CONFIG_PATH, ap.STATE_PATH, ap.EVENTS_PATH)
+try:
+    ap.DATA_DIR = _new_dir
+    ap.CONFIG_PATH = os.path.join(_new_dir, "config.json")
+    ap.STATE_PATH = os.path.join(_new_dir, "state.json")
+    ap.EVENTS_PATH = os.path.join(_new_dir, "events.jsonl")
+    check("三個檔全部搬過來", ap._migrate_data_dir(), 3)
+    check("設定內容沒跑掉",
+          json.load(open(ap.CONFIG_PATH, encoding="utf-8"))["interval_min"], 60)
+    # 複製不是搬移：遷移本身若有 bug，原始資料還在原地，不是只剩一份被寫壞的
+    check("舊資料夾留著當備份",
+          os.path.exists(os.path.join(_old_dir, "events.jsonl")), True)
+    check("再跑一次不重覆搬", ap._migrate_data_dir(), 0)
+    # **沙箱裡不能去撈使用者真實的資料夾。** 舊路徑是從現在的 DATA_DIR 同層推的，
+    # 寫死絕對路徑的話，跑一次測試就會把真實紀錄複製進沙箱。
+    _empty = tempfile.mkdtemp(prefix="wp_rename_empty_")
+    ap.DATA_DIR = _empty
+    ap.CONFIG_PATH = os.path.join(_empty, "config.json")
+    check("同層沒有舊資料夾就安靜跳過", ap._migrate_data_dir(), 0)
+    shutil.rmtree(_empty, ignore_errors=True)
+finally:
+    ap.DATA_DIR, ap.CONFIG_PATH, ap.STATE_PATH, ap.EVENTS_PATH = _keep
+shutil.rmtree(_mig, ignore_errors=True)
+
 print("\n8b. 測試自己不能碰到真實的設定檔")
 # 這條是上面那個沙箱的看門狗。有人日後把沙箱拿掉、或在沙箱之前就 import，
 # 這裡會立刻叫——而不是等使用者發現設定不見了。
@@ -185,6 +246,11 @@ isl.EVENTS_PATH = os.path.join(ISL_DIR, "events.jsonl")
 
 cfg = dict(ap.DEFAULTS)
 cfg["daily_target_drinks"] = 7
+# 深夜倍數在這裡要中性化，否則這支測試在 23:00-08:00 之間跑一定紅：
+# _roll_interval() 會套用深夜倍數（30 × 1.45 = 44 分），而底下兩條斷言
+# 寫死「30 分 ±15%」。它們要驗的是「新間隔要等下一輪才生效」，
+# 跟深夜無關——把倍數設成 1.0 是移除無關變因，不是放寬標準。
+cfg["late_night_ratio"] = 1.0
 w = isl.Island(cfg)
 for t in (w.tick_timer, w.frame, w.hold_timer, w.peek_timer):
     t.stop()
@@ -314,22 +380,49 @@ win.sub_lbl.clicked.emit()
 check("點麵包屑會回紀錄", win.mode, "stats")
 check("紀錄模式副標換回資訊", win.sub_lbl.text().startswith("每日目標"), True)
 
-print("\n12c. 清除紀錄要兩段：先問「確定要刪除嗎」，確認了才真的刪")
+print("\n12c. 清除紀錄要跳 popup，而且刪除鍵不能長在觸發鍵的位置")
+from PySide6.QtCore import QRect  # noqa: E402
+
 fired = []
-d = sw.DangerAction("說明", "確定要清除所有紀錄嗎？")
-d.confirmed.connect(lambda: fired.append(1))
-check("預設不是待確認狀態", d._armed, False)
-check("預設看不到確認文字", d.prompt_lbl.isVisible(), False)
-d.action.clicked.emit()                    # 點「清除紀錄」
-check("點一下只是進入確認", d._armed, True)
-check("還沒真的刪", fired, [])
-d.cancel.clicked.emit()
-check("可以取消", d._armed, False)
+win._switch_mode("settings", animate=False)
+_app.processEvents()
+win.settings_page.reset_done.connect(lambda: fired.append(1))
+check("一開始沒有 popup", win._confirm, None)
+
+win.settings_page.danger.action.clicked.emit()
+_app.processEvents()
+ov = win._confirm
+check("按下清除紀錄會開 popup", ov.isVisible(), True)
+check("遮罩蓋滿整個視窗", ov.size(), win.size())
+
+# **這一條是這次改版的理由，不是裝飾。** 舊版就地確認時，「刪除」與「清除紀錄」
+# 水平重疊 33px，兩顆又都靠右對齊——手快點兩下、或第一下以為沒反應再補一下，
+# 第二下就落在「刪除」上，而清除紀錄不可復原。
+# 釘住「兩者不得相交」，之後任何人把確認搬回原地都會在這裡被擋下來。
+trig = win.settings_page.danger.action
+tg = QRect(trig.mapTo(win, QPoint(0, 0)), trig.size())
+cf = QRect(ov.card.mapTo(win, ov.confirm.geometry().topLeft()), ov.confirm.size())
+check("刪除鍵與觸發鍵完全不重疊", tg.intersects(cf), False)
+
+check("開著的時候還沒刪", fired, [])
+ov.cancel.clicked.emit()
+check("取消會關掉 popup", ov.isVisible(), False)
 check("取消後沒刪", fired, [])
-d.action.clicked.emit()
-d.confirm.clicked.emit()                   # 點「刪除」
-check("確認後才刪", fired, [1])
-check("刪完收回確認狀態", d._armed, False)
+
+# 點卡片外面也是取消。誤觸要落在安全的那一邊，所以外面只認取消不認確認。
+win.settings_page.danger.action.clicked.emit()
+_app.processEvents()
+ov = win._confirm
+ov.mousePressEvent(QMouseEvent(QMouseEvent.MouseButtonPress, QPointF(4, 4),
+                               Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+check("點卡片外面＝取消", ov.isVisible(), False)
+check("點外面沒刪", fired, [])
+
+win.settings_page.danger.action.clicked.emit()
+_app.processEvents()
+win._confirm.confirm.clicked.emit()
+check("按刪除才真的執行", fired, [1])
+check("執行後 popup 收起來", win._confirm.isVisible(), False)
 
 print("\n12d. 網格：列高只能是宣告過的三種，控制項中心線才會對齊")
 win._switch_mode("settings", animate=False)
@@ -339,7 +432,7 @@ for card in win.settings_page.cards:
     box = card.box
     for i in range(box.count()):
         wd = box.itemAt(i).widget()
-        if wd is None or isinstance(wd, (sw.Divider, sw.Label, sw.DangerAction)):
+        if wd is None or isinstance(wd, (sw.Divider, sw.Label, sw.DangerRow)):
             continue
         if isinstance(wd, QLabel):        # para() 產的自動換行段落，高度由內容決定
             continue
@@ -486,6 +579,22 @@ h_stats = win2.height()
 win2._switch_mode("settings", animate=False)
 h_settings = win2.height()
 check("兩種模式同高", h_settings, h_stats)
+
+print("\n14. 防線：只有真的程式可以寫真實資料檔")
+# 上面 8b 那條看門狗只驗「路徑有沒有指到沙箱」，擋不住忘了設路徑的**新**測試。
+# 這一條驗的是程式裡的防線本身有沒有在運作。
+_probe = []
+try:
+    ap.guard_real_write(os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                     "WaterPet", "config.json"))
+except RuntimeError as exc:
+    _probe.append(str(exc))
+check("未舉手寫真實設定會拋例外", bool(_probe), True)
+check("沙箱路徑照樣放行", ap.guard_real_write(ap.CONFIG_PATH), None)
+# Qt 會吞掉 slot 裡的例外（只印 traceback 就繼續跑），所以要能事後斷言。
+# 扣掉上面那一次故意的探測，這支測試不該再攔到任何東西。
+check("除了故意探測那次，沒有其他攔截",
+      len(ap.real_write_violations()), len(_probe))
 
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))

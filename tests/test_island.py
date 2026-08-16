@@ -5,7 +5,7 @@ import shutil
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, r"E:\Claude Project\Claude Inbox\喝水提醒桌寵")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import island as isl  # noqa: E402
 
@@ -74,8 +74,12 @@ w._settle()
 check("expand 目標", w.sp_expand.target, 0.35)
 check("reveal 目標（仍現身）", w.sp_reveal.target, 1.0)
 
-print("\n5. 離開電腦時計時停住（閒置 20 分，跑 30 tick 不該升級）")
-IDLE[0] = 20 * 60
+# 閒置秒數要從設定值推，不能寫死。寫死 20 分的版本在門檻從 15 調成 30 那天
+# 整組垮掉（active_s 照跑、狀態一路升級），而失敗訊息看起來像狀態機壞了，
+# 跟真正的原因差很遠。
+_idle_min = cfg["idle_threshold_min"] + 5
+print(f"\n5. 離開電腦時計時停住（閒置 {_idle_min} 分，跑 30 tick 不該升級）")
+IDLE[0] = _idle_min * 60
 before = w.active_s
 ticks(30)
 check("active_s 沒增加", w.active_s, before)
@@ -149,7 +153,7 @@ r = w.pill_rect()
 check("藥丸左緣沒有超出視窗", r.left() - isl.PILL_SHADOW >= 0, True)
 check("藥丸右緣沒有超出視窗", r.right() + isl.PILL_SHADOW <= isl.WIN_W, True)
 check("藥丸底部沒有超出視窗", r.bottom() + 12 <= isl.WIN_H, True)
-print(f"       視窗 {isl.WIN_W}x{isl.WIN_H}　藥丸 x∈[{r.left():.0f}, {r.right():.0f}] "
+print(f"       視窗 {isl.WIN_W}x{isl.WIN_H}　藥丸 x in [{r.left():.0f}, {r.right():.0f}] "
       f"底部 {r.bottom():.0f}（含擠壓）")
 w.sp_expand.velocity = 0.0
 
@@ -162,8 +166,8 @@ check("遮罩右側涵蓋陰影", mask.right() >= r.right() + isl.PILL_SHADOW, T
 check("遮罩下方涵蓋陰影", mask.bottom() >= r.bottom() + 10, True)
 # 藥丸寬度常態是小數（pulse 與內容插值），右緣的整數化最容易差 1px，
 # 失敗時要一眼看得出是差在捨入還是差在邊界值。
-print(f"       藥丸 x∈[{r.left():.2f}, {r.right():.2f}]　"
-      f"遮罩 x∈[{mask.left()}, {mask.right()}]　需要 ≥ {r.right() + isl.PILL_SHADOW:.2f}")
+print(f"       藥丸 x in [{r.left():.2f}, {r.right():.2f}]　"
+      f"遮罩 x in [{mask.left()}, {mask.right()}]　需要 >= {r.right() + isl.PILL_SHADOW:.2f}")
 
 print("\n13. 遮罩只涵蓋藥丸，不擋整條標題列")
 settle_springs()
@@ -237,6 +241,9 @@ w2.tick_timer.stop(); w2.frame.stop(); w2.hold_timer.stop(); w2.peek_timer.stop(
 check("次數接回", w2.drinks, 2)
 check("累積時間接回", w2.active_s, 1800.0)
 check("間隔沒被重擲", w2.interval_s, 3600.0)
+# 深夜與否要由測試決定，不能交給真實時鐘：_status_sub() 在深夜會多一段
+# 「深夜放慢」，這幾條若在 23:00-08:00 之間跑就會拿到另一個字串而莫名變紅。
+w2._is_late = lambda hour=None: False
 w2.streak = 0        # 沒有連續時，開頭仍顯示今天次數
 check("倒數一致", w2._status_sub(),
       f"今天 2/{cfg['daily_target_drinks']} 次 · 下次約 30 分後")
@@ -244,6 +251,13 @@ w2.streak = 5        # 有連續時，開頭換成連續天數（進度點已表
 check("有連續時顯示連續", w2._status_sub(), "連續 5 天 · 下次約 30 分後")
 check("提醒中的小標", w2._reminding_sub(),
       f"連續 5 天 · 今天 2/{cfg['daily_target_drinks']} 次")
+# 深夜必須看得見。抖動有 ±15%，所以「這次怎麼比較久」在畫面上跟深夜模式
+# 長得一模一樣——不標示的話，這個全自動、推導可能算錯的機制壞掉時無從歸因。
+# 標示的做法是換掉「下次」而不是插入一段：插入就得多一個分隔點，而最長情況
+# 只剩 34px 餘裕，插什麼都會被截掉。
+w2._is_late = lambda hour=None: True
+check("深夜時副標要看得出來", w2._status_sub(), "連續 5 天 · 夜間約 30 分後")
+w2._is_late = lambda hour=None: False
 w2.streak = 0
 
 print("\n17b. 進度點變多後，文字不能被省略號截掉")
@@ -276,8 +290,16 @@ avail = pips_left - 16 - text_x
 w2.streak = 128          # 三位數的連續天數是最長情況，要一起驗
 w2.interval_s = 100 * 60
 w2.active_s = 0.0
+# 真正的最長情況是**深夜版**的倒數，白天版量不到它。第一版加深夜標示時
+# 就是只驗了白天版才漏掉：當時的寫法實測 264px、可用 262px，剛好被截 2px。
+w2._is_late = lambda hour=None: False
+_sub_day = w2._status_sub()
+w2._is_late = lambda hour=None: True
+_sub_late = w2._status_sub()
+w2._is_late = lambda hour=None: False
 for label, text, font in (
-    ("倒數（連續破百）", w2._status_sub(), w2._f_sub),
+    ("倒數（連續破百）", _sub_day, w2._f_sub),
+    ("倒數（連續破百·深夜）", _sub_late, w2._f_sub),
     ("提醒中（連續破百）", w2._reminding_sub(), w2._f_sub),
     ("打招呼副標", "游標移至螢幕上緣中央可呼叫", w2._f_sub),
     ("最長標題", "今天達標了", w2._f_title),
@@ -500,6 +522,12 @@ check("點完是滿足的樣子", w23.state, isl.SATISFIED)
 # 那是這個 bug 最壞的形式：使用者以為有記，資料卻是空的。
 w23.drink()
 check("練習之後恢復正常計數", w23.drinks, before[0] + 1)
+
+print("\n99. 整支測試不能碰到使用者真實的資料檔")
+# **Qt 會吞掉 slot 裡拋出的例外**——只把 traceback 印到 stderr 然後繼續跑。
+# 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，
+# 而它其實已經闖進真實資料。這一條把印出來的 traceback 變成可斷言的事實。
+check("防線沒有攔截到任何寫入", isl.settings.real_write_violations(), [])
 
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

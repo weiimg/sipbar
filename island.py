@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""喝水提醒動態島 — 正式版
+"""Sipbar（喝水提醒動態島）— 正式版
 
 把 pet.py 的計時、閒置偵測、事件紀錄，搬進 island_prototype.py 的動態島形式。
 
@@ -44,6 +44,7 @@ from motion import Spring, clamp, lerp        # 彈簧與紀錄視窗共用同�
 from paintkit import draw_soft_shadow, shadow_alphas
 
 APP_NAME = settings.APP_NAME
+APP_TITLE = settings.APP_TITLE          # 招牌上的字；APP_NAME 是資料夾名，兩者不同
 # 路徑與設定的唯一事實來源在 settings.py。這裡 import 成模組層級的名字，
 # 是為了讓測試可以照舊 monkeypatch isl.STATE_PATH / isl.EVENTS_PATH 指到暫存資料夾。
 DATA_DIR = settings.DATA_DIR
@@ -155,7 +156,15 @@ MESSAGES = {
 
 DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
 
-LATE_MESSAGES = ["小口就好", "夜深了，喝一小口", "淺嚐一下就好"]
+# 深夜文案（「小口就好」「淺嚐一下就好」）已移除，不是忘了寫。
+# 它有 50% 機率出現，但 drink() 一律記整整一次——文案叫你喝半口，
+# 帳上照樣記一份 ml_per_drink_estimate。以睡前三小時約 2.8 次估，
+# 單晚高估約 173cc，等於日總量的 12.7%，而且高估的正是**唯一真的需要
+# 控制攝取量**的那個時段，等於在最不能失真的地方失真。
+# 隨機出現讓它更糟：一半叫小口一半不叫、記帳完全相同，使用者建不出心智模型。
+# 不改成「算 0.5 次」——那會毀掉「次」是整數這件事，而整數正是這個工具
+# 敢用「次數」而非「杯」當單位的理由（見 settings.py 的 ml_per_drink_estimate）。
+# 深夜的攝取量本來就被拉長的間隔壓住了，這段文案生理上多餘、記帳上有害。
 # copy-style: on
 
 
@@ -192,7 +201,10 @@ def idle_seconds():
 
 def single_instance_guard():
     """島與桌寵共用同一組資料，同時跑會讓次數重複計算，所以共用一把鎖。"""
-    _kernel32.CreateMutexW(None, False, "WaterPetSingletonMutex")
+    # 名字跟著改名走。這個 mutex 只活在記憶體裡、沒有任何東西保存它，
+    # 所以不需要遷移——唯一的代價是改名後第一次啟動時，若還有一個舊版程式
+    # 開著，兩者的鎖名不同會同時跑。重開一次就沒事。
+    _kernel32.CreateMutexW(None, False, f"{settings.APP_NAME}SingletonMutex")
     return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
 
 
@@ -225,6 +237,7 @@ def save_state(state):
 
     重試幾次仍失敗就放棄：最多丟掉一分鐘，比讓例外往上炸好。
     """
+    settings.guard_real_write(STATE_PATH)
     os.makedirs(DATA_DIR, exist_ok=True)
     tmp = STATE_PATH + ".tmp"
     try:
@@ -243,6 +256,7 @@ def save_state(state):
 
 
 def log_event(day, event, **fields):
+    settings.guard_real_write(EVENTS_PATH)
     os.makedirs(DATA_DIR, exist_ok=True)
     row = {"ts": datetime.now().isoformat(timespec="seconds"), "day": day, "event": event}
     row.update(fields)
@@ -507,9 +521,23 @@ class Island(QWidget):
         remain = int(max(0, self.interval_s - self.active_s) // 60)
         # 分隔符用半形空白而非全形，目標次數變多時進度點會吃掉寬度，
         # 全形空白會讓這行剛好超過而被省略號截掉。
+        #
+        # 深夜要標示出來：抖動有 ±15%，「這次怎麼比較久」在畫面上跟深夜模式長得
+        # 一模一樣，而這個機制全自動、推導可能算錯、每次啟動又無聲重算——
+        # 連「它正在作用」都不顯示的話，壞掉時使用者無從歸因。
+        #
+        # 標示的做法是**換掉「下次」這個詞**，不是插入一段新的。加一段就得多一個
+        # 分隔點，而最長情況（連續破百 + 三位數分鐘）只剩 34px 餘裕，插什麼都爆
+        #（「深夜 · 下次約」實測 284px、可用 262px）；為了塞進去而省掉分隔點的
+        # 寫法又會被讀成「放慢了 100 分」，是另一個意思。
+        # 換詞則一個字都沒多：白天「下次約 N 分後」、深夜「夜間約 N 分後」，
+        # 同寬同節奏，變的那個詞正好就是要傳達的資訊。
+        late = self._is_late()
         if remain <= 0:
+            # 這裡不標示深夜。標示是用來解釋「這個數字為什麼這麼大」的，
+            # 而「快到了」沒有數字——沒有要解釋的東西就不要加字。
             return f"{head} · 快到了"
-        return f"{head} · 下次約 {remain} 分後"
+        return f"{head} · {'夜間' if late else '下次'}約 {remain} 分後"
 
     def _reminding_sub(self):
         target = self.cfg["daily_target_drinks"]
@@ -531,8 +559,6 @@ class Island(QWidget):
             self.message = override
         elif self.state == NORMAL and self.drinks >= self.cfg["daily_target_drinks"]:
             self.message = random.choice(DONE_MESSAGES)
-        elif self.state in REMINDING and self._is_late() and random.random() < 0.5:
-            self.message = random.choice(LATE_MESSAGES)
         else:
             self.message = random.choice(MESSAGES.get(self.state, MESSAGES[NORMAL]))
 
@@ -813,12 +839,25 @@ class Island(QWidget):
         """
         import onboard
         self._onboard_win = onboard.open_window(
-            lambda autostart: self._onboarding_done(autostart, first_run),
-            on_practice=self.practice)
+            lambda result: self._onboarding_done(result, first_run),
+            on_practice=self.practice,
+            # 帶現有設定進去當起始值。重看使用說明的人若看到一組跟自己無關的
+            # 數字、按完「開始」就會把作息洗成別人的。
+            wake=self.cfg.get("day_rollover_hour",
+                              settings.DEFAULTS["day_rollover_hour"]),
+            bedtime=self.cfg.get("bedtime_hour",
+                                 settings.DEFAULTS["bedtime_hour"]))
 
-    def _onboarding_done(self, autostart, first_run):
+    def _onboarding_done(self, result, first_run):
         """引導按下「開始」之後：存設定、標記已引導，然後安靜地結束。"""
-        settings.set_autostart(autostart)
+        settings.set_autostart(result["autostart"])
+        for key in ("day_rollover_hour", "wake_manual",
+                    "bedtime_hour", "bedtime_manual"):
+            self.cfg[key] = result[key]
+        # 深夜起點是就寢時間的導出值，作息一改就要重算。不重算的話它會停在
+        # 引導之前用回退值算出來的那個數字——而使用者剛剛才親口否定了它。
+        self.cfg["late_night_start_hour"] = settings.late_start_from_bedtime(
+            self.cfg["bedtime_hour"])
         self.cfg["onboarded"] = True
         self.cfg["greeted_version"] = settings.VERSION
         settings.save_config(self.cfg)
@@ -1202,13 +1241,13 @@ class Island(QWidget):
         # 工具提示必須在 show() 之前設好：Windows 是在圖示註冊當下把提示寫進
         # HKCU\Control Panel\NotifyIconSettings 的，事後才設會留下一筆空白提示，
         # 滑過去什麼都看不到。
-        tray.setToolTip(f"喝水動態島　{self._status_sub()}")
+        tray.setToolTip(f"{APP_TITLE}　{self._status_sub()}")
         tray.activated.connect(self._tray_clicked)
         # 刻意不設 setContextMenu：右鍵由 _tray_clicked 接手，彈自繪的選單
         tray.show()
         # Windows 11 預設把新圖示摺進「^」，開機自啟時你不會知道它到底有沒有起來。
         tray.showMessage(
-            "喝水動態島已啟動",
+            f"{APP_TITLE} 已啟動",
             "系統匣圖示顯示為 pythonw，可拖曳至工作列固定。\n"
             "將游標移至螢幕上緣中央亦可隨時顯示。",
             QSystemTrayIcon.Information, 8000,
@@ -1238,7 +1277,7 @@ class Island(QWidget):
         if not hasattr(self, "tray"):
             return
         self.tray.setIcon(self._tray_icon())
-        self.tray.setToolTip(f"喝水動態島　{self._status_sub()}")
+        self.tray.setToolTip(f"{APP_TITLE}　{self._status_sub()}")
 
     def _tray_clicked(self, reason):
         if reason == QSystemTrayIcon.Trigger:
@@ -1349,10 +1388,18 @@ def build_stats_text(cfg):
 def main():
     if not single_instance_guard():
         return 0
+    # 舉手：只有走到這裡的本尊可以寫真實的設定、狀態與紀錄。
+    # 其他任何人（測試、臨時驗證腳本、互動式 shell）碰到真實路徑一律當場拋例外。
+    # **要在 load_config() 之前**——設定檔不存在時它會寫一份預設值出去。
+    settings.arm_real_writes()
+    # 改名的遷移。資料夾那份在 load_config() 裡（它得先搬完才有東西可讀），
+    # 自啟這份在這裡——它跟設定檔無關，而且要在使用者有機會去動開關之前做完，
+    # 否則面板讀到的是「沒有自啟」，一按就寫了新的，舊的那筆從此沒人管。
+    settings._migrate_autostart()
     cfg = load_config()
     app = QApplication(sys.argv)
-    app.setApplicationName("喝水動態島")
-    app.setApplicationDisplayName("喝水動態島")
+    app.setApplicationName(APP_TITLE)
+    app.setApplicationDisplayName(APP_TITLE)
     app.setQuitOnLastWindowClosed(False)
 
     # 要在 QApplication 之後：QFontDatabase 需要 QGuiApplication 才能運作。
@@ -1368,13 +1415,18 @@ def main():
     # 這跟系統匣圖示顯示為 pythonw 是同一個根源（見規劃檔）。
     # 宣告自己的 AppUserModelID 之後，工作列與 Alt+Tab 才會改用視窗圖示。
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("weiimg.waterpet.island")
+        # 這個 ID 決定工作列怎麼分組、以及釘選的捷徑指向誰。改名時一起換，
+        # 代價是**先前釘在工作列上的捷徑會失聯**，要重釘一次。
+        # 不換的代價比較大：招牌寫 Sipbar，系統認得的身分還是 waterpet，
+        # 之後要做通知或跳躍清單就會對不起來。
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("weiimg.sipbar")
     except (AttributeError, OSError):
         pass
     if os.path.exists(ICON_PATH):
         app.setWindowIcon(QIcon(ICON_PATH))
 
-    # 作息自己觀察，不問使用者「你幾點睡」（見 settings.infer_schedule）。
+    # 作息會自己觀察（見 settings.infer_schedule），但引導也會問一次——
+    # 第一次啟動時紀錄是空的，推導定義上跑不動，只能吃回退值。答過就標記手動。
     # 目標次數由體重推導，除非使用者手動指定過。兩者都在建島之前先算好。
     cfg["daily_target_drinks"] = settings.effective_target(cfg)
     if settings.apply_auto_schedule(cfg, EVENTS_PATH):
