@@ -564,6 +564,25 @@ w24._menu_dismissed()
 check("選單關掉後補收回去", w24.sp_reveal.target, 0.0)
 isl.cursor_pos = _saved_cursor
 
+print("\n25. 探頭熱區的寬度不能被顯示縮放放大")
+# 上下限講的是「手能不能瞄準」與「會不會誤觸」，那是實體尺寸。
+# Qt 給的螢幕寬是邏輯像素，直接拿去夾的話，防呆自己會變成災情：
+# 1366 的小筆電在 200% 縮放下，熱區會被 MIN 撐到佔螢幕寬 41%——
+# 上緣中段四成都會叫出島。修正前後的數字見 DESIGN.md。
+_bad = []
+for _phys in (1366, 1920, 2560, 3440, 3840):
+    _ratios = []
+    for _sc in (1.0, 1.25, 1.5, 2.0):
+        _lw = int(_phys / _sc)
+        _ratios.append(isl.peek_half_w(_lw, _sc) * 2 / _lw * 100)
+    # 同一台實體螢幕，不管使用者把縮放調到多少，熱區佔的比例應該一樣
+    if max(_ratios) - min(_ratios) > 0.5:
+        _bad.append((_phys, [round(r, 1) for r in _ratios]))
+check("同一台螢幕在四種縮放下熱區比例一致", _bad, [])
+check("小筆電 @200% 不會被撐到誤觸區",
+      round(isl.peek_half_w(683, 2.0) * 2 / 683 * 100, 1) < 25.0, True)
+check("dpr 給 0 或 None 也不能除爆", isl.peek_half_w(1920, 0), isl.peek_half_w(1920, 1.0))
+
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，

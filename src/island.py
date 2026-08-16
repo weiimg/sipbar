@@ -95,13 +95,25 @@ ACCENT = QColor("#4FA8E8")
 # 但 320 是為 3440px 調出來的（佔 18.6%），照抄到 1920 螢幕就變成 33%——
 # 整個上緣有三分之一會讓島跳出來，滑過去拿視窗按鈕都會誤觸。
 # 改成跟著螢幕寬走，兩端夾住：太窄打不到，太寬會誤觸。
+#
+# 這兩個上下限是**實體像素**。它們講的是「手能不能瞄準」與「會不會誤觸」，
+# 那是眼睛與滑鼠的事，不是座標系的事。而 Qt 給的螢幕寬是邏輯像素，
+# 高 DPI 下兩者差好幾倍——直接拿邏輯像素去夾，防呆自己會變成災情：
+#
+#   1366 的小筆電 @ 200% 縮放：邏輯寬只剩 683，被 MIN 撐到熱區佔螢幕 41%
+#   1920 FHD     @ 200% 縮放：29%
+#
+# 上緣中段四成都會叫出島，那正是註解上一段說要避免的「誤觸」。
+# 所以夾之前先把上下限換算回邏輯像素。
 PEEK_HALF_MIN, PEEK_HALF_MAX = 140, 320
 PEEK_WIDTH_RATIO = 0.093
 PEEK_EDGE_PX = 10
 
 
-def peek_half_w(screen_w):
-    return int(clamp(screen_w * PEEK_WIDTH_RATIO, PEEK_HALF_MIN, PEEK_HALF_MAX))
+def peek_half_w(screen_w, dpr=1.0):
+    dpr = dpr or 1.0
+    return int(clamp(screen_w * PEEK_WIDTH_RATIO,
+                     PEEK_HALF_MIN / dpr, PEEK_HALF_MAX / dpr))
 
 
 def target_screen(cfg):
@@ -663,8 +675,10 @@ class Island(QWidget):
             return                       # 本來就在畫面上，不干涉
 
         x, y = cursor_pos()
-        scr = target_screen(self.cfg).geometry()
-        in_zone = (abs(x - scr.center().x()) <= peek_half_w(scr.width())
+        target = target_screen(self.cfg)
+        scr = target.geometry()
+        in_zone = (abs(x - scr.center().x())
+                   <= peek_half_w(scr.width(), target.devicePixelRatio())
                    and scr.top() <= y <= scr.top() + PEEK_EDGE_PX)
 
         if not in_zone:
