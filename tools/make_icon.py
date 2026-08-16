@@ -41,8 +41,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 import pixelface as pf  # noqa: E402
 
-# 這支是產生器，跟 build_font.py 一樣住在 tools/，產物寫進 assets/。
+# 這支是產生器，跟 build_font.py 一樣住在 tools/。
+#
+# 兩個產物，因為用途不同：assets/ 是程式執行時要載的，docs/ 是給讀 repo 的人看的。
+# README 不直接引用 .ico——瀏覽器對多尺寸 ico 的處理不一致，可能挑到 16px 那張，
+# 在頁面上就是一顆糊掉的小圖。給它一張確定的 256px PNG。
 ICON_PATH = os.path.join(ROOT, "assets", "icon.ico")
+PNG_PATH = os.path.join(ROOT, "docs", "icon.png")
 
 SIZES = [16, 32, 48, 64, 128, 256]
 
@@ -118,10 +123,15 @@ def main():
                     sizes=[(s, s) for s in SIZES],
                     append_images=frames[:-1])
 
+    # README 用的那張，直接拿 256 那幀，不縮放
+    os.makedirs(os.path.dirname(PNG_PATH), exist_ok=True)
+    frames[-1].save(PNG_PATH, format="PNG")
+
     with Image.open(ICON_PATH) as ico:
         got = sorted(ico.ico.sizes())
     print(f"{ICON_PATH}  {os.path.getsize(ICON_PATH) / 1024:.1f}KB")
     print(f"  內含尺寸：{got}")
+    print(f"{PNG_PATH}  {os.path.getsize(PNG_PATH) / 1024:.1f}KB")
     missing = set((s, s) for s in SIZES) - set(got)
     if missing:
         print(f"  FAIL 缺少尺寸：{sorted(missing)}")
