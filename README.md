@@ -29,9 +29,7 @@ Windows 10 / 11。不需要先裝 Python。
 `Sipbar-0.9.0-beta-portable.zip`，解壓縮後執行 `Sipbar.exe`。不需要安裝。
 
 第一次執行 Windows 會跳「已保護您的電腦」，點「其他資訊」再點「仍要執行」。
-那是 SmartScreen 對沒有簽章的程式一律會跳的警告，不是偵測到問題。程式碼簽章
-憑證一年要價數百美金，這是個人的 side project，沒有買。不放心的話原始碼全部
-公開在這裡，可以自己從原始碼跑。
+Windows 對所有沒有數位簽章的程式都會這樣。
 
 ## Usage
 
