@@ -27,6 +27,8 @@ import os
 
 from PySide6.QtGui import QFont, QFontDatabase, QFontInfo
 
+import settings
+
 # 隨程式散布的字體是合成品：Inter 的拉丁字形 + Noto Sans TC 的中文，
 # 由 tools/build_font.py 產生。它既不是 Inter 也不是 Noto Sans TC，所以另外命名。
 #
@@ -40,10 +42,13 @@ FAMILY = "WaterPet Sans TC"
 # 所以不隨附——多 5.4MB 換一個沒人叫的字重不划算。
 BUNDLED = ("WaterPetSansTC-Bold.otf", "WaterPetSansTC-Medium.otf")
 
-# 出貨的東西都在專案根目錄的 assets/ 底下，不在 src/ 裡——產生器在 tools/，
-# 產物在 assets/，這條規則對字體與圖示都一樣。
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONT_DIR = os.path.join(_ROOT, "assets", "fonts")
+# 出貨的東西都在 assets/ 底下，不在 src/ 裡：產生器在 tools/，產物在 assets/，
+# 這條規則對字體與圖示都一樣。
+#
+# 路徑走 settings.resource_dir() 而不是自己推 __file__，因為打包成 exe 之後
+# 資源在解壓出來的暫存目錄裡，跟模組的位置無關。自己推的話字體會載不到，
+# 而且是靜默降級成系統字體——程式照跑，只是每一個字都變薄了。
+FONT_DIR = os.path.join(settings.resource_dir(), "assets", "fonts")
 
 # 只有隨附字體載不起來時才會用到這串。平常路徑一個字體都不多掛——
 # 理由見 make()：中文字體進了字體序列就會被整份載進記憶體，一個要價數百 MB。

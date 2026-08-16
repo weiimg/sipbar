@@ -53,7 +53,31 @@ CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 STATE_PATH = os.path.join(DATA_DIR, "state.json")
 EVENTS_PATH = os.path.join(DATA_DIR, "events.jsonl")
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# 打包成 exe 之後，「隨附的資源在哪」跟「程式本體在哪」是兩個不同的位置，
+# 從原始碼跑的時候它們才剛好重疊。兩個都用 __file__ 推的話，凍結之後哪個都不對：
+# PyInstaller 會把模組解到一個暫存目錄，__file__ 指的是那裡。
+#
+# resource_dir()：字體與圖示。凍結時是 sys._MEIPASS（onefile 是暫存區、
+#   onedir 是 _internal，兩種模式 PyInstaller 都會設這個值）。
+# program_dir()：exe 本體旁邊。使用者眼中「程式在哪」就是這裡，
+#   舊版設定檔的偵測要看這裡，看暫存區永遠是空的。
+
+
+def resource_dir():
+    """隨程式散布的資源（assets/）的根目錄。"""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def program_dir():
+    """程式本體所在的目錄。"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+APP_DIR = program_dir()
 LEGACY_CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 
