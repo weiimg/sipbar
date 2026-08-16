@@ -3,7 +3,8 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
 # 彈簧原本住在 island_prototype.py（形式評估用的原型），後來抽進 motion.py
 # 給島與紀錄視窗共用。原型已經封存，這裡直接測共用的那一份。
 import motion as isl  # noqa: E402

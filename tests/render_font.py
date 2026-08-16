@@ -15,9 +15,10 @@ import os
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP = os.path.join(ROOT, "src")
 sys.path.insert(0, APP)
-sys.path.insert(0, os.path.join(APP, "tools"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 from PySide6.QtGui import (  # noqa: E402
     QColor, QFont, QFontDatabase, QFontMetrics, QPainter, QPixmap,

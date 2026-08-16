@@ -9,7 +9,8 @@ B. 整杯都是像素（不需要 rlottie）
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
 
 from PySide6.QtCore import QRect, Qt  # noqa: E402
 from PySide6.QtGui import (  # noqa: E402

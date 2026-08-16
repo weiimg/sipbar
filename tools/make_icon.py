@@ -37,11 +37,12 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
 import pixelface as pf  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ICON_PATH = os.path.join(HERE, "icon.ico")
+# 這支是產生器，跟 build_font.py 一樣住在 tools/，產物寫進 assets/。
+ICON_PATH = os.path.join(ROOT, "assets", "icon.ico")
 
 SIZES = [16, 32, 48, 64, 128, 256]
 

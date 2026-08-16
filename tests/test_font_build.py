@@ -23,9 +23,10 @@
 import os
 import sys
 
-APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP = os.path.join(ROOT, "src")
 sys.path.insert(0, APP)
-sys.path.insert(0, os.path.join(APP, "tools"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 # 失敗訊息會把出問題的字元本身印出來（`chr(cp)!r`），而 KEEP_NOTO 裡的 ‹ 不在 Big5 裡。
 # 台灣 Windows 的主控台預設就是 cp950，不放寬的話：字形真的壞掉那天，測試會先崩在

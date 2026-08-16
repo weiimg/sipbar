@@ -29,7 +29,8 @@ import re
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP = os.path.join(ROOT, "src")
 sys.path.insert(0, APP)
 
 # island.py 也在檢查範圍內，但它含角色台詞——那些用

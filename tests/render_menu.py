@@ -9,7 +9,8 @@ import os
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
 
 import menu as traymenu  # noqa: E402
 import theme  # noqa: E402

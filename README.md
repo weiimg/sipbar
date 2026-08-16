@@ -24,7 +24,7 @@ run.bat
 
 第一次啟動有三頁引導，全部加起來只問你一個問題。
 
-`run.bat` 走 `pythonw`，不留 console 視窗——**要看錯誤訊息就改用 `python island.py`**。
+`run.bat` 走 `pythonw`，不留 console 視窗——**要看錯誤訊息就改用 `python src\island.py`**。
 想重建字體或圖示、跑完整測試，另外裝 `pip install -r requirements-dev.txt`。
 
 ![喝水紀錄](docs/stats-window.png)
@@ -47,26 +47,30 @@ run.bat
 
 ## 檔案
 
+版面只有一條規則：**產生器在 `tools/`，它們的產物在 `assets/`，程式在 `src/`。**
+字體與圖示都是產物，兩個都不該手改。
+
 | 檔案 | 說明 |
 |---|---|
-| `island.py` | **正式版**，動態島 |
-| `settings.py` | 設定的讀寫、體重與作息推導、開機自啟、資料清除 |
-| `onboard.py` | 首次啟動的引導（三頁，含動態島的動畫預覽） |
-| `theme.py` | 深色／淺色調色盤 |
-| `menu.py` | 系統匣與右鍵選單（自繪，不用 QMenu） |
-| `typeface.py` | 隨程式散布的字體：載入、驗證、產生 QFont |
-| `assets/fonts/` | `WaterPet Sans TC` Bold + Medium（建置產物）＋ 兩份 OFL |
-| `tools/build_font.py` | 產生上面那兩個檔：Inter 的拉丁 + Noto Sans TC 的中文 |
-| `tools/fontsrc/` | 建置用的來源字體，不隨程式散布 |
-| `dashboard.py` | 紀錄的統計計算（只算數字，不畫） |
-| `stats_window.py` | 紀錄視窗與設定頁（只畫，不算） |
-| `make_icon.py` | 產生 `icon.ico`（二進位，沒有產生器就改不動） |
 | `run.bat` | 啟動正式版（無 console） |
+| `src/island.py` | **正式版**，動態島。唯一的入口 |
+| `src/settings.py` | 設定的讀寫、體重與作息推導、開機自啟、資料清除 |
+| `src/onboard.py` | 首次啟動的引導（三頁，含動態島的動畫預覽） |
+| `src/theme.py` | 深色／淺色調色盤 |
+| `src/menu.py` | 系統匣與右鍵選單（自繪，不用 QMenu） |
+| `src/typeface.py` | 隨程式散布的字體：載入、驗證、產生 QFont |
+| `src/dashboard.py` | 紀錄的統計計算（只算數字，不畫） |
+| `src/stats_window.py` | 紀錄視窗與設定頁（只畫，不算） |
+| `assets/fonts/` | `WaterPet Sans TC` Bold + Medium（建置產物）＋ 兩份 OFL |
+| `assets/icon.ico` | 應用程式圖示（建置產物） |
+| `tools/build_font.py` | 產生上面那兩個字體：Inter 的拉丁 + Noto Sans TC 的中文 |
+| `tools/make_icon.py` | 產生 `assets/icon.ico`（二進位，沒有產生器就改不動） |
+| `tools/fontsrc/` | 建置字體用的來源，不隨程式散布 |
 
 `pet.py`、`run_pet.bat`、`island_prototype.py` 已於 2026-08-15 移出專案，
 放在 `..\archive\喝水提醒桌寵-legacy_2026-08-15\`。它們各自有一套設定讀寫、
 早已跟正式版不同步，留在專案裡只會讓發布出去的程式碼多兩個沒人維護的入口。
-**唯一的入口是 `island.py`。**
+**唯一的入口是 `src/island.py`。**
 
 **程式旁邊不放 `config.json`。** 那個位置是 `settings.py` 認定的「舊版設定」，
 會被搬進使用者的 `%LOCALAPPDATA%\Sipbar\`——只要它跟著發布出去，

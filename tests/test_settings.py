@@ -7,7 +7,8 @@ import sys
 import tempfile
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
 
 # 台灣 Windows 的主控台預設是 cp950，而被驗的 UI 文案裡有 Big5 沒有的字（麵包屑的 ‹）。
 # 不放寬錯誤處理的話，測試會在「印出結果」那一步崩掉——看起來像測試沒過，其實是主控台

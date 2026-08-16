@@ -40,7 +40,10 @@ FAMILY = "WaterPet Sans TC"
 # 所以不隨附——多 5.4MB 換一個沒人叫的字重不划算。
 BUNDLED = ("WaterPetSansTC-Bold.otf", "WaterPetSansTC-Medium.otf")
 
-FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+# 出貨的東西都在專案根目錄的 assets/ 底下，不在 src/ 裡——產生器在 tools/，
+# 產物在 assets/，這條規則對字體與圖示都一樣。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FONT_DIR = os.path.join(_ROOT, "assets", "fonts")
 
 # **只有隨附字體載不起來時才會用到這串。** 平常路徑一個字體都不多掛——
 # 理由見 make()：中文字體進了字體序列就會被整份載進記憶體，一個要價數百 MB。

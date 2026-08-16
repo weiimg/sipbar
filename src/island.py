@@ -50,7 +50,8 @@ APP_TITLE = settings.APP_TITLE          # 招牌上的字；APP_NAME 是資料�
 DATA_DIR = settings.DATA_DIR
 STATE_PATH = settings.STATE_PATH
 EVENTS_PATH = settings.EVENTS_PATH
-ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+ICON_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icon.ico")
 
 DEFAULT_CONFIG = settings.DEFAULTS      # 預設值與說明都在 settings.py
 

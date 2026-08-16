@@ -16,7 +16,8 @@ import subprocess
 import sys
 import textwrap
 
-APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+APP = os.path.join(ROOT, "src")
 sys.path.insert(0, APP)
 
 LIMIT_MB = 200          # 正常約 90MB；破 200 就是有人又把中文字體加進序列了
