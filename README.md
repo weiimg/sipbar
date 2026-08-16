@@ -34,9 +34,9 @@ Windows 10 / 11、Python 3.13。執行只依賴 PySide6。
 
 ## 更多
 
-操作方式、五個狀態、資料放在哪，都在 [怎麼用](docs/USAGE.md)。
+操作方式、五個狀態、資料放在哪，都在[使用說明](docs/USAGE.md)。
 
-每個決定的理由，還有我判斷錯的地方，寫在 [為什麼這樣做](docs/DESIGN.md)。
+每個決定的理由，還有我判斷錯的地方，寫在[設計與決策](docs/DESIGN.md)。
 
 程式碼是 [MIT](LICENSE)。字體另外走 SIL OFL 1.1，條件見 [assets/fonts](assets/fonts/README.md)。
 
