@@ -419,12 +419,18 @@ class Flame(Graphic):
 class Shields(Graphic):
     STEP, R = 38, 14
 
-    def __init__(self, total, left):
+    def __init__(self, total, left, used_days=()):
         super().__init__(total * Shields.STEP, Shields.R * 2 + S2)
         self.total = total
         self.left = left
-        self.setToolTip(f"未達標時自動抵用，連續不歸零。每月補回 {total} 個。\n"
-                        f"目前剩 {left} 個。")
+        tip = (f"未達標時自動抵用，連續不歸零。每月補回 {total} 個。\n"
+               f"目前剩 {left} 個。")
+        if used_days:
+            # 講「擋下」不講「你那天沒達標」。護盾是來救的，這一行要讀起來像
+            # 它做了事，不是像一張失敗清單——DESIGN.md 的「刻意拿掉的東西」
+            # 說得很清楚：純粹的失敗計數器會反效果。
+            tip += "\n" + "、".join(used_days) + " 各擋下一次。"
+        self.setToolTip(tip)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -758,10 +764,44 @@ def build_streak_card(d):
             gauge,
             spacing=S3),
         Label(status, "body", INK2, elide=True),
-        row(Label("護盾", "caption", INK3), Shields(s["saves_total"], s["saves_left"]),
-            "stretch", spacing=S3),
+        row(Label("護盾", "caption", INK3),
+            Shields(s["saves_total"], s["saves_left"], _saves_used_this_month(d)),
+            "stretch",
+            # 不能用 elide=True：那會把 sizePolicy 設成 Ignored，而前面的
+            # "stretch" 已經把剩餘空間吃光，於是它拿到 0 寬、省略成空字串——
+            # 標籤在那裡，只是什麼都畫不出來。一個月最多 2 個護盾，
+            # 這行字最長就是「8/13、8/14 擋下」，本來也不需要省略。
+            Label(_saves_note(d), "caption", INK3),
+            spacing=S3),
     )
     return card
+
+
+def _saves_used_this_month(d):
+    """這個月被護盾擋下的日子，格式 M/D。
+
+    **一定要過濾月份。** streak["saved_days"] 是跨月累積的，而 saves_left 只算
+    當月（compute_streaks 的 used 是以月為鍵）。直接把整份清單畫出來，就會是
+    「上個月的日期」配上「這個月的剩餘數」，兩個數字對不起來。
+    """
+    month = d["today_key"][:7]
+    return [f"{k[5:7].lstrip('0')}/{k[8:10].lstrip('0')}"
+            for k in d["streak"]["saved_days"] if k[:7] == month]
+
+
+def _saves_note(d):
+    """護盾那一列右邊的小字。
+
+    沒用到就不寫「還沒用過」——那是一句沒有資訊的話，只會佔掉一行。
+    用完了要講，因為那是「下一次沒達標就會斷」的預告，是這一列唯一真的需要
+    提前知道的狀態。
+    """
+    used = _saves_used_this_month(d)
+    if not used:
+        return ""
+    if d["streak"]["saves_left"] == 0:
+        return "本月用完了"
+    return "、".join(used) + " 擋下"
 
 
 def build_week_card(d):

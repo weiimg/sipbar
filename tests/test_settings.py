@@ -597,6 +597,26 @@ check("沙箱路徑照樣放行", ap.guard_real_write(ap.CONFIG_PATH), None)
 check("除了故意探測那次，沒有其他攔截",
       len(ap.real_write_violations()), len(_probe))
 
+print("\n15. 護盾用在哪幾天：只算當月")
+# streak["saved_days"] 是跨月累積的，saves_left 只算當月（compute_streaks 的
+# used 以月為鍵）。不過濾的話畫面上會是「上個月的日期」配「這個月的剩餘數」，
+# 兩個數字對不起來，而那種錯誤看起來完全合理，很難被發現。
+import stats_window as _sw  # noqa: E402
+
+_d = {"today_key": "2026-08-16",
+      "streak": {"saved_days": ["2026-07-09", "2026-07-10",
+                                "2026-08-01", "2026-08-13"],
+                 "saves_left": 0, "saves_total": 2}}
+check("跨月的清單只留當月", _sw._saves_used_this_month(_d), ["8/1", "8/13"])
+check("用完了要預告，因為下次沒達標就會斷", _sw._saves_note(_d), "本月用完了")
+
+_d["streak"]["saves_left"] = 1
+check("還有剩就列出擋下的日子", _sw._saves_note(_d), "8/1、8/13 擋下")
+
+_d["streak"]["saved_days"] = ["2026-07-09"]
+check("當月沒用過就不寫", _sw._saves_note(_d), "")
+check("也不會誤把上個月的算進來", _sw._saves_used_this_month(_d), [])
+
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)
