@@ -135,7 +135,17 @@ def compute(cfg, events_path):
 
     streak_info = compute_streaks(days, target, today_key)
 
-    # Phase 1 判準：連續 3 天回應率 > 50%
+    # Phase 1 判準：連續 3 天回應率 > 50%。
+    #
+    # 這個數字不可信，不要拿它做決定，真正的訊號是上面的 hit_days。理由見
+    # docs/DESIGN.md 的「判準」，摘要：分母是 reminds（程式問了幾次），
+    # 不是每日目標。程式沒在跑就不會問，分母跟著縮小——2026-08-12 整天沒開，
+    # 只發出 1 次提醒、回應 1 次，算出 100%，而當天實際補水 1/7 次。
+    # 方向還是反的：程式當掉、被關掉、人不在電腦前，這些最該被抓到的失敗
+    # 剛好都會讓分母變小，於是失敗越嚴重分數越漂亮。
+    #
+    # 算式保留原樣是刻意的：紀錄視窗那行灰字還在讀它，改計算會動到畫面上的數字，
+    # 那屬於「達標判定凍結在當天」那次修改的範圍，跟這裡的敘述訂正分開做。
     recent = [days[k] for k in sorted(active.keys())[-3:] if days[k]["reminds"] > 0]
     passed = len(recent) == 3 and all(d["responded"] / d["reminds"] > 0.5 for d in recent)
 

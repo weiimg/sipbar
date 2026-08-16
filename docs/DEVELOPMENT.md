@@ -58,6 +58,16 @@ python tools/time_launch.py      # 量 onefile 與 onedir 的啟動時間
 `test_font_memory` 跑得慢，它開四個子行程量真實記憶體。
 `test_peek_live` 會搶走滑鼠游標。
 
+## 發版
+
+步驟固定在[發版清單](RELEASE.md)，照著走不要靠記憶。版本號只寫在
+`src/settings.py` 的 `VERSION`，其餘全部從它推導。
+
+每版改了什麼寫進[更新紀錄](CHANGELOG.md)。
+
 ## 設計與決策
 
 每個決定的理由，以及過程中判斷錯的地方，寫在[設計與決策](DESIGN.md)。
+
+上架之前的完整開發日誌在 `notes/`，那份不進版本庫（內有個人資料），已於
+2026-08-17 凍結。之後的過程紀錄用 GitHub issues 與 commit。
