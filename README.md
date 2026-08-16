@@ -21,7 +21,8 @@ Sipbar 平常不會出現在螢幕上，時間到才從頂端滑下來。點一�
 
 ## Requirements
 
-Windows 10 / 11。不需要先裝 Python。
+- Windows 10 / 11
+- Python 3.13，只有從原始碼執行才需要
 
 ## Installation
 
@@ -29,8 +30,6 @@ Windows 10 / 11。不需要先裝 Python。
 `Sipbar-0.9.0-beta-portable.zip`，解壓縮後執行 `Sipbar.exe`。不需要安裝。
 
 ### From source
-
-需要 Python 3.13。
 
 ```bash
 git clone https://github.com/weiimg/sipbar.git
