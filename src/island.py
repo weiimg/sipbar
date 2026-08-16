@@ -297,7 +297,7 @@ class Island(QWidget):
         same_day = saved.get("day") == self.day
         self.drinks = saved.get("drinks", 0) if same_day else 0
         if not same_day:
-            log_event(self.day, "day_start")
+            log_event(self.day, "day_start", target=cfg["daily_target_drinks"])
 
         # 計時必須跨重啟保存。不存的話，每次開機自啟或程式意外結束，
         # 累積的在電腦前時間就歸零、間隔還會重新擲一次——提醒被無限往後推，
@@ -732,7 +732,7 @@ class Island(QWidget):
             self.drinks = 0
             self.active_s = 0.0
             self.interval_s = self._roll_interval()
-            log_event(self.day, "day_start")
+            log_event(self.day, "day_start", target=self.cfg["daily_target_drinks"])
             self._persist()
             self._refresh_streak()      # 昨天結算完，連續天數要跟著更新
             self._enter(NORMAL)
@@ -821,6 +821,7 @@ class Island(QWidget):
             responded=responded,
             wait_active_s=int(max(0.0, self.active_s - self.interval_s)) if responded else 0,
             drinks=self.drinks + 1,
+            target=self.cfg["daily_target_drinks"],
         )
         self.drinks += 1
         self.active_s = 0.0

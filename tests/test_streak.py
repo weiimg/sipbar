@@ -16,18 +16,29 @@ fails = []
 
 
 def mk(spec):
-    """spec: {日期: 次數}，次數 None 代表那天完全沒開電腦（不會出現在紀錄裡）。"""
+    """spec: {日期: 次數}，次數 None 代表那天完全沒開電腦（不會出現在紀錄裡）。
+
+    次數也可以寫成 dict，用來指定當天自己的目標與程式運行跨度：
+    `{"drinks": 7, "target": 7, "span_h": 2.9}`。沒寫的欄位照舊——
+    target 不記（由 compute_streaks 回填 LEGACY_TARGET），
+    span_h 不記（視為夠格判定，見 dashboard.is_judgeable）。
+    """
     days = {}
     for k, n in spec.items():
         if n is None:
             continue
-        days[k] = {"drinks": n, "reminds": max(1, n), "responded": n,
-                   "waits": [], "collapses": 0, "hours": []}
+        info = n if isinstance(n, dict) else {"drinks": n}
+        drinks = info.get("drinks", 0)
+        days[k] = {"drinks": drinks, "reminds": max(1, drinks), "responded": drinks,
+                   "waits": [], "collapses": 0, "hours": [],
+                   "target": info.get("target"), "first_ts": None, "last_ts": None}
+        if "span_h" in info:
+            days[k]["span_h"] = info["span_h"]
     return days
 
 
-def case(name, spec, today, want_streak, want_longest=None):
-    r = dashboard.compute_streaks(mk(spec), T, today)
+def case(name, spec, today, want_streak, want_longest=None, target=T):
+    r = dashboard.compute_streaks(mk(spec), target, today)
     ok = r["streak"] == want_streak
     if want_longest is not None:
         ok = ok and r["longest"] == want_longest
@@ -93,6 +104,36 @@ if bad:
     fails.append("逐日遞增")
 else:
     print(f"  ok   連續 10 天，每天各查一次都正確遞增（1→{prev}）")
+
+print("\n6. 達標與否要凍結在當天，改設定不能回溯改寫歷史")
+# 2026-08-15 把 ml_per_drink_estimate 從 200 改成 150，目標從 7 變 9。
+# 修好之前，8/10 與 8/11 兩個 7/7 的滿分日會當場變成未達標，還各吃掉一個護盾。
+case("目標調高後，過去達到當時目標的日子仍然算達標",
+     {"2026-08-10": {"drinks": 7, "target": 7},
+      "2026-08-11": {"drinks": 7, "target": 7},
+      "2026-08-12": {"drinks": 9, "target": 9}},
+     "2026-08-12", 3, 3, target=9)
+r = case("舊資料沒記目標，一律用 LEGACY_TARGET 回判，不受現在的目標影響",
+         {"2026-08-10": 7, "2026-08-11": 7, "2026-08-12": 9},
+         "2026-08-12", 3, 3, target=9)
+print(f"       護盾沒有被誤扣：剩 {r['saves_left']}/{r['saves_total']}")
+
+print("\n7. 資料不足的日子是中性，不是失敗")
+# 2026-08-12 程式整天沒開，凌晨才啟動跑了 2.9 小時，1 次提醒 1 次補水。
+# 修好之前它被判成未達標並吃掉一個護盾，同一天的回應率卻算出 100%。
+r = case("程式只跑 3 小時的日子不算斷，也不吃護盾",
+         {"2026-08-10": T, "2026-08-11": {"drinks": 1, "span_h": 2.9},
+          "2026-08-12": T},
+         "2026-08-12", 2, 2)
+if r["saves_left"] != r["saves_total"]:
+    print(f"  FAIL 護盾被扣了：剩 {r['saves_left']}/{r['saves_total']}")
+    fails.append("跨度不足不該吃護盾")
+else:
+    print(f"  ok   護盾完好：剩 {r['saves_left']}/{r['saves_total']}")
+case("只開 2 小時但喝滿目標，仍然算達標",
+     {"2026-08-10": T, "2026-08-11": {"drinks": T, "span_h": 2.0},
+      "2026-08-12": T},
+     "2026-08-12", 3, 3)
 
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

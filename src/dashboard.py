@@ -22,6 +22,16 @@ from datetime import datetime, timedelta
 MONTHLY_SAVES = 2
 HEATMAP_WEEKS = 12
 
+# 0.9.0-beta 的 DEFAULTS["daily_target_drinks"]。事件裡沒記 target 的日子都是
+# 那一版留下的資料，一律用這個值回判，不要用「現在的目標」——用現在的目標就是
+# 這次要修掉的 bug 本身。
+LEGACY_TARGET = 7
+
+# 活躍日的最短運行時間。程式跑不到這個時數的日子，資料量不足以判斷成敗。
+# 這個數字是量出來的：實測 7 天裡最短的正常日是 6.1 小時（8/14，7 次提醒、
+# 補水 6 次），要擋掉的那天是 2.9 小時。4 小時卡在中間，兩邊各留餘裕。
+MIN_ACTIVE_SPAN_H = 4.0
+
 
 # ---------------------------------------------------------------- 讀資料
 
@@ -53,7 +63,25 @@ def load_days(events_path, rollover_hour):
             d = days.setdefault(key, {
                 "drinks": 0, "reminds": 0, "responded": 0,
                 "waits": [], "collapses": 0, "hours": [],
+                "target": None, "first_ts": None, "last_ts": None,
             })
+
+            # 當天的目標。取最後一筆是刻意的：目標在當天中途被調過的話，
+            # 以使用者最後的意思為準。沒有這個欄位的日子是 0.9.0-beta 留下的。
+            if row.get("target"):
+                d["target"] = row["target"]
+
+            # 程式當天實際跑了多久，用來判斷這天的資料夠不夠格下結論。
+            # config 事件在上面就被跳掉了，改設定不會把跨度撐開。
+            try:
+                ts = datetime.fromisoformat(row["ts"])
+                if d["first_ts"] is None or ts < d["first_ts"]:
+                    d["first_ts"] = ts
+                if d["last_ts"] is None or ts > d["last_ts"]:
+                    d["last_ts"] = ts
+            except (KeyError, ValueError):
+                pass
+
             ev = row.get("event")
             if ev == "remind":
                 d["reminds"] += 1
@@ -68,7 +96,56 @@ def load_days(events_path, rollover_hour):
                     d["hours"].append(datetime.fromisoformat(row["ts"]).hour)
                 except (KeyError, ValueError):
                     pass
+
+    for d in days.values():
+        if d["first_ts"] and d["last_ts"]:
+            d["span_h"] = (d["last_ts"] - d["first_ts"]).total_seconds() / 3600
     return days
+
+
+# ---------------------------------------------------------------- 逐日判定
+
+def day_target(info, key, today_key, current_target):
+    """這一天當初的目標次數。
+
+    達標與否必須用「當天的目標」判，不能用「現在的目標」。用現在的目標的話，
+    調一次體重或單次水量就會把整段歷史重判一次——2026-08-15 把
+    ml_per_drink_estimate 從 200 改成 150，目標從 7 變 9，8/10 與 8/11
+    兩個 7/7 的滿分日當場變成未達標，還各吃掉一個補救額度。
+
+    沒有記錄的日子分兩種：今天用現在的設定（使用者知道自己在用哪個目標），
+    過去的一律用 LEGACY_TARGET。
+    """
+    if info.get("target"):
+        return info["target"]
+    return current_target if key == today_key else LEGACY_TARGET
+
+
+def is_active(info):
+    """這一天有沒有在用這個工具。決定它出不出現在統計、熱圖與分頁上。"""
+    return bool(info["drinks"] or info["reminds"])
+
+
+def is_judgeable(info, target):
+    """這一天的資料夠不夠格拿來判定成敗。
+
+    2026-08-12 程式整天沒開，直到隔天凌晨 01:55 才啟動，只發出 1 次提醒、
+    回應 1 次。它有事件，於是被當成正常的一天判成未達標並吃掉一個補救額度；
+    同一天的回應率還算出 100%。一天不可能既完美又失敗，問題是那天根本
+    沒有足夠的資料下任何結論。
+
+    **不夠格判定 ≠ 沒在用。** 那天仍然會出現在紀錄與熱圖上（它確實發生過），
+    只是不拿來判斷達標與否，也不消耗補救額度。兩件事混在一起會造成新的災情：
+    新使用者裝好第一個小時喝了兩次，跨度不到門檻也還沒達標，紀錄視窗會告訴
+    他「還沒有任何紀錄」——明明有。
+
+    達標的日子無條件算數：在電腦前只待 3 小時卻喝滿目標，那是成功不是沒資料。
+    span_h 不存在時視為夠格，寧可算進來也不要無聲地把日子吃掉。
+    """
+    if info["drinks"] >= target:
+        return True
+    span = info.get("span_h")
+    return span is None or span >= MIN_ACTIVE_SPAN_H
 
 
 # ---------------------------------------------------------------- 連續天數
@@ -81,21 +158,28 @@ def compute_streaks(days, target, today_key, monthly_saves=MONTHLY_SAVES):
     而數字一自相矛盾，整個後台的可信度就沒了。
     這樣寫的結構保證「目前」永遠是最後一段，不可能超過「最長」。
 
-    兩條規則讓它不會變成懲罰機器：
+    三條規則讓它不會變成懲罰機器：
     - 完全沒有紀錄的日子（拍攝日、電腦沒開）視為中性，跳過不算斷。
-    - 有紀錄但沒達標的日子，每月 2 次補救額度，用掉就保住連續。
+    - 有紀錄但資料不足以判定的日子也視為中性，理由見 is_judgeable()。
+    - 有紀錄、判得出來但沒達標的日子，每月 2 次補救額度，用掉就保住連續。
+
+    target 是「現在的目標」，只在某天沒有留下自己的目標時當 fallback 用，
+    判定一律以當天的目標為準——理由見 day_target()。
     """
-    keys = sorted(k for k, v in days.items() if v["drinks"] or v["reminds"])
+    tgt = {k: day_target(v, k, today_key, target) for k, v in days.items()}
+    keys = sorted(k for k, v in days.items() if is_active(v))
     runs, run, saved_days = [], 0, []
     used = defaultdict(int)
 
     for key in keys:
         info = days[key]
-        if info["drinks"] >= target:
+        if info["drinks"] >= tgt[key]:
             run += 1
             continue
         if key == today_key:
             continue                              # 今天還在進行中，不算斷也不算成
+        if not is_judgeable(info, tgt[key]):
+            continue                              # 資料不足，中性：不算斷，也不吃護盾
         month = key[:7]
         if used[month] < monthly_saves:
             used[month] += 1
@@ -126,12 +210,13 @@ def compute(cfg, events_path):
     today = days.get(today_key, {"drinks": 0, "reminds": 0, "responded": 0,
                                  "waits": [], "collapses": 0, "hours": []})
 
-    active = {k: v for k, v in days.items() if v["drinks"] or v["reminds"]}
+    tgt = {k: day_target(v, k, today_key, target) for k, v in days.items()}
+    active = {k: v for k, v in days.items() if is_active(v)}
     total_drinks = sum(v["drinks"] for v in active.values())
     total_reminds = sum(v["reminds"] for v in active.values())
     total_responded = sum(v["responded"] for v in active.values())
     all_waits = [w for v in active.values() for w in v["waits"]]
-    hit_days = sum(1 for v in active.values() if v["drinks"] >= target)
+    hit_days = sum(1 for k, v in active.items() if v["drinks"] >= tgt[k])
 
     streak_info = compute_streaks(days, target, today_key)
 
@@ -144,8 +229,10 @@ def compute(cfg, events_path):
     # 方向還是反的：程式當掉、被關掉、人不在電腦前，這些最該被抓到的失敗
     # 剛好都會讓分母變小，於是失敗越嚴重分數越漂亮。
     #
-    # 算式保留原樣是刻意的：紀錄視窗那行灰字還在讀它，改計算會動到畫面上的數字，
-    # 那屬於「達標判定凍結在當天」那次修改的範圍，跟這裡的敘述訂正分開做。
+    # 算式保留原樣是刻意的，但要知道：這兩個值目前沒有任何地方讀。stats_window
+    # 顯示的是 rate（整體回應率）與平均回應時間，不是這個是非題。island.py 的
+    # build_stats_text() 另有一份重複實作，正式版沒呼叫，只有 test_island 在測。
+    # 要留要刪是另一個決定，不在這次的範圍。
     recent = [days[k] for k in sorted(active.keys())[-3:] if days[k]["reminds"] > 0]
     passed = len(recent) == 3 and all(d["responded"] / d["reminds"] > 0.5 for d in recent)
 
