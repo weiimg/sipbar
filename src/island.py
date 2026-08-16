@@ -626,10 +626,38 @@ class Island(QWidget):
         self._target_expand(0.0)
         self._target_reveal(0.0)
 
+    def _menu_open(self):
+        """自己的右鍵選單正開著。
+
+        選單畫在島的下方，所以「把滑鼠移過去點」這個動作本身就會同時離開
+        熱區、離開藥丸、觸發 leaveEvent。三條收合路徑會一起把島收掉，
+        而使用者的手還在往選單移動的半路上。
+
+        島收掉之後選單就沒有依附的東西了，看起來像整組消失；離選單越遠的
+        項目越難點到，「設定」排第四，所以最常被回報成沒有反應。
+        """
+        m = getattr(self, "_menu_ref", None)
+        return m is not None and m.isVisible()
+
+    def _menu_dismissed(self):
+        """選單關掉之後，把剛才擋下來的收合判斷補做一次。
+
+        延一個事件迴圈再跑：closed 是在 closeEvent 裡發的，那時候 isVisible()
+        還是 True，直接判斷會以為選單仍然開著。
+        """
+        if self._hover:
+            return
+        if self._peeking:
+            self._peek_tick()            # 熱區規則自己會判斷該不該收
+        else:
+            self._settle()
+
     def _peek_tick(self):
         """滑鼠碰到螢幕頂端中央就探頭出來，不必去翻系統匣。"""
         if self._greeting:
             return                       # 打招呼期間不受游標影響
+        if self._menu_open():
+            return                       # 選單開著，游標當然會離開熱區
         if VISUAL[self.state][2]:
             return                       # 本來就在畫面上，不干涉
 
@@ -658,6 +686,8 @@ class Island(QWidget):
 
     def _settle(self):
         """展開停留結束。喝完就滑走消失，其餘縮到各自的停留尺寸。"""
+        if self._menu_open():
+            return                       # 選單關掉時 _menu_dismissed() 會補做
         if self.state == SATISFIED:
             self._peek_locked = True     # 剛喝完，滑鼠還停在島上，別馬上又探頭
             self._enter(NORMAL)
@@ -1329,6 +1359,8 @@ class Island(QWidget):
 
         # 留參考，否則彈出視窗會被 GC 掉
         self._menu_ref = traymenu.TrayMenu(self._menu_head(), items)
+        self._menu_ref.closed.connect(
+            lambda: QTimer.singleShot(0, self._menu_dismissed))
         self._menu_ref.popup_at(QPoint(*pos) if isinstance(pos, tuple) else pos)
 
     def _cancel_pause(self):

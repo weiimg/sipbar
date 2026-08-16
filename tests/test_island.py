@@ -524,6 +524,46 @@ check("點完是滿足的樣子", w23.state, isl.SATISFIED)
 w23.drink()
 check("練習之後恢復正常計數", w23.drinks, before[0] + 1)
 
+print("\n24. 右鍵選單開著的時候，島不能收回去")
+# 選單畫在島的下方，所以「把滑鼠移過去點」這個動作本身就會同時離開熱區、
+# 離開藥丸、觸發 leaveEvent。三條收合路徑各自都會把島收掉，而使用者的手
+# 還在半路上。島一收，選單就沒有依附的東西，看起來像整組消失，而離選單
+# 越遠的項目越難點到——「設定」排第四，所以最常被回報成沒有反應。
+from PySide6.QtCore import QPoint  # noqa: E402
+
+_saved_cursor = isl.cursor_pos
+isl.cursor_pos = lambda: (5, 900)          # 游標遠離熱區，模擬滑向選單
+
+
+def _peeking_island():
+    w = isl.Island(dict(cfg))
+    w.tick_timer.stop()
+    w._enter(isl.NORMAL)                   # 平常隱藏，探頭邏輯才會作用
+    w._peeking = True
+    w._target_reveal(1.0)
+    return w
+
+
+w24 = _peeking_island()
+w24._peek_tick()
+check("沒有選單時本來就會收（確認這條測試有效）", w24.sp_reveal.target, 0.0)
+
+w24 = _peeking_island()
+w24._popup_menu(QPoint(600, 300))
+check("選單認得出自己開著", w24._menu_open(), True)
+w24._peek_tick()
+check("探頭輪詢不收", w24.sp_reveal.target, 1.0)
+w24._settle()
+check("停留結束不收", w24.sp_reveal.target, 1.0)
+w24.leaveEvent(None)
+check("滑鼠移出島也不收", w24.sp_reveal.target, 1.0)
+
+# 擋下來的收合要補做，否則島會一直掛在畫面上
+w24._menu_ref.close()
+w24._menu_dismissed()
+check("選單關掉後補收回去", w24.sp_reveal.target, 0.0)
+isl.cursor_pos = _saved_cursor
+
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，
