@@ -36,6 +36,11 @@ VERSION = "0.9.0-beta"
 APP_NAME = "Sipbar"
 APP_TITLE = "Sipbar"
 
+# 回報問題的去處。設定頁的「回報問題」開這個。
+# 放這裡而不是寫死在 stats_window：改網址是身分層級的事，跟版本號、程式名字
+# 同一類，不該散在畫面的程式碼裡。
+ISSUES_URL = "https://github.com/weiimg/sipbar/issues"
+
 # 改名前叫 WaterPet。留著這個常數不是為了相容，是為了遷移——
 # 資料夾、開機自啟的登錄值都用舊名字建過，直接改名會讓使用者的設定與紀錄
 # 變成孤兒：程式開開心心建一個空的新資料夾，而他兩週的紀錄還躺在舊的那個

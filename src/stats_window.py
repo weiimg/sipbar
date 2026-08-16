@@ -1803,6 +1803,25 @@ class SettingsPage(QWidget):
         card.add(info_row("版本", appsettings.VERSION))
         card.add(Divider())
 
+        # 回報的路要在程式裡，不能只寫在 README——出問題的人正在用程式，
+        # 不會為了找一個連結跑去 GitHub。
+        #
+        # 開瀏覽器而不是在 app 裡做表單：做表單就等於程式要自己送資料出去，
+        # 而上面那句「不蒐集也不傳送」不能為了一個回報按鈕破例。
+        #
+        # 「複製診斷資訊」跟回報是一組的。沒有它，收到的 issue 會是「壞掉了」；
+        # 有了它，使用者貼上來的是版本、Windows 版本、螢幕與縮放、崩潰摘要。
+        # 一樣不自動送——複製到剪貼簿，貼不貼、貼哪裡都是使用者決定。
+        report = TapLabel("開啟", C_ACCENT.name())
+        report.clicked.connect(self._open_issues)
+        card.add(info_row("回報問題", "GitHub Issues", report))
+        card.add(Divider())
+
+        self._diag_lbl = TapLabel("複製", C_ACCENT.name())
+        self._diag_lbl.clicked.connect(self._copy_diagnostics)
+        card.add(info_row("診斷資訊", "回報時附上這段", self._diag_lbl))
+        card.add(Divider())
+
         # 引導只在第一次啟動時跑，忘記怎麼用的人需要一條回去的路。
         #
         # 叫「使用導覽」不叫「使用說明」：打開來的是五頁的互動導覽、最後還要
@@ -1951,6 +1970,50 @@ class SettingsPage(QWidget):
             os.startfile(appsettings.DATA_DIR)
         except (OSError, AttributeError):
             subprocess.Popen(["explorer", appsettings.DATA_DIR])
+
+    def _open_issues(self):
+        """用 QDesktopServices 而不是 webbrowser.open()。
+
+        `dashboard.py` 開頭記過那個坑：這台機器的 `.html` 關聯到已經退場的
+        Internet Explorer，`webbrowser.open()` 會靜默失敗——什麼都沒發生，
+        也查不出來。QDesktopServices 走的是預設瀏覽器，不是副檔名關聯。
+        """
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl(appsettings.ISSUES_URL))
+
+    def diagnostics(self):
+        """回報時要附的那段。**只有機器的規格與程式的狀態，沒有喝水紀錄。**
+
+        判準是「這一項能不能幫忙修 bug」。次數、時間、連續天數都不能，
+        那是使用者的生活作息，不該因為按了一顆按鈕就進到剪貼簿裡等著被貼出去。
+        """
+        import platform
+
+        import crashlog
+        scr = QApplication.primaryScreen()
+        screens = QApplication.screens()
+        lines = [
+            f"Sipbar {appsettings.VERSION}",
+            f"Windows {platform.version()}（{platform.machine()}）",
+            f"Python {platform.python_version()}",
+            f"螢幕 {len(screens)} 個，主要 "
+            f"{scr.geometry().width()}x{scr.geometry().height()}"
+            f" @ {scr.devicePixelRatio():.2f}x",
+            f"字體 {'內嵌' if typeface.ensure_loaded()[0] else '系統 fallback'}",
+            f"主題 {self.cfg.get('theme')}／臉 {self.cfg.get('face_style')}",
+            f"目標 {appsettings.effective_target(self.cfg)} 次"
+            f"（體重 {self.cfg.get('weight_kg') or '未填'}）",
+            f"間隔 {self.cfg.get('interval_min')} 分",
+            f"崩潰紀錄 {crashlog.summary()}",
+        ]
+        return "\n".join(lines)
+
+    def _copy_diagnostics(self):
+        QApplication.clipboard().setText(self.diagnostics())
+        # 剪貼簿是看不見的，沒有回饋的話使用者不知道按到了，就會一直按。
+        self._diag_lbl.setText("已複製")
+        QTimer.singleShot(1600, lambda: self._diag_lbl.setText("複製"))
 
     def _on_reset(self):
         """確認已經由視窗的 ConfirmOverlay 問過了，這裡只負責執行。"""
