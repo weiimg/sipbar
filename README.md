@@ -1,20 +1,22 @@
 <div align="center">
 
-<img src="docs/icon.png" width="72" alt="">
-
-# Sipbar
+<h1><img src="docs/icon.png" width="34" align="top" alt=""> Sipbar</h1>
 
 **Take a sip, even in the flow**
 
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
-[![release](https://img.shields.io/badge/下載-v0.9.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
+[![release](https://img.shields.io/badge/%E4%B8%8B%E8%BC%89-v0.9.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
+
+Windows 桌面的喝水提醒。工作再忙，也記得喝點水。
 
 <img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
 
+[主要功能](#主要功能) • [下載與安裝](#下載與安裝) • [怎麼用](#怎麼用) • [解除安裝](#解除安裝) • [給開發者](#給開發者)
+
 </div>
 
-工作再忙，也記得喝點水。
+---
 
 ## 主要功能
 
