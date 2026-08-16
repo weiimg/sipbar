@@ -23,9 +23,14 @@
 import os
 import sys
 
-APP = r"E:\Claude Project\Claude Inbox\喝水提醒桌寵"
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP)
 sys.path.insert(0, os.path.join(APP, "tools"))
+
+# 失敗訊息會把出問題的字元本身印出來（`chr(cp)!r`），而 KEEP_NOTO 裡的 ‹ 不在 Big5 裡。
+# 台灣 Windows 的主控台預設就是 cp950，不放寬的話：字形真的壞掉那天，測試會先崩在
+# print 上，你看不到是哪個字。**驗字形的工具自己不能在最需要它的時候啞掉。**
+sys.stdout.reconfigure(errors="replace")
 
 from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QFontMetricsF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402

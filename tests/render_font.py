@@ -15,7 +15,7 @@ import os
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-APP = r"E:\Claude Project\Claude Inbox\喝水提醒桌寵"
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP)
 sys.path.insert(0, os.path.join(APP, "tools"))
 

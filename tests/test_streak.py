@@ -4,9 +4,10 @@
 每個情境直接建構 days 字典餵給 compute_streaks，不經過檔案，
 才能精準控制「今天」與每一天的狀態。
 """
+import os
 import sys
 
-sys.path.insert(0, r"E:\Claude Project\Claude Inbox\喝水提醒桌寵")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import dashboard  # noqa: E402
 
 T = 7

@@ -8,7 +8,7 @@ import os
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, r"E:\Claude Project\Claude Inbox\喝水提醒桌寵")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import settings as appsettings  # noqa: E402
 import stats_window as sw  # noqa: E402

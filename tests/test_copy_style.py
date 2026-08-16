@@ -29,7 +29,7 @@ import re
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-APP = r"E:\Claude Project\Claude Inbox\喝水提醒桌寵"
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP)
 
 # island.py 也在檢查範圍內，但它含角色台詞——那些用

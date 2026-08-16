@@ -7,7 +7,7 @@ import sys
 import time
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, r"E:\Claude Project\Claude Inbox\喝水提醒桌寵")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import island as isl  # noqa: E402
 
@@ -29,7 +29,7 @@ scr = QApplication.primaryScreen().geometry()
 target_x = scr.center().x() + isl.PEEK_HALF_W - 20
 target_y = scr.top() + isl.PEEK_EDGE_PX - 2
 print(f"螢幕 {scr.width()}x{scr.height()} top={scr.top()} center.x={scr.center().x()}")
-print(f"熱區 x∈[{scr.center().x() - isl.PEEK_HALF_W}, {scr.center().x() + isl.PEEK_HALF_W}]  y<={scr.top() + isl.PEEK_EDGE_PX}")
+print(f"熱區 x in [{scr.center().x() - isl.PEEK_HALF_W}, {scr.center().x() + isl.PEEK_HALF_W}]  y<={scr.top() + isl.PEEK_EDGE_PX}")
 
 saved = isl.cursor_pos()
 ctypes.windll.user32.SetCursorPos(target_x, target_y)
