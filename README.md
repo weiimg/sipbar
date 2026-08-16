@@ -44,10 +44,7 @@ run.bat
 python src\island.py
 ```
 
-## 文件
-
-- [使用說明](docs/USAGE.md)：操作方式、五個狀態、資料位置、已知限制
-- [設計與決策](docs/DESIGN.md)：每個決定的理由，以及判斷錯誤的地方
+完整的操作方式、五個狀態、資料位置與已知限制，見[使用說明](docs/USAGE.md)。
 
 ## 授權
 
