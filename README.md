@@ -28,19 +28,15 @@ pip install -r requirements.txt
 run.bat
 ```
 
-Windows 10 / 11、Python 3.13。執行只依賴 PySide6。
+Windows 10 / 11，Python 3.13。
 
-第一次啟動有三頁引導，全部加起來只問你一個問題。
-
-## 更多
+---
 
 操作方式、五個狀態、資料放在哪，都在[使用說明](docs/USAGE.md)。
 
 每個決定的理由，還有我判斷錯的地方，寫在[設計與決策](docs/DESIGN.md)。
 
 程式碼是 [MIT](LICENSE)。字體另外走 SIL OFL 1.1，條件見 [assets/fonts](assets/fonts/README.md)。
-
----
 
 > 我的 side project，跟 Claude 一起寫的。我不是工程師，是接案的影像創作者，
 > 做這個是因為我自己需要有東西提醒我喝水，做完覺得堪用就放上來。
