@@ -22,3 +22,8 @@ dist/
 # 開發日誌。裡面有體重、作息與工作習慣的觀察，還有給 AI 的交接註記，
 # 那些不該公開。要引用它的結論，把結論寫進 docs/ 底下對應的檔案。
 notes/
+
+# 社群用的 GIF。同一份內容的 WebP 只有 1/10 大而且圓角乾淨，那個進版本庫就夠了。
+# GIF 是二值透明，注定有鋸齒，留著只是為了貼在不吃 WebP 的平台上——
+# 要用的時候跑 `python tools/make_social_demo.py` 就有，不必背在 git 歷史裡。
+docs/social-laptop.gif
