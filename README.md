@@ -28,16 +28,7 @@ Windows 10 / 11。不需要先裝 Python。
 到 [Releases](https://github.com/weiimg/sipbar/releases/latest) 下載
 `Sipbar-0.9.0-beta-portable.zip`，解壓縮後執行 `Sipbar.exe`。不需要安裝。
 
-第一次執行 Windows 會跳「已保護您的電腦」，點「其他資訊」再點「仍要執行」。
-Windows 對所有沒有數位簽章的程式都會這樣。
-
-## Usage
-
-平常它不在畫面上，時間到才自己滑下來。把滑鼠移到螢幕上緣中央可以隨時叫它出來。
-
-完整的操作方式、五個狀態、資料位置與已知限制，見[使用說明](docs/USAGE.md)。
-
-## From source
+### From source
 
 需要 Python 3.13。
 
@@ -48,13 +39,18 @@ pip install -r requirements.txt
 run.bat
 ```
 
-`run.bat` 以 `pythonw` 啟動，不保留 console 視窗。需要查看錯誤訊息時改用：
+`run.bat` 以 `pythonw` 啟動，不保留 console 視窗。需要查看錯誤訊息時改用
+`python src\island.py`。自己打包成執行檔用 `python tools/build_exe.py`。
 
-```bash
-python src\island.py
-```
+## Usage
 
-自己打包成執行檔用 `python tools/build_exe.py`。
+- **滑鼠移到螢幕頂端中央**：叫它出來，不用等提醒
+- **左鍵點島**：記錄補水一次
+- **滑鼠移到島上**：展開看完整訊息
+- **右鍵點島**：選單，記錄補水、暫停 2 小時、喝水紀錄、設定、結束程式
+- **系統匣圖示**：同樣的功能，左鍵補水、右鍵選單
+
+五個狀態、資料位置與已知限制見[使用說明](docs/USAGE.md)。
 
 ## License
 
