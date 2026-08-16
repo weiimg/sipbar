@@ -19,24 +19,42 @@
 Sipbar 平常不會出現在螢幕上，時間到才從頂端滑下來。點一下就記錄，
 不管喝幾口都算。
 
+## 環境需求
+
+- Windows 10 / 11
+- Python 3.13
+
 ## 安裝
 
-```
+```bash
 git clone https://github.com/weiimg/sipbar.git
 cd sipbar
 pip install -r requirements.txt
+```
+
+## 執行
+
+```bash
 run.bat
 ```
 
-Windows 10 / 11，Python 3.13。
+`run.bat` 以 `pythonw` 啟動，不保留 console 視窗。需要查看錯誤訊息時改用：
+
+```bash
+python src\island.py
+```
+
+## 文件
+
+- [使用說明](docs/USAGE.md)：操作方式、五個狀態、資料位置、已知限制
+- [設計與決策](docs/DESIGN.md)：每個決定的理由，以及判斷錯誤的地方
+
+## 授權
+
+程式碼採用 [MIT](LICENSE) 授權。隨附字體不在此範圍內，另依 SIL Open Font
+License 1.1 散布，條件與來源見 [assets/fonts](assets/fonts/README.md)。
 
 ---
-
-操作方式、五個狀態、資料放在哪，都在[使用說明](docs/USAGE.md)。
-
-每個決定的理由，還有我判斷錯的地方，寫在[設計與決策](docs/DESIGN.md)。
-
-程式碼是 [MIT](LICENSE)。字體另外走 SIL OFL 1.1，條件見 [assets/fonts](assets/fonts/README.md)。
 
 > 我的 side project，跟 Claude 一起寫的。我不是工程師，是接案的影像創作者，
 > 做這個是因為我自己需要有東西提醒我喝水，做完覺得堪用就放上來。
