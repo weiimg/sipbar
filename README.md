@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
-
-<img src="docs/icon.png" width="64" alt="">
+<img src="docs/icon.png" width="72" alt="">
 
 # Sipbar
 
@@ -11,6 +9,8 @@
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 [![release](https://img.shields.io/badge/下載-v0.9.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
+
+<img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
 
 </div>
 
