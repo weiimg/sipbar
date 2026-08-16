@@ -1,7 +1,7 @@
 # 使用者的個人設定，絕對不能進版本庫。
 #
 # settings.py 的 _migrate_legacy() 會把「程式旁邊的 config.json」當成舊版設定，
-# 搬進使用者的 %LOCALAPPDATA%\WaterPet\。所以只要這個檔案跟著發布出去，
+# 搬進使用者的 %LOCALAPPDATA%\Sipbar\。所以只要這個檔案跟著發布出去，
 # 每個新使用者一裝就會繼承開發者的個人設定（體重推算出的目標、提醒間隔…），
 # 而且完全沒有任何提示。
 config.json
