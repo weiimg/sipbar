@@ -105,6 +105,74 @@ def build(onefile, verfile):
     return out, time.perf_counter() - t0
 
 
+READ_ME = """Sipbar {ver}
+https://github.com/weiimg/sipbar
+
+執行 Sipbar.exe 就可以了，不用安裝。
+
+第一次執行會跳「Windows 已保護您的電腦」
+--------------------------------------
+那是 SmartScreen 對沒有簽章的程式一律會跳的警告，不是偵測到問題。
+點「其他資訊」，再點「仍要執行」。
+
+程式碼簽章憑證一年要價數百美金，這是個人的 side project，沒有買。
+不放心的話原始碼全部公開，可以自己從原始碼跑。
+
+它在哪
+------
+平常完全隱藏。時間到才從螢幕頂端滑下來。
+把滑鼠移到螢幕上緣中央可以隨時叫它出來。
+系統匣（工作列右下角的「^」）也有一顆藍色的杯子圖示。
+
+你的資料在哪
+------------
+%LOCALAPPDATA%\\Sipbar\\
+設定、紀錄都在那裡，不在這個資料夾裡，所以這包可以隨便搬。
+不用了就把整個資料夾刪掉，再把上面那個目錄刪掉，什麼都不會留下。
+
+授權
+----
+程式碼是 MIT，見 LICENSE。
+隨附字體另依 SIL Open Font License 1.1 散布，
+授權條文在 _internal\\assets\\fonts\\ 裡。
+"""
+
+
+def package(v):
+    """把 onedir 的產物加上授權與說明，壓成發布用的 zip。
+
+    LICENSE 一定要進去：MIT 要求散布時附上著作權聲明，而使用者拿到的是這包，
+    不是版本庫。字體的 OFL 由 --add-data 收進 _internal 裡，同樣的理由。
+    """
+    import zipfile
+    src = os.path.join(DIST, "onedir", NAME)
+    if not os.path.isdir(src):
+        raise SystemExit("FAIL 找不到 onedir 的產物")
+
+    # README.txt 寫成 UTF-8 with BOM。內容是中文，而收到這包的人多半在
+    # 繁中 Windows 上：沒有 BOM 的話，任何用系統預設編碼（cp950）打開的工具
+    # 都會顯示成亂碼。看不懂的說明比沒有說明更糟，因為裡面寫的是
+    # 「SmartScreen 會跳警告、那不是中毒」。
+    #
+    # LICENSE 全是 ASCII，不需要 BOM，而且授權條文照原樣不動比較保險。
+    extra = [
+        ("LICENSE", open(os.path.join(ROOT, "LICENSE"), encoding="utf-8").read(), "utf-8"),
+        ("README.txt", READ_ME.format(ver=v), "utf-8-sig"),
+    ]
+    out = os.path.join(DIST, f"Sipbar-{v}-portable.zip")
+    if os.path.exists(out):
+        os.remove(out)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for r, _, fs in os.walk(src):
+            for f in fs:
+                p = os.path.join(r, f)
+                z.write(p, os.path.join(NAME, os.path.relpath(p, src)))
+        for name, text, enc in extra:
+            z.writestr(os.path.join(NAME, name),
+                       text.replace("\n", "\r\n").encode(enc))
+    return out
+
+
 def tree_size(path):
     if os.path.isfile(path):
         return os.path.getsize(path)
@@ -127,6 +195,9 @@ def main():
         total = tree_size(out)
         print(f"{label:<9} {total / 1024 / 1024:>6.1f} MB   建置 {secs:>5.0f} 秒")
         print(f"          {exe}")
+
+    zip_path = package(v)
+    print(f"\n發布用 {tree_size(zip_path) / 1024 / 1024:>6.1f} MB   {zip_path}")
     print("\n啟動時間要另外量，見 tools/time_launch.py")
     return 0
 
