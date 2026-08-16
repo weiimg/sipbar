@@ -8,11 +8,13 @@
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 [![release](https://img.shields.io/badge/%E4%B8%8B%E8%BC%89-v0.9.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
 
-Windows 桌面的喝水提醒。工作再忙，也記得喝點水。
+Windows 桌面的喝水提醒。
+
+工作再忙，也記得喝點水。
 
 <img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
 
-[主要功能](#主要功能) • [下載與安裝](#下載與安裝) • [怎麼用](#怎麼用) • [解除安裝](#解除安裝) • [給開發者](#給開發者)
+[主要功能](#主要功能) • [下載與安裝](#下載與安裝) • [怎麼用](#怎麼用) • [解除安裝](#解除安裝)
 
 </div>
 
@@ -20,23 +22,23 @@ Windows 桌面的喝水提醒。工作再忙，也記得喝點水。
 
 ## 主要功能
 
-**不佔畫面**
-平常完全隱藏。時間到才從螢幕頂端滑下來，你回應完就收回去。
+<table>
+<tr>
+<td width="25%" align="center"><img src="docs/feat-hidden.png" width="80" alt=""><br>平常完全隱藏，時間到才自己出現</td>
+<td width="25%" align="center"><img src="docs/feat-tap.png" width="80" alt=""><br>喝兩口也算，按一下就記錄</td>
+<td width="25%" align="center"><img src="docs/feat-streak.png" width="80" alt=""><br>連續天數會累積，沒開電腦不算中斷</td>
+<td width="25%" align="center"><img src="docs/feat-rhythm.png" width="80" alt=""><br>依你的體重與作息自動調整</td>
+</tr>
+</table>
 
-**按一下就記錄**
-喝兩口也算一次。按一下就好，不用回想自己喝了多少。
-
-**記得你連續幾天做到**
-每天達標會累積連續天數。整天沒開電腦的日子跳過不算中斷，
-另外還有護盾可以抵掉一次失手。
-
-**跟著你的作息走**
-每日目標由體重推算，提醒只在你坐在電腦前時計時，深夜會自動拉長間隔。
+---
 
 ## 系統需求
 
 - Windows 10 或 11
-- 不用先裝 Python 或任何其他東西
+- 不需要另外安裝 Python
+
+---
 
 ## 下載與安裝
 
@@ -47,6 +49,8 @@ Windows 桌面的喝水提醒。工作再忙，也記得喝點水。
 
 第一次執行時 Windows 會跳「已保護您的電腦」。點**其他資訊**，再點**仍要執行**。
 Windows 對所有沒有數位簽章的程式都會這樣。
+
+---
 
 ## 怎麼用
 
@@ -60,6 +64,8 @@ Windows 對所有沒有數位簽章的程式都會這樣。
 
 五個狀態、資料存在哪、已知限制，見[使用說明](docs/USAGE.md)。
 
+---
+
 ## 解除安裝
 
 1. 若開啟過「開機時啟動」，先到設定頁將它關閉
@@ -71,26 +77,14 @@ Windows 對所有沒有數位簽章的程式都會這樣。
 那一筆仍會留著。若已經刪除，開啟工作管理員的「啟動應用程式」分頁，
 將 Sipbar 停用即可。
 
-## 給開發者
-
-需要 Python 3.13。
-
-```bash
-git clone https://github.com/weiimg/sipbar.git
-cd sipbar
-pip install -r requirements.txt
-run.bat
-```
-
-`run.bat` 以 `pythonw` 啟動，不保留 console 視窗。需要查看錯誤訊息時改用
-`python src\island.py`。自己打包成執行檔用 `python tools/build_exe.py`。
-
-設計與取捨的完整記錄在[設計與決策](docs/DESIGN.md)。
+---
 
 ## 授權
 
 程式碼採用 [MIT](LICENSE) 授權。隨附字體不在此範圍內，另依 SIL Open Font
 License 1.1 散布，條件與來源見 [assets/fonts](assets/fonts/README.md)。
+
+自行建置、專案結構與設計取捨見[開發說明](docs/DEVELOPMENT.md)。
 
 ---
 
