@@ -21,20 +21,32 @@ Sipbar 平常不會出現在螢幕上，時間到才從頂端滑下來。點一�
 
 ## Requirements
 
-- Windows 10 / 11
-- Python 3.13
+Windows 10 / 11。不需要先裝 Python。
 
 ## Installation
+
+到 [Releases](https://github.com/weiimg/sipbar/releases/latest) 下載
+`Sipbar-0.9.0-beta-portable.zip`，解壓縮後執行 `Sipbar.exe`。不需要安裝。
+
+第一次執行 Windows 會跳「已保護您的電腦」，點「其他資訊」再點「仍要執行」。
+那是 SmartScreen 對沒有簽章的程式一律會跳的警告，不是偵測到問題。程式碼簽章
+憑證一年要價數百美金，這是個人的 side project，沒有買。不放心的話原始碼全部
+公開在這裡，可以自己從原始碼跑。
+
+## Usage
+
+平常它不在畫面上，時間到才自己滑下來。把滑鼠移到螢幕上緣中央可以隨時叫它出來。
+
+完整的操作方式、五個狀態、資料位置與已知限制，見[使用說明](docs/USAGE.md)。
+
+## From source
+
+需要 Python 3.13。
 
 ```bash
 git clone https://github.com/weiimg/sipbar.git
 cd sipbar
 pip install -r requirements.txt
-```
-
-## Usage
-
-```bash
 run.bat
 ```
 
@@ -44,7 +56,7 @@ run.bat
 python src\island.py
 ```
 
-完整的操作方式、五個狀態、資料位置與已知限制，見[使用說明](docs/USAGE.md)。
+自己打包成執行檔用 `python tools/build_exe.py`。
 
 ## License
 
