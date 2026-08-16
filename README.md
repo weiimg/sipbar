@@ -19,12 +19,12 @@
 Sipbar 平常不會出現在螢幕上，時間到才從頂端滑下來。點一下就記錄，
 不管喝幾口都算。
 
-## 環境需求
+## Requirements
 
 - Windows 10 / 11
 - Python 3.13
 
-## 安裝
+## Installation
 
 ```bash
 git clone https://github.com/weiimg/sipbar.git
@@ -32,7 +32,7 @@ cd sipbar
 pip install -r requirements.txt
 ```
 
-## 執行
+## Usage
 
 ```bash
 run.bat
@@ -46,7 +46,7 @@ python src\island.py
 
 完整的操作方式、五個狀態、資料位置與已知限制，見[使用說明](docs/USAGE.md)。
 
-## 授權
+## License
 
 程式碼採用 [MIT](LICENSE) 授權。隨附字體不在此範圍內，另依 SIL Open Font
 License 1.1 散布，條件與來源見 [assets/fonts](assets/fonts/README.md)。
