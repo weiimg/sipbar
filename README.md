@@ -8,15 +8,20 @@
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 [![release](https://img.shields.io/badge/%E4%B8%8B%E8%BC%89-v0.9.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
 
-Windows 桌面的喝水提醒。
-
-工作再忙，也記得喝點水。
+Windows 桌面的喝水提醒
 
 <img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
 
 [主要功能](#主要功能) • [下載與安裝](#下載與安裝) • [怎麼用](#怎麼用) • [解除安裝](#解除安裝)
 
 </div>
+
+大家都知道要多喝水。也知道自己八成做不到。
+
+幾個小時過去，一口水都沒喝。真的想起來時，喝個兩口就又回到螢幕前。
+忙過一天，就不想再試了。
+
+Sipbar 在你工作的時候不出現，時間到才滑下來。點一下，回去做你原本在做的事。
 
 ---
 
