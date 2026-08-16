@@ -72,17 +72,19 @@ LID_Y = 62
 SCR_X, SCR_Y = LID_X + BEZEL, LID_Y + BEZEL
 SCR_W, SCR_H = LID_W - BEZEL * 2, LID_H - BEZEL * 2
 
+# 影片裡的島不展開訊息文字。
+#
+# 收合成小藥丸是島真實的狀態之一（USAGE.md：「縮成小藥丸但不消失」），不是
+# 假的畫面。不放字的理由：中文字在社群的播放尺寸下只剩幾個像素高，讀不到卻
+# 佔掉三倍寬度，把杯子和進度點擠小——而那兩樣才是這支要給人看的東西。
+# README 那支 docs/demo.webp 也是同一個取捨。
+SHOW_MESSAGE = False
+
 # 島縮放。這是整支影片唯一需要憑眼睛調的數字，改它就好，不要動別的。
 #
-# 展開帶訊息時藥丸是 416px 寬。真實比例是 416 / 1920 = 22%，但那樣中文字只剩
-# 幾個像素高，社群上等於沒有——而訊息（「喉嚨乾乾的」→「喝了，還剩 3 次」）
-# 正是這支要講的故事。所以刻意放大，跟 onboard.IslandPreview 的取捨一樣：
-# 「這是示意圖不是比例尺，放大到看得見表情為止。」
-#
-#   1.55 → 佔螢幕 77%，字很清楚但島大到不像真的
-#   1.05 → 佔螢幕 52%，看得懂也還像一台電腦     ← 現在用這個
-#   0.44 → 佔螢幕 22%，完全寫實，但字讀不到
-ISLAND_SCALE = 1.05
+# 對齊 README 那支 demo 的比例：onboard.IslandPreview 的 PILL_MAX_W = 110，
+# 螢幕寬 448px，藥丸佔 24.5%。兩支放在一起才像同一個產品。
+ISLAND_SCALE = 1.39
 
 # 時間軸。死時間要少，社群上前兩秒沒東西發生就滑掉了。
 T_START = 0.4                   # 空畫面，讓人看清楚它平常不存在
@@ -205,7 +207,11 @@ def advance(w, dt, clock):
     沒有跑 Qt 事件迴圈的話那一發永遠不開火，`sp_content` 卡在 0，
     島從頭到尾不展開文字——藥丸就比真正的島窄一截，宣傳圖會說謊。
     """
-    if w._content_delay.isActive():
+    if not SHOW_MESSAGE:
+        w._content_delay.stop()
+        w.sp_content.target = w.sp_content.value = 0.0
+        w.sp_content.velocity = 0.0
+    elif w._content_delay.isActive():
         if clock.get("content_due") is None:
             clock["content_due"] = w._content_delay.interval() / 1000.0
         clock["content_due"] -= dt
