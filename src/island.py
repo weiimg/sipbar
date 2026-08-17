@@ -40,6 +40,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QWidge
 import crashlog                               # 閃退時把 traceback 留下來
 import pixelface                              # 像素杯與表情
 import settings                               # 路徑、設定、推導、開機自啟
+import sound                                  # 升級時的提示音
 import typeface                               # 隨程式散布的字體
 from motion import Spring, clamp, lerp        # 彈簧與紀錄視窗共用同一套物理
 from paintkit import draw_soft_shadow, shadow_alphas
@@ -327,6 +328,9 @@ class Island(QWidget):
         self._peeking = False
         # 防連點用的時間戳。給一個很早的值，程式一啟動就能記第一次補水。
         self._last_drink_at = -1e9
+        # 按下去之前的樣子，給「退回上一次記錄」用。見 undo_drink()。
+        # 只留最近的一份：退回一次就用掉，重開程式也不接回來。
+        self._undo = None
         self._peek_locked = False
         self._greeting = False
         # 引導最後一步用的練習模式。開著的時候 drink() 走一條不寫入任何東西的路，
@@ -848,9 +852,28 @@ class Island(QWidget):
         elif self.state == THIRSTY and self.active_s >= weak_at:
             log_event(self.day, "weak")
             self._enter(WEAK)
+            self._chime(sound.WEAK)
         elif self.state == WEAK and self.active_s >= collapse_at:
             log_event(self.day, "collapse")
             self._enter(COLLAPSED)
+            self._chime(sound.COLLAPSED)
+
+    def _chime(self, name):
+        """升級的提示音。只有這兩個地方會呼叫。
+
+        **刻意不放進 `_enter()`。** 那個函式是所有現身路徑的共同入口，
+        包含啟動時接回上次的狀態（見 main()）——放在裡面的話，昨天收工時
+        島正好停在虛弱，今天一開機就會對著使用者響一聲。
+
+        放在升級的分支裡還有一個好處：這兩行就在 log_event 旁邊，
+        「什麼時候會出聲」跟「什麼時候留下紀錄」讀起來是同一件事。
+
+        離開電腦時不會響：這裡是 tick() 的下半段，而 active_s 在閒置時
+        根本不累加（見上面的 idle_seconds 檢查），升級不會發生。
+        提示音不會對著空房間播。
+        """
+        if self.cfg.get("sound_enabled", True):
+            sound.play(name)
 
     # ------------------------------------------------------------ 動作
 
@@ -906,11 +929,20 @@ class Island(QWidget):
         self._last_drink_at = now
 
         responded = self.state in REMINDING
+        waited = int(max(0.0, self.active_s - self.interval_s)) if responded else 0
+        # 先拍一張「按下去之前」。要在動到 active_s 之前拍，那個值下一行就歸零了。
+        self._undo = {
+            "state": self.state,
+            "active_s": self.active_s,
+            "interval_s": self.interval_s,
+            "responded": responded,
+            "wait_active_s": waited,
+        }
         log_event(
             self.day, "drink",
             from_state=self.state,
             responded=responded,
-            wait_active_s=int(max(0.0, self.active_s - self.interval_s)) if responded else 0,
+            wait_active_s=waited,
             drinks=self.drinks + 1,
             target=self.cfg["daily_target_drinks"],
         )
@@ -927,6 +959,69 @@ class Island(QWidget):
             self._enter(SATISFIED, message="今天達標了", sub=sub)
         else:
             self._enter(SATISFIED, message=f"喝了，還剩 {target - self.drinks} 次")
+        self._refresh_stats_window()
+
+    def undo_drink(self):
+        """退回上一次記錄。右鍵選單那一項。
+
+        使用者回報過「不小心一次點了兩次」。當時做的是防連點——確認訊息還在
+        畫面上的期間第二下不算——但那只擋得住手滑的那一種。點錯了、或是點完
+        才發現自己其實沒喝，那些防連點擋不到，得有一條退路。
+
+        ## 為什麼是補一筆事件，不是把紀錄改掉
+
+        `events.jsonl` 是只增不改的。回頭刪掉一行看起來乾淨，但那是在改寫已經
+        發生過的事——而這個檔案是使用者唯一一份原始紀錄，任何「重寫」的操作
+        只要寫壞一次就沒有第二份可以對。補一筆 `undo` 進去，原始的 drink 還在，
+        統計那邊自己扣掉（見 `dashboard.load_days`）。
+
+        ## 為什麼連倒數也要還原
+
+        退回不能變成另一種「關掉提醒」。
+
+        只改次數不動計時的話，這兩步就成了一顆隱藏的關閉鍵：點一下把島趕走，
+        再退回一次把數字改對——提醒被 dismiss 掉了，而「你無法 dismiss 一個
+        狀態」是這個工具的核心。所以連島當時的狀態、累積的時間、那一輪的間隔
+        全部放回去：**你沒喝，它就該繼續在那裡等。**
+
+        還原狀態走 `_enter()` 而不是讓 tick() 自己重新升級上去。差別有兩個：
+        直接回到原本那一級（不必花三個 tick 從口渴慢慢爬回倒地），而且
+        `_enter()` 不會出聲（提示音刻意寫在升級分支裡，見 `_chime()`）——
+        退回之後被同一個聲音再叫一次是莫名其妙的。
+
+        ## 重開程式之後只退次數
+
+        `_undo` 是活的東西，不寫進 state.json：跨重啟去重建「按下去之前的樣子」
+        只能靠猜，而猜錯的倒數比沒有倒數更糟。所以那時候只把次數扣回來，
+        計時不動——次數修對了，而沒有任何一個值是編出來的。
+        """
+        if self.drinks <= 0:
+            return
+        snap, self._undo = self._undo, None      # 一份只能用一次
+        log_event(
+            self.day, "undo",
+            drinks=self.drinks - 1,
+            # 把被退掉那一筆的回應資訊一起帶著，統計才扣得乾淨——
+            # 只扣次數不扣「回應了」，回應率會算出超過 100% 的數字。
+            responded=bool(snap and snap["responded"]),
+            wait_active_s=snap["wait_active_s"] if snap else 0,
+            target=self.cfg["daily_target_drinks"],
+        )
+        self.drinks -= 1
+        if snap:
+            self.active_s = snap["active_s"]
+            self.interval_s = snap["interval_s"]
+        # 防連點的時間戳要放掉。退回是明確的動作，之後馬上想真的記一次
+        # 不該被「剛剛才按過」擋住。
+        self._last_drink_at = -1e9
+        self._persist()
+        self._refresh_streak()          # 退回可能讓今天從達標變成未達標
+        if snap:
+            self._enter(snap["state"])
+        else:
+            self._refresh_message()
+            self.update()
+        self._sync_tray()
         self._refresh_stats_window()
 
     def _refresh_stats_window(self):
@@ -1449,17 +1544,21 @@ class Island(QWidget):
         when = "即將提醒" if remain <= 0 else f"下次約 {remain} 分後"
         return title, f"約 {est} cc，{when}"
 
-    def _popup_menu(self, pos):
-        """選單項目一律用動作或去處來命名。
+    def _menu_items(self):
+        """選單有哪幾項。跟開視窗的動作分開，這樣「哪些項目該出現」測得到。
+
+        選單項目一律用動作或去處來命名。
 
         「喝了」是口語陳述不是指令；「看喝水紀錄」的「看」是雜訊——
         選單項若是去某個地方，用名詞就夠了；「取消暫停」是雙重否定，
         讀的人要在腦裡繞一圈才知道結果是「會再提醒」。
         「結束」單獨出現有歧義：結束什麼？
         """
-        import menu as traymenu
-
         items = [("記錄補水", self.drink, False)]
+        # 退路緊接在記錄後面：兩個是一組動作，而退回只有在「剛剛記過」之後
+        # 才有意義。次數是 0 就不放——一個按下去不會有反應的項目比沒有更糟。
+        if self.drinks > 0:
+            items.append(("退回上一次記錄", self.undo_drink, False))
         if self.paused_until:
             items.append(("恢復提醒", self._cancel_pause, False))
         else:
@@ -1468,9 +1567,13 @@ class Island(QWidget):
                   ("設定", self.show_settings, False),
                   (None, None, False),
                   ("結束程式", self.quit_app, True)]
+        return items
+
+    def _popup_menu(self, pos):
+        import menu as traymenu
 
         # 留參考，否則彈出視窗會被 GC 掉
-        self._menu_ref = traymenu.TrayMenu(self._menu_head(), items)
+        self._menu_ref = traymenu.TrayMenu(self._menu_head(), self._menu_items())
         self._menu_ref.closed.connect(
             lambda: QTimer.singleShot(0, self._menu_dismissed))
         self._menu_ref.popup_at(QPoint(*pos) if isinstance(pos, tuple) else pos)

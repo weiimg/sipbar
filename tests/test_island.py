@@ -650,6 +650,137 @@ check("過了確認訊息的時間就正常記", w26.drinks, 2)
 w26._tray_clicked(isl.QSystemTrayIcon.Trigger)
 check("系統匣左鍵也擋得住連點", w26.drinks, 2)
 
+print("\n27. 提示音只在升級的那一刻響")
+# 聲音是升級階梯的最後一階（換色 -> 變大 -> 不消失 -> 出聲）。
+# 三件事要守住：提醒本身不出聲、升級才出聲、而且啟動時接回狀態不能出聲。
+_played = []
+_real_play = isl.sound.play
+isl.sound.play = lambda name: _played.append(name) or True
+
+
+def esc(widget, n):
+    for _ in range(n):
+        widget.tick()
+
+
+def fresh(**over):
+    """乾淨的一顆島。
+
+    刻意把接回來的狀態清掉：前面的段落存過 state.json，不清的話這裡量到的是
+    別人留下的次數與累積時間——而那個值每次跑都不一樣，測試會時好時壞。
+    """
+    c = dict(cfg)
+    c.update(over)
+    x = isl.Island(c)
+    x.tick_timer.stop(); x.frame.stop(); x.hold_timer.stop(); x.peek_timer.stop()
+    x.drinks = 0
+    x.active_s = 0.0
+    x.state = isl.NORMAL
+    x._undo = None
+    return x
+
+
+w27 = fresh()
+esc(w27, int(w27.interval_s / 60) + 1)
+check("狀態", w27.state, isl.THIRSTY)
+# 這一條是整個設計的前提。每次提醒都響的話，一天七聲同樣的聲音，
+# 兩天就會被自動過濾掉——而那個過濾會連帶讓人對整個工具脫敏。
+check("第一次提醒不出聲", _played, [])
+
+esc(w27, cfg["escalate_weak_min"] + 1)
+check("狀態", w27.state, isl.WEAK)
+check("升級到虛弱才響第一聲", _played, ["weak"])
+
+esc(w27, cfg["escalate_collapsed_min"] - cfg["escalate_weak_min"] + 1)
+check("狀態", w27.state, isl.COLLAPSED)
+check("倒地是另一個聲音", _played, ["weak", "collapsed"])
+
+# 關掉音效關掉的是「出聲」，不是升級。島照樣走完整條階梯——
+# 這是它跟「關閉提醒總開關」的差別，見 settings.py 開頭。
+_played.clear()
+w27b = fresh(sound_enabled=False)
+esc(w27b, int(w27b.interval_s / 60) + 1 + cfg["escalate_collapsed_min"] + 1)
+check("關掉之後完全不出聲", _played, [])
+check("但升級照樣發生", w27b.state, isl.COLLAPSED)
+
+# 啟動時接回上次的狀態走的是 _enter()，那條路不能響：收工時島正好停在虛弱，
+# 隔天一開機就會被沒頭沒尾地叫一聲。所以 _chime() 刻意不寫在 _enter() 裡。
+_played.clear()
+w27.state = isl.THIRSTY
+w27._enter(isl.WEAK)
+check("直接進入狀態（啟動接回）不出聲", _played, [])
+w27._enter(isl.COLLAPSED)
+check("倒地也一樣", _played, [])
+
+isl.sound.play = _real_play
+
+print("\n28. 退回上一次記錄")
+# 防連點只擋得住「手滑點兩下」。點錯了、或點完才發現自己其實沒喝，
+# 那些擋不到，所以要有一條退路。
+import json  # noqa: E402
+
+import dashboard as dash  # noqa: E402
+
+# 自己一份紀錄檔。共用的那個裡面有前面段落寫進去的補水，
+# 混在一起就分不出「統計扣掉了沒有」。
+_ev_save = isl.EVENTS_PATH
+isl.EVENTS_PATH = os.path.join(TEST_DIR, "undo_events.jsonl")
+
+w28 = fresh()
+esc(w28, int(w28.interval_s / 60) + 1 + cfg["escalate_weak_min"] + 1)
+check("先讓它升級到虛弱", w28.state, isl.WEAK)
+_before = (w28.active_s, w28.interval_s)
+
+sip(w28)
+check("記了一次", w28.drinks, 1)
+check("倒數歸零", w28.active_s, 0.0)
+
+w28.undo_drink()
+check("次數退回去了", w28.drinks, 0)
+# 這三條是這個功能的重點：退回不能變成另一種「關掉提醒」。
+# 只改次數不動計時的話，點一下＋退回一次就是一顆隱藏的關閉鍵。
+check("累積的時間也還原", w28.active_s, _before[0])
+check("那一輪的間隔也還原", w28.interval_s, _before[1])
+check("島回到按下去之前那一級", w28.state, isl.WEAK)
+
+# 一份快照只能用一次。連按兩下不該把次數扣成負的，也不該再動一次計時。
+w28.undo_drink()
+check("次數是 0 就不再退", w28.drinks, 0)
+
+# 紀錄檔是只增不改的：drink 那一行必須還在，undo 是補上去的
+_rows = [json.loads(x) for x in open(isl.EVENTS_PATH, encoding="utf-8") if x.strip()]
+_mine = [r for r in _rows if r["day"] == w28.day]
+check("原始的 drink 沒有被刪掉",
+      any(r["event"] == "drink" for r in _mine), True)
+check("補了一筆 undo", any(r["event"] == "undo" for r in _mine), True)
+
+# 統計那邊要自己扣掉，而且回應率不能超過 100%
+_days = dash.load_days(isl.EVENTS_PATH, 5)
+_today = _days[w28.day]
+check("統計的次數扣掉了", _today["drinks"], 0)
+check("回應數也扣掉了（否則回應率會超過 100%）",
+      _today["responded"] <= _today["reminds"], True)
+
+# 重開程式之後沒有快照，只能退次數——但那也不能少做
+w28b = fresh()
+w28b.drinks = 3
+w28b._undo = None                     # 模擬重開：快照不跨重啟
+_kept = (w28b.active_s, w28b.interval_s)
+w28b.undo_drink()
+check("沒有快照時仍然退得掉次數", w28b.drinks, 2)
+check("沒有快照時不亂動計時", (w28b.active_s, w28b.interval_s), _kept)
+
+# 選單：次數是 0 就不該出現這一項（按下去不會有反應的項目比沒有更糟）
+w28c = fresh()
+w28c.drinks = 0
+check("次數 0 時選單沒有這一項",
+      any(it[0] and "退回" in it[0] for it in w28c._menu_items()), False)
+w28c.drinks = 1
+check("記過之後選單才有這一項",
+      any(it[0] and "退回" in it[0] for it in w28c._menu_items()), True)
+
+isl.EVENTS_PATH = _ev_save
+
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，

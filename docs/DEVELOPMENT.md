@@ -32,8 +32,10 @@ run.bat
 | `src/stats_window.py` | 紀錄視窗與設定頁，只畫不算 |
 | `src/dashboard.py` | 紀錄的統計計算，只算不畫 |
 | `src/typeface.py` | 隨程式散布的字體：載入、驗證、產生 QFont |
+| `src/sound.py` | 升級時的提示音。`winsound`，失敗一律沉默 |
 | `src/theme.py`、`paintkit.py`、`motion.py`、`pixelface.py`、`menu.py` | 調色盤、繪圖工具、彈簧、像素杯、選單 |
 | `assets/fonts/` | `WaterPet Sans TC` Bold + Medium，加兩份 OFL |
+| `assets/sound/` | 升級的兩個提示音，程式合成的 |
 | `assets/icon.ico` | 應用程式圖示 |
 | `tools/` | 上面那些產物的產生器 |
 | `tests/` | `test_*.py` 會回傳 exit code，`render_*.py` 是用眼睛驗的 |
@@ -43,6 +45,7 @@ run.bat
 ```bash
 python tools/build_exe.py        # onedir、onefile，與發布用的 zip
 python tools/build_font.py       # 合成 assets/fonts 的兩個 OTF
+python tools/build_sound.py      # 合成 assets/sound 的兩個提示音
 python tools/make_icon.py        # 產生 assets/icon.ico 與 docs/icon.png
 python tools/make_demo.py        # 產生 docs/demo.webp
 python tools/make_feature_icons.py   # 產生 README 功能區的四個圖示

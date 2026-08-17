@@ -93,6 +93,24 @@ def load_days(events_path, rollover_hour):
                 d["reminds"] += 1
             elif ev == "collapse":
                 d["collapses"] += 1
+            elif ev == "undo":
+                # 使用者退回了一次記錄（右鍵選單那一項）。
+                #
+                # 紀錄檔是只增不改的，所以退回不是回頭刪掉那一行 drink，
+                # 而是補一筆 undo 進來，由這裡扣掉。原始那筆還在，
+                # 「他按了、又退回」這件事本身也留下了痕跡。
+                #
+                # 提醒次數不扣：提醒確實發出去過，退回的是「我喝了」這個宣稱。
+                d["drinks"] = max(0, d["drinks"] - 1)
+                if row.get("responded"):
+                    # 回應數要一起扣，否則回應率會算出超過 100%
+                    d["responded"] = max(0, d["responded"] - 1)
+                    if d["waits"]:
+                        d["waits"].pop()
+                if d["hours"]:
+                    # 時段分布也要扣。事件是按時間順序讀的，所以最後一筆
+                    # 就是剛被退掉的那一次。
+                    d["hours"].pop()
             elif ev == "drink":
                 d["drinks"] += 1
                 if row.get("responded"):

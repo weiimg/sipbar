@@ -21,16 +21,25 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 app = QApplication(sys.argv)
 
 # 最長情況：三位數的量、兩位數的目標、以及最長的那組選單文字
+#
+# 「退回上一次記錄」只在今天記過至少一次時才出現，所以第一種情況（今天 0 次）
+# 沒有它，其餘都有——那一項也是目前最長的一行，寬度要守的就是它。
 CASES = [
+    ("今天還沒記過", ("今天 0 / 10 次", "約 0 cc　·　下次約 42 分後"),
+     [("記錄補水", None), ("暫停提醒 2 小時", None), ("喝水紀錄", None),
+      ("設定", None), (None, None), ("結束程式", None, True)]),
     ("一般", ("今天 1 / 10 次", "約 150 cc　·　下次約 42 分後"),
-     [("記錄補水", None), ("暫停提醒 2 小時", None), ("喝水紀錄", None),
-      ("設定", None), (None, None), ("結束程式", None, True)]),
+     [("記錄補水", None), ("退回上一次記錄", None), ("暫停提醒 2 小時", None),
+      ("喝水紀錄", None), ("設定", None), (None, None),
+      ("結束程式", None, True)]),
     ("暫停中", ("今天 7 / 12 次", "已暫停，23:45 恢復"),
-     [("記錄補水", None), ("恢復提醒", None), ("喝水紀錄", None),
-      ("設定", None), (None, None), ("結束程式", None, True)]),
+     [("記錄補水", None), ("退回上一次記錄", None), ("恢復提醒", None),
+      ("喝水紀錄", None), ("設定", None), (None, None),
+      ("結束程式", None, True)]),
     ("達標", ("今天 12 / 12 次", "約 2400 cc　·　今日已達標"),
-     [("記錄補水", None), ("暫停提醒 2 小時", None), ("喝水紀錄", None),
-      ("設定", None), (None, None), ("結束程式", None, True)]),
+     [("記錄補水", None), ("退回上一次記錄", None), ("暫停提醒 2 小時", None),
+      ("喝水紀錄", None), ("設定", None), (None, None),
+      ("結束程式", None, True)]),
 ]
 
 fails = []

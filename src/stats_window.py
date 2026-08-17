@@ -36,14 +36,15 @@ from PySide6.QtGui import (
     QPainter, QPainterPath, QPen,
 )
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
-    QLineEdit, QScrollArea, QSizePolicy, QStackedWidget, QToolTip,
+    QApplication, QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
+    QLabel, QLineEdit, QScrollArea, QSizePolicy, QStackedWidget, QToolTip,
     QVBoxLayout, QWidget,
 )
 
 import dashboard
 import pixelface                             # 島上那顆像素杯，紀錄頁共用同一個容器
 import settings as appsettings               # 設定的讀寫與推導
+import sound                                  # 音效開關的當場試聽
 import theme                                  # 深色／淺色調色盤
 import typeface                               # 隨程式散布的字體
 from motion import PRESET, Spring, clamp, ease, lerp
@@ -1612,7 +1613,7 @@ def build_empty_card(d):
 # ---------------------------------------------------------------- 設定頁
 
 class SettingsPage(QWidget):
-    """設定。只有四項，這是刻意的——篩選標準見 settings.py 開頭。
+    """設定。刻意開得很窄——篩選標準見 settings.py 開頭。
 
     這一頁同時是「這個程式在你電腦上做了什麼」的交代處。對發布出去的工具，
     那比控制項更重要：使用者第一個問題是「它有沒有在傳我的資料」，
@@ -1671,6 +1672,9 @@ class SettingsPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        # 自訂音效的狀態是檔案系統的事實，程式不會收到通知。每次這一頁被叫出來
+        # 就重讀一次——放完檔案回來看，數字是新的。
+        self._refresh_sound_label()
         self._fit_cards()
 
     def resizeEvent(self, event):
@@ -1780,8 +1784,115 @@ class SettingsPage(QWidget):
         self.wake = HourStepper(self.cfg.get("day_rollover_hour", 8))
         self.wake.changed.connect(self._on_wake)
         card.add(setting_row("習慣起床時間", self.wake, "次數將於每日重置"))
+        card.add(Divider())
+
+        # 放在「提醒」而不是「顯示」：它管的是提醒怎麼傳到人身上，
+        # 不是介面長什麼樣子。放進顯示卡會讀成一個外觀偏好。
+        #
+        # 說明行要寫出「什麼時候才響」。不寫的話這一列看起來就是「每次提醒都
+        # 會叫」，而多數人對那件事的反應是先關掉再說——一天七聲的想像
+        # 遠比實際情況吵。實際上它一天最多響幾次，多數日子是零。
+        self.sound = Toggle(self.cfg.get("sound_enabled", True))
+        self.sound.toggled.connect(self._on_sound)
+        # 說明只講「不是每次提醒都響」。確切的時機交給底下那兩列——
+        # 它們的標題就是時機，寫在這裡等於同一件事講兩遍。
+        card.add(setting_row("提醒音效", self.sound, "僅於提醒被忽略時發出"))
+        card.add(Divider())
+
+        # 兩個升級各一列。用「什麼時候響」當標題，不用「虛弱／倒地」——
+        # 那是島的狀態名，在設定頁裡沒有上下文，讀的人不知道那是幾分鐘。
+        #
+        # 每一列都有「試聽」。這一整區真正的問題不是「要不要有聲音」，
+        # 是「那是什麼聲音、多大聲」，而那件事讀說明沒有用，聽一次就知道。
+        self._sound_rows = {}
+        for i, (name, mins) in enumerate((
+                (sound.WEAK, self.cfg.get("escalate_weak_min",
+                                          appsettings.DEFAULTS["escalate_weak_min"])),
+                (sound.COLLAPSED, self.cfg.get(
+                    "escalate_collapsed_min",
+                    appsettings.DEFAULTS["escalate_collapsed_min"])))):
+            if i:
+                card.add(Divider())
+            card.add(self._sound_file_row(name, f"忽略 {mins} 分鐘後"))
         self._refresh_target_label()
         return card
+
+    def _sound_file_row(self, name, label):
+        """一個音效一列：現在用哪個檔、試聽、選檔、還原。
+
+        「還原」只在真的有自訂檔時才出現。永遠掛在那裡的話，沒換過音效的人
+        會對著一個按下去毫無反應的字，而它旁邊兩個都有反應。
+        """
+        val = Label("", "body", INK2, elide=True)
+        test = TapLabel("試聽", C_ACCENT.name())
+        test.clicked.connect(lambda n=name: sound.play(n))
+        pick = TapLabel("選擇", C_ACCENT.name())
+        pick.clicked.connect(lambda n=name: self._pick_sound(n))
+        reset = TapLabel("還原", INK3)
+        reset.clicked.connect(lambda n=name: self._reset_sound(n))
+        self._sound_rows[name] = (val, reset)
+        self._refresh_sound_row(name)
+        return info_row(label, val, row(test, pick, reset, spacing=S3),
+                        elide_value=True)
+
+    def _sound_row_text(self, name):
+        """那一列的值。回報事實，不給指示。
+
+        三種狀態要分得開，因為它們對應三種完全不同的處置：
+        內建（沒換過）、自訂（正常）、格式不對（換了但沒生效）。
+        第三種最重要——沒有它，使用者要等到提醒真的響了才會發現沒換成功，
+        而那時候他也分不出是檔案錯了還是程式沒讀到。
+        """
+        for n, ok in sound.custom_files():
+            if n != name:
+                continue
+            if not ok:
+                return "不是 WAV 格式，仍使用內建"
+            return self.cfg.get(f"sound_name_{name}") or "自訂"
+        return "內建"
+
+    def _refresh_sound_row(self, name):
+        pair = self._sound_rows.get(name)
+        if not pair:
+            return
+        val, reset = pair
+        val.setText(self._sound_row_text(name))
+        reset.setVisible(any(n == name for n, _ in sound.custom_files()))
+
+    def _refresh_sound_label(self):
+        for name in getattr(self, "_sound_rows", {}):
+            self._refresh_sound_row(name)
+
+    def _pick_sound(self, name):
+        """選一個音檔。挑完複製一份進來，不記路徑——理由見 sound.py 開頭。
+
+        用 QFileDialog 而不是自繪。這跟先前把 QMessageBox 換掉不衝突：
+        確認框只有一句話跟兩顆鈕，自己畫比蓋掉系統外觀還省；
+        而檔案選擇器是作業系統的服務（瀏覽、最近開啟、捷徑、網路磁碟機），
+        重寫一個只會做出一個比較差的版本。
+        """
+        start = os.path.expanduser("~")
+        picked, _ = QFileDialog.getOpenFileName(
+            self, "選擇提醒音效", start, "音效檔 (*.wav)")
+        if not picked:
+            return                              # 按了取消，什麼都不動
+        if sound.install(name, picked):
+            self.cfg[f"sound_name_{name}"] = os.path.basename(picked)
+            self._emit()
+            self._refresh_sound_row(name)
+            sound.play(name)                    # 換好就放給他聽，不必再按一次試聽
+            return
+        # 驗不過：舊的設定原封不動，把原因寫在值的位置。
+        # 這一行會在下次打開設定頁時被實際狀態蓋掉（見 showEvent），
+        # 那是對的——錯誤訊息講的是「剛才那個動作」，不是持續的狀態。
+        val, _reset = self._sound_rows[name]
+        val.setText("選的檔案不是 WAV 格式")
+
+    def _reset_sound(self, name):
+        sound.remove(name)
+        self.cfg[f"sound_name_{name}"] = ""
+        self._emit()
+        self._refresh_sound_row(name)
 
     def _display_card(self):
         card = Card()
@@ -2009,6 +2120,16 @@ class SettingsPage(QWidget):
         s = self._screens[self.screen_seg.index]
         g = s.geometry()
         self.screen_lbl.setText(f"{g.width()}×{g.height()}")
+
+    def _on_sound(self, on):
+        """開關就只是開關。
+
+        先前扳開會順便播一次當作試聽，那是在沒有試聽鍵的時候的權宜之計。
+        底下兩列各有一顆「試聽」之後，開關再自己出聲就變成一個沒被要求的
+        副作用——而且它只播得出其中一個音。
+        """
+        self.cfg["sound_enabled"] = on
+        self._emit()
 
     def _on_autostart(self, on):
         if not appsettings.set_autostart(on):

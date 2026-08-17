@@ -87,6 +87,7 @@ def build(onefile, verfile):
         "--paths", SRC,
         # 收進去的資源。目的路徑要對得上 settings.resource_dir() 的組法
         "--add-data", "%s;assets/fonts" % os.path.join(ROOT, "assets", "fonts"),
+        "--add-data", "%s;assets/sound" % os.path.join(ROOT, "assets", "sound"),
         "--add-data", "%s;assets" % os.path.join(ROOT, "assets", "icon.ico"),
         "--version-file", verfile,
         "--distpath", out,

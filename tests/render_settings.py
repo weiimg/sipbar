@@ -5,6 +5,7 @@
 沒有捲軸就沒有「往下拉就看得到」這條退路。
 """
 import os
+import shutil
 import sys
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 import settings as appsettings  # noqa: E402
+import sound  # noqa: E402
 import stats_window as sw  # noqa: E402
 
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap  # noqa: E402
@@ -21,17 +23,51 @@ EVENTS = os.path.join(SCRATCH, "wp_dash", "events.jsonl")
 if not os.path.exists(EVENTS):
     raise SystemExit("先跑 gen_dashboard.py 產資料")
 
+# 自訂音效的三種狀態要沙箱。指到使用者真實的 %LOCALAPPDATA%\Sipbar\sound\
+# 就會把他自己選的音效洗掉——而這支腳本平常沒有人盯著看輸出。
+SOUND_BOX = os.path.join(SCRATCH, "wp_sound")
+shutil.rmtree(SOUND_BOX, ignore_errors=True)
+os.makedirs(SOUND_BOX, exist_ok=True)
+sound.USER_DIR = SOUND_BOX
+BUILTIN_WAV = os.path.join(ROOT, "assets", "sound", "weak.wav")
+
 app = QApplication(sys.argv)
 
 shots = []
 fails = []
 
-# 兩種情況都要看：有填體重（推導出來的次數）與沒填（用預設值）。
-# 沒填是新使用者的第一眼，那一版比較容易被忘記檢查。
-for label, weight in (("有填體重", 65), ("沒填體重", None), ("清除紀錄的確認狀態", 65)):
+
+def set_custom(kind):
+    """擺出自訂音效的三種狀態。回傳要疊上去的設定。
+
+    「壞檔」那一種最值得看：它是使用者換了音效卻沒生效時唯一的線索，
+    而錯誤訊息比正常狀態長得多，最容易撞到旁邊的「試聽 選擇 還原」。
+    """
+    for n in (sound.WEAK, sound.COLLAPSED):
+        if os.path.exists(sound.user_path(n)):
+            os.remove(sound.user_path(n))
+    if kind == "custom":
+        shutil.copy(BUILTIN_WAV, sound.user_path(sound.WEAK))
+        return {"sound_name_weak": "我的鈴聲.wav"}
+    if kind == "bad":
+        shutil.copy(BUILTIN_WAV, sound.user_path(sound.WEAK))
+        with open(sound.user_path(sound.COLLAPSED), "wb") as f:
+            f.write(b"ID3 not a wav")
+        return {"sound_name_weak": "我的鈴聲.wav"}
+    return {}
+
+
+# 三種情況都要看：有填體重（推導出來的次數）、沒填（用預設值，新使用者的第一眼），
+# 以及自訂音效那兩列的各種狀態。
+for label, weight, snd in (("有填體重", 65, None),
+                           ("沒填體重", None, None),
+                           ("自訂音效", 65, "custom"),
+                           ("音效檔格式不對", 65, "bad"),
+                           ("清除紀錄的確認狀態", 65, None)):
     cfg = dict(appsettings.DEFAULTS)
     cfg["weight_kg"] = weight
     cfg["daily_target_drinks"] = appsettings.effective_target(cfg)
+    cfg.update(set_custom(snd))
 
     win = sw.StatsWindow(cfg, EVENTS)
     win.show()
