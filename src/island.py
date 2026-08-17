@@ -807,6 +807,7 @@ class Island(QWidget):
             self._persist()
             self._refresh_streak()      # 昨天結算完，連續天數要跟著更新
             self._enter(NORMAL)
+            self._refresh_stats_window()    # 換日把次數歸零了，開著的視窗也要跟上
 
         if self.paused_until:
             if now < self.paused_until:
@@ -926,6 +927,26 @@ class Island(QWidget):
             self._enter(SATISFIED, message="今天達標了", sub=sub)
         else:
             self._enter(SATISFIED, message=f"喝了，還剩 {target - self.drinks} 次")
+        self._refresh_stats_window()
+
+    def _refresh_stats_window(self):
+        """紀錄視窗開著的時候，數字要跟著動。
+
+        它原本只在「被打開的那一刻」算一次（open_window 裡的 refresh）。
+        所以視窗開著、你去點島補水，島上的次數加了、紀錄視窗卻停在舊的數字
+        ——使用者看到的是「我明明喝了，紀錄沒更新」。
+
+        不做動畫：卡片重播淡入在這裡看起來像視窗自己閃了一下，
+        而使用者的注意力在剛剛按下的那顆島上，不在這裡。
+        """
+        win = getattr(self, "_stats_win", None)
+        if win is None:
+            return
+        try:
+            if win.isVisible():
+                win.refresh(animate=False)
+        except RuntimeError:
+            self._stats_win = None      # 視窗已經被 Qt 銷毀，參考失效
 
     def pause_2h(self):
         self.paused_until = datetime.now() + timedelta(hours=2)
