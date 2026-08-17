@@ -605,38 +605,32 @@ check("沙箱路徑照樣放行", ap.guard_real_write(ap.CONFIG_PATH), None)
 check("除了故意探測那次，沒有其他攔截",
       len(ap.real_write_violations()), len(_probe))
 
-print("\n15. 護盾：滑過去只講還要幾天補滿")
-# 這一列的右邊走過三個版本（消耗的日期、補滿的日期、一顆 ⓘ），最後全部拿掉。
-# 護盾會自己運作，不知道細節不影響任何事——說明掛在圖示上就夠了。
+print("\n15. 護盾的說明：講「再達標幾天」，不講日期")
+# 這一列的右邊走過三個版本（消耗的日期、補滿的日期、一顆 ⓘ），最後全部拿掉，
+# 說明掛在圖示上。護盾會自己運作，不知道細節不影響任何事。
 import stats_window as _sw  # noqa: E402
 
-_d = {"today_key": "2026-08-16",
-      "streak": {"saved_days": ["2026-07-09", "2026-08-01", "2026-08-13"],
-                 "saves_left": 0, "saves_total": 2}}
-check("用完了照樣講得出還要撐多久", _sw._saves_tip(_d), "16 天後補滿")
 
-_d["streak"]["saves_left"] = 1
-check("剩一個也一樣", _sw._saves_tip(_d), "16 天後補滿")
+def _tipdata(left, total=2, nxt=1):
+    return {"today_key": "2026-08-16",
+            "streak": {"saved_days": [], "saves_left": left,
+                       "saves_total": total, "saves_next_in": nxt}}
 
-# 兩個都在就沒有要補的東西，不講天數。但也不留空白——這一頁是動機的介面，
-# 兩個護盾都完好本來就值得被拍拍肩膀。
-_d["streak"]["saves_left"] = 2
-check("兩個都在時給一句話而不是數字", _sw._saves_tip(_d), "保持水分！")
 
-# 補滿要用相對天數。「9月1日補滿」要讀的人自己查今天幾號再減一次，
-# 而他想知道的是「還要撐多久」——那才是「16 天後」直接回答的問題。
-check("用相對天數不用日期", "月" in _sw._saves_refill(_d), False)
-check("月底剩得少", _sw._saves_refill({"today_key": "2026-08-29"}), "3 天後補滿")
-check("只差一天就講明天", _sw._saves_refill({"today_key": "2026-08-31"}), "明天補滿")
-# 12 月不能算出「13 月」
-check("跨年也算得對", _sw._saves_refill({"today_key": "2026-12-20"}), "12 天後補滿")
+check("用完了要講怎麼賺回來", _sw._saves_tip(_tipdata(0, nxt=2)),
+      "還剩 0 個，再達標 2 天多一個")
+check("少一個也一樣", _sw._saves_tip(_tipdata(1, nxt=1)),
+      "還剩 1 個，再達標 1 天多一個")
 
-# 上個月用掉的不能影響這個月的判斷。saves_left 本來就是按月算好的，
-# 用它就不存在「拿上個月的日子配這個月的剩餘數」那種對不起來的機會。
-check("上個月用過、這個月沒用，算兩個都在",
-      _sw._saves_tip({"today_key": "2026-08-16",
-                      "streak": {"saved_days": ["2026-07-09"],
-                                 "saves_left": 2, "saves_total": 2}}), "保持水分！")
+# 存滿就沒有要補的東西，不講數字。但也不留空白——這一頁是動機的介面，
+# 護盾全滿本來就值得被拍拍肩膀。
+check("存滿時給一句話而不是數字", _sw._saves_tip(_tipdata(2)), "保持水分！")
+
+# **不能寫成日期。** 護盾靠達標賺回來，不靠時間流逝，寫「9月1日補滿」會暗示
+# 只要等就會回來——那是假的。
+for _n in (0, 1):
+    check(f"剩 {_n} 個時不出現日期",
+          any(c in _sw._saves_tip(_tipdata(_n)) for c in "月號"), False)
 
 print("\n16. 引導不能悄悄改掉使用者原本的設定")
 # 引導按下「開始」會把開關的值寫回設定（_emit_finish -> _onboarding_done）。

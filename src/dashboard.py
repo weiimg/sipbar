@@ -10,8 +10,9 @@
     2. 連續天數 —— 損失趨避
     3. 徽章 —— 附加，實際行為影響很小
 
-補救額度是這裡最關鍵的機制。自我追蹤系統最大的死因不是忘記，
-是「都破功了乾脆算了」那個崩盤。每月給 2 次自動補救，斷一天不會歸零。
+護盾是這裡最關鍵的機制。自我追蹤系統最大的死因不是忘記，
+是「都破功了乾脆算了」那個崩盤。沒達標的日子自動用掉一個護盾，連續不會歸零；
+護盾靠達標賺回來，存量上限 2——連續兩個「真的沒喝滿」的日子仍然不會斷。
 """
 
 import json
@@ -21,7 +22,46 @@ from datetime import datetime, timedelta
 
 import settings
 
-MONTHLY_SAVES = 2
+# 護盾：庫存制，不是月配額。
+#
+# ## 為什麼不用「每月 N 次」
+#
+# 先前是每個自然月給 2 個、1 號重置。那個模式有一道使用者無法預測也改變不了的
+# 懸崖：同樣用掉兩個，1 號用完要裸奔 29 天，30 號用完隔天就補滿。行為一樣，
+# 代價由日曆決定。沒用到的還會在 1 號蒸發，做得好完全沒有累積。
+#
+# ## 抄 Duolingo 的 streak freeze
+#
+# 它是庫存道具：你擁有它、用掉才少、沒有任何日曆邊界，而補充的來源是
+# **做這件事本身**（上課賺寶石換護盾），不是時間流逝。
+#
+# 這裡照同一條路：達標 SAVE_EARN_DAYS 天賺一個，存量上限 SAVE_CAP，
+# 一開始就給滿。訊號是對的——連續達標的人手上永遠有緩衝；一直沒達標的人
+# 不會憑空累積保護，因為他要修的本來就不是「偶爾失手」。
+#
+# ## 這兩個數字怎麼來的
+#
+# 兩個旋鈕控制的不是同一件事，分開想：
+#
+#   SAVE_EARN_DAYS 決定**長期撐不撐得住**（損益平衡點約 66% 的達標率）
+#   SAVE_CAP       決定**一口氣能原諒幾個壞日子**
+#
+# 慷慨度在前者。舊制一個月給 2 個；現在對達標的人一個月可以賺到十幾個，
+# 所以上限訂 2 並不吝嗇，它只是把緩衝壓淺。
+#
+# 緩衝壓淺是刻意的。一天沒喝滿很常見（忙、外出、不舒服），兩天連著是小失衡，
+# **三天連著是一種狀態**——工具這時候還說「你還在連續 12 天」不是鼓勵，是奉承。
+# 而使用者一定會識破，因為他自己知道那三天沒喝；數字一旦被識破就再也沒有份量。
+#
+# 所以存滿 2 個 = 連續兩個「真的在電腦前、真的沒喝滿」的日子仍然不會斷，
+# 第三個會斷。沒開電腦、資料不足的日子本來就中性，不算在裡面（見 is_judgeable）。
+# Duolingo 免費用戶的 streak freeze 上限也是 2。
+#
+# 兩天賺一個的損益平衡點大約在 66% 的達標率：達標三分之二以上的人，
+# 護盾只會越存越多；長期低於那個線的人會慢慢見底——而那時候該調的是目標次數
+# 或提醒間隔，不是繼續發護盾。
+SAVE_CAP = 2
+SAVE_EARN_DAYS = 2
 HEATMAP_WEEKS = 12
 
 # 0.9.0-beta 的 DEFAULTS["daily_target_drinks"]。事件裡沒記 target 的日子都是
@@ -179,18 +219,23 @@ def is_judgeable(info, target):
 
 # ---------------------------------------------------------------- 連續天數
 
-def compute_streaks(days, target, today_key, monthly_saves=MONTHLY_SAVES):
+def compute_streaks(days, target, today_key, cap=SAVE_CAP,
+                    earn_days=SAVE_EARN_DAYS):
     """一趟往前走，同時算出「目前連續」與「最長連續」。
 
-    刻意用同一趟算：分成兩個函式各自跑，補救額度的消耗方式會不一樣，
+    刻意用同一趟算：分成兩個函式各自跑，護盾的消耗方式會不一樣，
     就會出現「目前連續 4 天、最長連續 3 天」這種自相矛盾的數字，
     而數字一自相矛盾，整個後台的可信度就沒了。
     這樣寫的結構保證「目前」永遠是最後一段，不可能超過「最長」。
 
-    三條規則讓它不會變成懲罰機器：
+    四條規則讓它不會變成懲罰機器：
     - 完全沒有紀錄的日子（拍攝日、電腦沒開）視為中性，跳過不算斷。
     - 有紀錄但資料不足以判定的日子也視為中性，理由見 is_judgeable()。
-    - 有紀錄、判得出來但沒達標的日子，每月 2 次補救額度，用掉就保住連續。
+    - 有紀錄、判得出來但沒達標的日子，有護盾就用掉，連續保住。
+    - 護盾靠達標賺回來，沒有日曆邊界——理由見 SAVE_CAP 那一段。
+
+    護盾一開始就給滿。新使用者的頭幾天正是最容易放棄的時候，
+    而那時候他還沒有機會賺到任何東西。
 
     target 是「現在的目標」，只在某天沒有留下自己的目標時當 fallback 用，
     判定一律以當天的目標為準——理由見 day_target()。
@@ -198,21 +243,27 @@ def compute_streaks(days, target, today_key, monthly_saves=MONTHLY_SAVES):
     tgt = {k: day_target(v, k, today_key, target) for k, v in days.items()}
     keys = sorted(k for k, v in days.items() if is_active(v))
     runs, run, saved_days = [], 0, []
-    used = defaultdict(int)
+    saves = cap                                   # 一開始就給滿
+    progress = 0                                  # 距離下一個護盾還差幾個達標日
 
     for key in keys:
         info = days[key]
         if info["drinks"] >= tgt[key]:
             run += 1
+            progress += 1
+            if progress >= earn_days:
+                progress = 0
+                # 存滿了就溢出去。不累積到無限大——那會讓「存量」這個概念失效，
+                # 停用一個月回來還有二十個護盾，圖示上的三格就不再是實話。
+                saves = min(cap, saves + 1)
             continue
         if key == today_key:
             continue                              # 今天還在進行中，不算斷也不算成
         if not is_judgeable(info, tgt[key]):
             continue                              # 資料不足，中性：不算斷，也不吃護盾
-        month = key[:7]
-        if used[month] < monthly_saves:
-            used[month] += 1
-            saved_days.append(key)                # 補救掉，連續保住但這天不計入
+        if saves > 0:
+            saves -= 1
+            saved_days.append(key)                # 擋下來，連續保住但這天不計入
             continue
         runs.append(run)
         run = 0
@@ -222,8 +273,10 @@ def compute_streaks(days, target, today_key, monthly_saves=MONTHLY_SAVES):
         "streak": run,
         "longest": max(runs),
         "saved_days": saved_days,
-        "saves_left": max(0, monthly_saves - used[today_key[:7]]),
-        "saves_total": monthly_saves,
+        "saves_left": saves,
+        "saves_total": cap,
+        # 還差幾個達標日多一個護盾。存滿時沒有意義，由顯示端決定要不要講。
+        "saves_next_in": earn_days - progress,
     }
 
 

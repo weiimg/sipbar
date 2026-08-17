@@ -958,43 +958,22 @@ def build_streak_card(d):
     return card
 
 
-def _saves_refill(d):
-    """還有幾天補滿。
-
-    **用相對天數，不用日期。** 「9月1日補滿」要讀的人自己去查今天幾號、再減一次，
-    而他真正想知道的是「還要撐多久」——「14 天後」直接就是答案。
-    月底看到「3 天後」跟月初看到「29 天後」，那個差別是有感覺的；
-    寫成日期的話兩者長得一樣。
-
-    額度以自然月為單位（`compute_streaks` 的 used 以 YYYY-MM 為鍵），
-    所以補滿的那一天永遠是下個月 1 號。用日期相減而不是 `month + 1`，
-    才不會在 12 月算出 13 月。
-    """
-    t = datetime.strptime(d["today_key"], "%Y-%m-%d")
-    nxt = (t.replace(day=1) + timedelta(days=32)).replace(day=1)
-    days = (nxt - t).days
-    return "明天補滿" if days <= 1 else f"{days} 天後補滿"
-
-
 def _saves_tip(d):
     """滑過護盾圖示時顯示什麼。
 
-    兩個都在的時候不講「16 天後補滿」——沒有缺口就沒有要補的東西，
+    存滿的時候不講「再達標 N 天多一個」——沒有缺口就沒有要補的東西，
     那句話是在回答沒有人問的問題。但也不該是空的：**這一頁不是設定面板，
-    是動機的介面**（熱力圖、連續天數、徽章都在這裡），而兩個護盾都完好
-    本來就是一件值得被拍拍肩膀的事。所以這一格給一句話，不給一個數字。
+    是動機的介面**（熱力圖、連續天數、徽章都在這裡），而護盾全滿本來就是
+    一件值得被拍拍肩膀的事。所以這一格給一句話，不給一個數字。
 
-    少了才講數字，而且是相對天數——見 `_saves_refill()`。
-
-    用 saves_left 判斷而不是去數 saved_days 有哪幾天落在這個月。
-    後者要自己過濾月份（saved_days 是跨月累積的，saves_left 只算當月），
-    漏掉就會拿上個月的日子配這個月的剩餘數，兩個數字對不起來。
-    **saves_left 本來就是按月算好的**，用它就不存在那個對不起來的機會。
+    少了才講數字，而且講的是「再達標幾天」不是「幾號補滿」：護盾靠達標賺回來，
+    不靠時間流逝（見 dashboard.SAVE_CAP）。寫成日期會暗示只要等就會回來，
+    那是假的。
     """
     s = d["streak"]
     if s["saves_left"] >= s["saves_total"]:
         return "保持水分！"
-    return _saves_refill(d)
+    return f"還剩 {s['saves_left']} 個，再達標 {s['saves_next_in']} 天多一個"
 
 
 def build_week_card(d):
