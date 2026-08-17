@@ -35,7 +35,7 @@
 <td width="25%" align="center"><img src="docs/feat-hidden.png" width="80" alt=""><br>平常完全隱藏，時間到才自己出現</td>
 <td width="25%" align="center"><img src="docs/feat-tap.png" width="80" alt=""><br>喝兩口也算，按一下就記錄</td>
 <td width="25%" align="center"><img src="docs/feat-streak.png" width="80" alt=""><br>連續天數會累積，沒開電腦不算中斷</td>
-<td width="25%" align="center"><img src="docs/feat-rhythm.png" width="80" alt=""><br>依你的體重與作息自動調整</td>
+<td width="25%" align="center"><img src="docs/feat-rhythm.png" width="80" alt=""><br>根據你的體重與作息自動調整喝水次數</td>
 </tr>
 </table>
 
