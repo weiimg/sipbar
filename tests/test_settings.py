@@ -289,17 +289,13 @@ win = sw.StatsWindow(dict(cfg), isl.EVENTS_PATH, on_config=lambda c: got.append(
 win.show()
 win.frame.stop()
 
-# 視窗沒有作用中時，Qt 預設不顯示 setToolTip() 的提示——而這個視窗常常就是
-# 沒有作用中的：使用者從系統匣叫出來、直接把游標移過去看，中間沒有點過它。
-# 屬性要設在視窗上，不是設在有 tooltip 的元件上。
-#
-# 開發時看不出來（從程式碼啟動、剛按過滑鼠，視窗正好是作用中的），
-# 所以要有一條測試守著。
-check("視窗在非作用狀態也要顯示 tooltip",
-      win.testAttribute(Qt.WA_AlwaysShowToolTips), True)
-# 順便確認那些 tooltip 真的掛上去了。少了它，上面那個屬性守的是一個空的承諾。
-_tips = [w.toolTip() for w in win.findChildren(sw.Shields) + win.findChildren(sw.CupGauge)]
-check("護盾與杯子都有 tooltip", bool(_tips) and all(_tips), True)
+# 提示走自繪的 Tip，不走 QToolTip（理由見 stats_window.Tip 的 docstring）。
+# 這兩條守的是「該有提示的地方真的掛了字」——沒有它，第 17 節驗的是一個
+# 沒有人在用的元件。
+_tips = [w._tip for w in win.findChildren(sw.Shields) + win.findChildren(sw.CupGauge)]
+check("護盾與杯子都掛了提示", bool(_tips) and all(_tips), True)
+check("而且不是走原生 tooltip",
+      any(w.toolTip() for w in win.findChildren(sw.Graphic)), False)
 
 
 def click(x, y):
@@ -690,6 +686,64 @@ check("重看導覽帶現況：開著的就是開著", _passed["autostart"], Tru
 
 _ob.open_window = _ob_open
 ap.autostart_enabled = _real_enabled
+
+print("\n17. 自繪的提示泡泡")
+sw_qt_flag = _sw.Qt.WindowTransparentForInput
+# 原生 QToolTip 有兩個改不掉的問題：要等將近一秒，而且是方角系統字的補丁。
+# 換成自繪之後這一節守的是它不能又長回那些毛病。
+_tip = _sw.Tip._instance()
+check("同一顆，不會冒出第二個", _sw.Tip._instance() is _tip, True)
+
+# 這一條是這個元件唯一真的難查的地方。頂層視窗光靠 WA_TransparentForMouseEvents
+# 沒有用（那是給子元件的），少了 WindowTransparentForInput，泡泡會在作業系統
+# 那一層接走滑鼠——症狀是第一個提示出得來、之後整個視窗再也不出現任何提示，
+# 而且連原本正常的那個再滑一次也啞掉。
+check("頂層視窗對輸入是穿透的",
+      bool(_tip.windowFlags() & sw_qt_flag), True)
+check("Qt 內部也跳過它",
+      _tip.testAttribute(_sw.Qt.WA_TransparentForMouseEvents), True)
+check("不搶焦點", _tip.testAttribute(_sw.Qt.WA_ShowWithoutActivating), True)
+
+_probe_w = _sw.Shields(2, 2, "測試用的字")
+_probe_w.resize(76, 36)
+_probe_w.show()
+_app.processEvents()
+_sw.Tip.show_for(_probe_w, "兩行\n的提示")
+check("顯示出來", _tip.isVisible(), True)
+check("文字進去了", _tip._text, "兩行\n的提示")
+_h1 = _tip.height()
+_sw.Tip.show_for(_probe_w, "一行")
+check("換成一行會變矮（高度跟著內容算）", _tip.height() < _h1, True)
+_sw.Tip.hide_tip()
+check("收得起來", _tip.isVisible(), False)
+
+# 空字串不該冒出一個空泡泡
+_sw.Tip.show_for(_probe_w, "")
+check("沒有內容就不顯示", _tip.isVisible(), False)
+
+_probe_w.deleteLater()
+
+# 視窗收起來時提示要跟著走。它是獨立的頂層視窗，不會自動被帶走——留在螢幕上
+# 就是一塊擦不掉的字，而且底下的視窗已經不見了，使用者沒辦法讓它消失。
+#
+# 這一條特別容易漏：`Graphic.hideEvent` 看起來已經涵蓋了，其實沒有——
+# Qt 只對「自己被隱藏」的元件送 Hide，父層被隱藏時子元件收到的是 HideToParent。
+_hidden = []
+_orig_hide = _sw.Tip.hide_tip
+_sw.Tip.hide_tip = classmethod(lambda cls: (_hidden.append(1), _orig_hide())[1])
+
+_w2 = sw.StatsWindow(dict(cfg), isl.EVENTS_PATH)
+_w2.show(); _w2.frame.stop()
+_app.processEvents()
+_hidden.clear()
+_w2.hide()
+_app.processEvents()
+check("視窗收起來時會叫 hide_tip", bool(_hidden), True)
+_hidden.clear()
+_w2.close()
+check("按下關閉時也會", bool(_hidden), True)
+_sw.Tip.hide_tip = _orig_hide
+_w2.deleteLater()
 
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))

@@ -37,7 +37,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
-    QLabel, QLineEdit, QScrollArea, QSizePolicy, QStackedWidget, QToolTip,
+    QLabel, QLineEdit, QScrollArea, QSizePolicy, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -264,12 +264,163 @@ def col(*items, spacing=S1, margins=(0, 0, 0, 0), align=None):
 
 # ---------------------------------------------------------------- 圖形元件
 
+class Tip(QWidget):
+    """自繪的提示泡泡。
+
+    ## 為什麼不用 QToolTip
+
+    跟先前換掉 QMenu、QMessageBox 完全同一個理由：系統的提示是方角、系統字、
+    自己一套配色，在一片自繪的介面旁邊就是一塊補丁。而且它有兩個改不掉的行為：
+
+    - **要等。** 預設延遲將近一秒，短到讓人以為沒有提示、長到等不下去。
+      這裡的提示是「滑過去看一眼」的東西，等待本身就抵銷了它的用處。
+    - 視窗不是作用中的時候整個不出現（`WA_AlwaysShowToolTips` 治得了這一項，
+      但治不了外觀與延遲）。
+
+    自己畫就三件事都解決了：立刻出現、同一套圓角陰影與字體、跟視窗狀態無關。
+
+    ## 只有一顆
+
+    模組層級的單例。同時冒出兩個提示是不可能發生的事，做成多實例只會多出
+    「誰負責關掉誰」的問題——熱圖那種逐格移動的提示尤其容易漏關。
+
+    ## 滑鼠穿透要用 WindowTransparentForInput，不是 WA_TransparentForMouseEvents
+
+    這兩個名字很像，作用的層級不同，而**只設後者會壞得很難查**：
+
+    `WA_TransparentForMouseEvents` 是 Qt 內部在分派事件時跳過這個元件，對子元件
+    有效。但這顆泡泡是獨立的頂層視窗，作業系統仍然把它當成一扇會接滑鼠的窗——
+    於是游標一飄到它上面，來源就收到 Leave，而**接下來整個視窗裡再也沒有任何
+    元件收得到 Enter**。實測就是這個症狀：第一個提示出得來，之後全部啞掉，
+    連原本正常的那個再滑一次也不出現。
+
+    `Qt.WindowTransparentForInput` 才是頂層那一層的開關，它讓這扇窗在作業系統
+    的命中測試裡直接不存在。兩個都設著：一個管 Qt 內部，一個管視窗系統。
+    """
+
+    PAD_H, PAD_V = 12, 8
+    RADIUS = 10
+    SHADOW = 16
+    GAP = 8                      # 泡泡與來源之間的距離
+
+    _one = None
+
+    def __init__(self):
+        super().__init__(None, Qt.ToolTip | Qt.FramelessWindowHint |
+                         Qt.NoDropShadowWindowHint |
+                         Qt.WindowTransparentForInput)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        # 不搶焦點。搶了的話紀錄視窗會失去作用中狀態，標題列跟著變灰。
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._text = ""
+        self._alphas = shadow_alphas(Tip.SHADOW - 2, PAL.shadow_peak * 1.1, 6.0)
+
+    # -------------------------------------------------------- 對外的三個入口
+
+    @classmethod
+    def _instance(cls):
+        # 換主題會重建整個視窗，但這一顆掛在模組上活得比視窗久，
+        # 所以每次拿的時候順手把配色重讀一次。
+        if cls._one is None:
+            cls._one = Tip()
+        cls._one._alphas = shadow_alphas(Tip.SHADOW - 2, PAL.shadow_peak * 1.1, 6.0)
+        return cls._one
+
+    @classmethod
+    def show_for(cls, widget, text):
+        """貼在某個元件的正上方。給固定位置的提示用（護盾、杯子）。
+
+        對齊來源的中心而不是游標：來源不會動，提示就不該跟著手抖。
+        """
+        if not text:
+            return
+        tip = cls._instance()
+        tip._lay(text)
+        top = widget.mapToGlobal(QPoint(widget.width() // 2, 0))
+        tip._place(top.x() - tip.width() // 2,
+                   top.y() - tip.height() + Tip.SHADOW - Tip.GAP,
+                   fallback_y=top.y() + widget.height() - Tip.SHADOW + Tip.GAP)
+
+    @classmethod
+    def show_at(cls, global_pos, text):
+        """跟著游標。給熱圖、週曆那種一個元件裡有很多格的情況。"""
+        if not text:
+            return
+        tip = cls._instance()
+        tip._lay(text)
+        tip._place(global_pos.x() - tip.width() // 2,
+                   global_pos.y() - tip.height() + Tip.SHADOW - Tip.GAP,
+                   fallback_y=global_pos.y() - Tip.SHADOW + Tip.GAP * 3)
+
+    @classmethod
+    def hide_tip(cls):
+        if cls._one is not None:
+            cls._one.hide()
+
+    # -------------------------------------------------------- 內部
+
+    def _lay(self, text):
+        self._text = text
+        fm = QFontMetrics(font("caption"))
+        lines = text.split("\n")
+        w = max(fm.horizontalAdvance(x) for x in lines) + Tip.PAD_H * 2
+        h = fm.height() * len(lines) + Tip.PAD_V * 2
+        self.resize(int(w) + Tip.SHADOW * 2, int(h) + Tip.SHADOW * 2)
+
+    def _place(self, x, y, fallback_y):
+        """擺上去，並確保整個泡泡留在螢幕內。
+
+        上方放不下就翻到下方——這是原生提示自動做、自繪就得自己做的事，
+        跟 `menu.TrayMenu.popup_at()` 同一個道理。
+        """
+        area = (QApplication.screenAt(QPoint(int(x), int(y)))
+                or QApplication.primaryScreen()).availableGeometry()
+        if y + Tip.SHADOW < area.top():
+            y = fallback_y
+        x = max(area.left() - Tip.SHADOW,
+                min(x, area.right() - self.width() + Tip.SHADOW))
+        self.move(int(x), int(y))
+        self.show()
+        self.raise_()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        body = QRectF(Tip.SHADOW, Tip.SHADOW,
+                      self.width() - Tip.SHADOW * 2,
+                      self.height() - Tip.SHADOW * 2)
+        draw_soft_shadow(p, body, self._alphas, offset_y=4, corner=Tip.RADIUS)
+
+        g = QLinearGradient(body.left(), body.top(), body.left(), body.bottom())
+        g.setColorAt(0.0, QColor(PAL.bg_top))
+        g.setColorAt(1.0, QColor(PAL.bg_bottom))
+        p.setPen(QPen(PAL.veil(30), 1))
+        p.setBrush(QBrush(g))
+        p.drawRoundedRect(body.adjusted(0.5, 0.5, -0.5, -0.5),
+                          Tip.RADIUS, Tip.RADIUS)
+
+        p.setFont(font("caption"))
+        p.setPen(PAL.ink_a(225))
+        fm = QFontMetrics(font("caption"))
+        y = body.top() + Tip.PAD_V + fm.ascent()
+        for line in self._text.split("\n"):
+            p.drawText(int(body.left() + Tip.PAD_H), int(y), line)
+            y += fm.height()
+
+
 class Graphic(QWidget):
-    """自繪的葉節點。reveal 由卡片統一餵進來驅動內部的值動畫。"""
+    """自繪的葉節點。reveal 由卡片統一餵進來驅動內部的值動畫。
+
+    `set_tip()` 掛上去的提示走自繪的 `Tip`，不走 `setToolTip()`——
+    立刻出現、外觀一致，理由見 Tip 的 docstring。
+    """
 
     def __init__(self, w=None, h=None):
         super().__init__()
         self.reveal = 1.0
+        self._tip = ""
         self.setAttribute(Qt.WA_TranslucentBackground)
         if w is not None:
             self.setFixedWidth(w)
@@ -279,6 +430,26 @@ class Graphic(QWidget):
     def set_reveal(self, t):
         self.reveal = t
         self.update()
+
+    def set_tip(self, text):
+        self._tip = text or ""
+
+    def enterEvent(self, event):
+        if self._tip:
+            Tip.show_for(self, self._tip)
+
+    def leaveEvent(self, event):
+        if self._tip:
+            Tip.hide_tip()
+
+    def hideEvent(self, event):
+        # 換頁時提示要跟著走。它是獨立的頂層視窗，來源被藏起來不會自動把它
+        # 帶走——留在螢幕上就是一塊擦不掉的字。
+        #
+        # **這一條擋不到「整個視窗關掉」。** Qt 只對「自己被隱藏」的那個元件送
+        # Hide，父層被隱藏時子元件收到的是 HideToParent，不會走進這裡。
+        # 所以視窗那一層另外接一次，見 StatsWindow.hideEvent()。
+        Tip.hide_tip()
 
 
 class Ring(Graphic):
@@ -437,8 +608,7 @@ class Shields(Graphic):
         super().__init__(total * Shields.STEP, Shields.R * 2 + S2)
         self.total = total
         self.left = left
-        if tip:
-            self.setToolTip(tip)
+        self.set_tip(tip)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -546,9 +716,9 @@ class WeekStrip(Graphic):
         pos = event.position()
         for rect, text in self._hit:
             if rect.contains(pos):
-                QToolTip.showText(event.globalPosition().toPoint(), text, self)
+                Tip.show_at(event.globalPosition().toPoint(), text)
                 return
-        QToolTip.hideText()
+        Tip.hide_tip()
 
 
 class Heatmap(Graphic):
@@ -634,9 +804,9 @@ class Heatmap(Graphic):
         pos = event.position()
         for rect, text in self._hit:
             if rect.contains(pos):
-                QToolTip.showText(event.globalPosition().toPoint(), text, self)
+                Tip.show_at(event.globalPosition().toPoint(), text)
                 return
-        QToolTip.hideText()
+        Tip.hide_tip()
 
 
 class Bar(Graphic):
@@ -768,7 +938,7 @@ def build_streak_card(d):
 
     num = CountLabel(streak, "display", INK if streak else INK3)
     gauge = CupGauge(today, t, d["ml"])
-    gauge.setToolTip(f"今天 {today} / {t} 次")
+    gauge.set_tip(f"今天 {today} / {t} 次")
 
     card = Card()
     card.add(
@@ -2269,18 +2439,13 @@ class StatsWindow(QWidget):
 
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        # 視窗沒有作用中（active）時，Qt 預設不顯示 setToolTip() 的提示。
-        # 這個屬性解除那條限制，而且要設在**視窗**上，不是設在有 tooltip 的元件上。
+        # 這個視窗裡所有的提示都走自繪的 Tip，不走 QToolTip——立刻出現、
+        # 跟介面同一套外觀、也不受「視窗必須是作用中」那條限制影響。
+        # 完整理由見 Tip 的 docstring。
         #
-        # 這個視窗特別容易踩到：它是從系統匣選單或島叫出來的，使用者常常是
-        # 「叫出來、直接把游標移過去看」——中間沒有點過視窗，於是它從頭到尾
-        # 不是作用中的視窗，所有 setToolTip() 就一個都不會出現。
-        #
-        # 熱圖與週曆沒有這個問題，因為它們是自己呼叫 QToolTip.showText()
-        # （那是為了逐格顯示不同的文字）——手動呼叫繞過了這條限制。
-        # 於是同一個視窗裡有兩種 tooltip，一種會出現一種不會，而且**壞掉的那種
-        # 在開發時多半是好的**：從程式碼啟動、剛按下滑鼠，視窗正好是作用中的。
-        self.setAttribute(Qt.WA_AlwaysShowToolTips)
+        # `WA_AlwaysShowToolTips` 是上一版為了讓 setToolTip() 在非作用中視窗上
+        # 也能出現而加的。那條路已經整條換掉，屬性跟著拿掉——留著一個沒有東西
+        # 依賴的設定，下一個人會去猜它在防什麼。
         self.setWindowTitle("喝水紀錄")
         self.resize(WIN_W + SHADOW * 2, WIN_H + SHADOW * 2)
 
@@ -2652,9 +2817,23 @@ class StatsWindow(QWidget):
         if self._closing:
             return
         self._closing = True
+        Tip.hide_tip()
         self.sp_win.tune(*PRESET["exit"])
         self.sp_win.target = 0.0
         self._kick()
+
+    def hideEvent(self, event):
+        """視窗收起來，提示要跟著走。
+
+        提示是獨立的頂層視窗，不是這個視窗的子元件，所以它不會自動被帶走
+        ——留在螢幕上就是一塊擦不掉的字，而且底下的視窗已經不見了，
+        使用者沒有任何辦法讓它消失。
+
+        `Graphic.hideEvent` 那一條擋不到這個情況：Qt 只對「自己被隱藏」的元件
+        送 Hide，父層被隱藏時子元件收到的是 HideToParent。所以要在這裡再接一次。
+        """
+        Tip.hide_tip()
+        super().hideEvent(event)
 
     # 沒有 resizeEvent 了：分頁之後高度由內容決定，縱向縮放沒有意義，
     # QSizeGrip 一併移除。

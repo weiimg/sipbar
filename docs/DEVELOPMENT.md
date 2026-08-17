@@ -33,6 +33,7 @@ run.bat
 | `src/dashboard.py` | 紀錄的統計計算，只算不畫 |
 | `src/typeface.py` | 隨程式散布的字體：載入、驗證、產生 QFont |
 | `src/sound.py` | 升級時的提示音。`winsound`，失敗一律沉默 |
+| 提示泡泡 | `stats_window.Tip`，自繪、立刻出現。不用 QToolTip（會等，而且是系統外觀） |
 | `src/theme.py`、`paintkit.py`、`motion.py`、`pixelface.py`、`menu.py` | 調色盤、繪圖工具、彈簧、像素杯、選單 |
 | `assets/fonts/` | `WaterPet Sans TC` Bold + Medium，加兩份 OFL |
 | `assets/sound/` | 升級的兩個提示音，程式合成的 |
