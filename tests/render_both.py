@@ -32,7 +32,7 @@ os.makedirs(SPARSE_DIR, exist_ok=True)
 SPARSE = os.path.join(SPARSE_DIR, "events.jsonl")
 today = datetime.now()
 # 換日在早上 5 點，不能直接用 now 的日期當鍵——凌晨跑會差一天
-key = dashboard._day_key(today, cfg["day_rollover_hour"])
+key = dashboard._day_key(today, appsettings.DAY_ROLLOVER_HOUR)
 with open(SPARSE, "w", encoding="utf-8") as f:
     f.write(json.dumps({"ts": today.replace(hour=9).isoformat(timespec="seconds"),
                         "day": key, "event": "day_start"}, ensure_ascii=False) + "\n")

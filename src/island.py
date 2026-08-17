@@ -315,6 +315,8 @@ class Island(QWidget):
         self.sub_message = ""
         self._hover = False
         self._peeking = False
+        # 防連點用的時間戳。給一個很早的值，程式一啟動就能記第一次補水。
+        self._last_drink_at = -1e9
         self._peek_locked = False
         self._greeting = False
         # 引導最後一步用的練習模式。開著的時候 drink() 走一條不寫入任何東西的路，
@@ -325,7 +327,7 @@ class Island(QWidget):
 
         now = datetime.now()
         saved = load_state()
-        self.day = day_key(now, cfg["day_rollover_hour"])
+        self.day = day_key(now, settings.DAY_ROLLOVER_HOUR)
         same_day = saved.get("day") == self.day
         self.drinks = saved.get("drinks", 0) if same_day else 0
         if not same_day:
@@ -531,7 +533,7 @@ class Island(QWidget):
         """
         try:
             import dashboard
-            days = dashboard.load_days(EVENTS_PATH, self.cfg["day_rollover_hour"])
+            days = dashboard.load_days(EVENTS_PATH, settings.DAY_ROLLOVER_HOUR)
             self.streak = dashboard.compute_streaks(
                 days, self.cfg["daily_target_drinks"], self.day)["streak"]
         except Exception:
@@ -760,7 +762,7 @@ class Island(QWidget):
     def tick(self):
         now = datetime.now()
 
-        today = day_key(now, self.cfg["day_rollover_hour"])
+        today = day_key(now, settings.DAY_ROLLOVER_HOUR)
         if today != self.day:
             self.day = today
             self.drinks = 0
@@ -847,6 +849,25 @@ class Island(QWidget):
             if cb:
                 cb()
             return
+
+        # 手滑點兩下不能記兩次。
+        #
+        # 使用者回報：「可以重置計算嗎，不小心一次點了兩次之類的」。他要的是
+        # 撤銷，但該修的是別讓它記到兩次——喝完之後島還會亮
+        # satisfied_flash_seconds 的確認訊息、繼續掛在畫面上、繼續可以點，
+        # 手滑的窗口是敞開的。系統匣圖示的左鍵也是同一條路。
+        #
+        # 用「距離上次補水多久」判，不要用「島現在是不是 SATISFIED」。
+        # 後者看起來更省（狀態本來就在），但它把輸入處理綁在動畫狀態機上：
+        # 狀態萬一沒被收掉，補水就永遠記不進去——那比記兩次嚴重得多，
+        # 因為記兩次看得見，記不進去是無聲的。時間戳不會卡住。
+        #
+        # 門檻直接用確認訊息的顯示長度，不另外訂常數：確認還在畫面上的期間，
+        # 你才剛看到「喝了，還剩 N 次」，這時候的第二下不可能是故意的。
+        now = time.perf_counter()
+        if now - self._last_drink_at < self.cfg["satisfied_flash_seconds"]:
+            return
+        self._last_drink_at = now
 
         responded = self.state in REMINDING
         log_event(

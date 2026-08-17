@@ -19,6 +19,8 @@ import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+import settings
+
 MONTHLY_SAVES = 2
 HEATMAP_WEEKS = 12
 
@@ -203,7 +205,7 @@ def compute_streaks(days, target, today_key, monthly_saves=MONTHLY_SAVES):
 def compute(cfg, events_path):
     target = cfg["daily_target_drinks"]
     ml = cfg["ml_per_drink_estimate"]
-    rollover = cfg["day_rollover_hour"]
+    rollover = settings.DAY_ROLLOVER_HOUR
 
     days = load_days(events_path, rollover)
     today_key = _day_key(datetime.now(), rollover)

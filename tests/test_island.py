@@ -52,6 +52,22 @@ def settle_springs():
         s.value, s.velocity = s.target, 0.0
 
 
+def sip(widget, times=1):
+    """模擬補水，代表「兩次之間有時間經過」。
+
+    drink() 有防連點：satisfied_flash_seconds 之內的第二下會被丟掉
+    （使用者回報「不小心一次點了兩次」）。而真實世界兩次補水之間至少隔著
+    一個提醒間隔，測試在微秒之間連呼叫等於在測那個被刻意擋掉的行為，
+    所以要把時間戳往回撥。
+
+    直接呼叫 widget.drink() 的測試會被防連點擋住而失敗——那不是壞掉，
+    是它在模擬一件現實中做不到的事。
+    """
+    for _ in range(times):
+        widget._last_drink_at = -1e9
+        widget.drink()
+
+
 interval_min = w.interval_s / 60
 print(f"\n[本次間隔 {interval_min:.1f} 分鐘，深夜模式={'是' if w._is_late() else '否'}]")
 
@@ -101,7 +117,7 @@ check("expand 目標（不收合）", w.sp_expand.target, 1.0)
 check("reveal 目標（不消失）", w.sp_reveal.target, 1.0)
 
 print("\n8. 喝了 -> 閃確認訊息，然後滑走消失")
-w.drink()
+sip(w)
 check("狀態", w.state, isl.SATISFIED)
 check("次數", w.drinks, 1)
 check("active_s 歸零", w.active_s, 0.0)
@@ -111,8 +127,7 @@ check("狀態", w.state, isl.NORMAL)
 check("reveal 目標（消失）", w.sp_reveal.target, 0.0)
 
 print("\n9. 補滿 6 次 -> 達標訊息，之後整天不再出現")
-for _ in range(cfg["daily_target_drinks"] - 1):
-    w.drink()
+sip(w, cfg["daily_target_drinks"] - 1)
 check("次數", w.drinks, cfg["daily_target_drinks"])
 check("訊息", w.message, "今天達標了")
 check("達標時小標顯示連續", w.sub_message.startswith("連續 ") or w.streak == 0, True)
@@ -221,7 +236,7 @@ check("不會被收掉", w.sp_reveal.target, 1.0)
 
 print("\n16. 喝完後滑鼠還停在島上，不該立刻又探頭")
 CURSOR[:] = [scr.center().x(), scr.top() + 2]
-w.drink()
+sip(w)
 w._settle()                                    # 閃爍結束
 check("已上鎖", w._peek_locked, True)
 w._peek_tick()
@@ -510,7 +525,7 @@ w23.practice(lambda: called.append(1))
 check("練習模式：島出來了", w23.sp_reveal.target, 1.0)
 check("而且是提醒中的樣子", w23.state, isl.THIRSTY)
 
-w23.drink()
+sip(w23)
 after = (w23.drinks, w23.active_s, w23.interval_s,
          os.path.getsize(isl.EVENTS_PATH) if os.path.exists(isl.EVENTS_PATH) else 0,
          isl.load_state())
@@ -524,7 +539,7 @@ check("點完是滿足的樣子", w23.state, isl.SATISFIED)
 
 # 練習只有一次。旗標沒清乾淨的話，之後每一次真的喝水都不會被記——
 # 那是這個 bug 最壞的形式：使用者以為有記，資料卻是空的。
-w23.drink()
+sip(w23)
 check("練習之後恢復正常計數", w23.drinks, before[0] + 1)
 
 print("\n24. 右鍵選單開著的時候，島不能收回去")
@@ -608,6 +623,35 @@ _dpr = QApplication.primaryScreen().devicePixelRatio()  # noqa: F811
 check("而且在縮放不是 1 時，跟 Win32 的實體座標確實不同",
       (REAL_CURSOR_POS()[0] == _pt.x) if _dpr == 1.0 else (REAL_CURSOR_POS()[0] != _pt.x),
       True)
+
+print("\n26. 手滑點兩下只能記一次")
+# 使用者回報：「可以重置計算嗎，不小心一次點了兩次之類的」。
+# 他要的是撤銷，該修的是別讓它記到兩次。
+w26 = isl.Island(dict(cfg))
+w26.tick_timer.stop(); w26.frame.stop(); w26.hold_timer.stop(); w26.peek_timer.stop()
+w26.drinks = 0
+w26.drink()
+_after_first = w26.drinks
+w26.drink()                                   # 立刻再一下，模擬手滑
+check("第一下記了", _after_first, 1)
+check("緊接著的第二下不算", w26.drinks, 1)
+
+# 而且不能只是「這一下不算」——它不該留下任何痕跡
+_events = sum(1 for _ in open(isl.EVENTS_PATH, encoding="utf-8")) \
+    if os.path.exists(isl.EVENTS_PATH) else 0
+w26.drink()
+check("被擋下的那一下沒有寫進事件紀錄",
+      sum(1 for _ in open(isl.EVENTS_PATH, encoding="utf-8")), _events)
+
+# 隔了夠久就要記得下來。這一條是防呆的另一半：擋太多比擋太少嚴重，
+# 因為「記不進去」是無聲的，使用者以為有記，資料卻是空的。
+w26._last_drink_at -= cfg["satisfied_flash_seconds"] + 1
+w26.drink()
+check("過了確認訊息的時間就正常記", w26.drinks, 2)
+
+# 系統匣的左鍵走同一條路，所以同一個閘門也要蓋到它
+w26._tray_clicked(isl.QSystemTrayIcon.Trigger)
+check("系統匣左鍵也擋得住連點", w26.drinks, 2)
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
