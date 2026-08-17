@@ -1859,7 +1859,11 @@ class SettingsPage(QWidget):
 
         self._diag_lbl = TapLabel("複製", C_ACCENT.name())
         self._diag_lbl.clicked.connect(self._copy_diagnostics)
-        card.add(info_row("診斷資訊", "回報時附上這段", self._diag_lbl))
+        # 值的欄位寫「這是什麼」，不寫指示。同一張卡的其他列都是這樣——
+        # 資料位置是路徑、版本是號碼、回報問題是去處。而「回報時附上這段」
+        # 除了語域不對（「這段」是口語的指稱），也把指示塞進了描述的位置。
+        # 這一列就在「回報問題」正下方，該附上什麼不必再講一次。
+        card.add(info_row("診斷資訊", "系統與版本資訊", self._diag_lbl))
         card.add(Divider())
 
         # 引導只在第一次啟動時跑，忘記怎麼用的人需要一條回去的路。
@@ -2031,6 +2035,12 @@ class SettingsPage(QWidget):
         import platform
 
         import crashlog
+        # 用介面上的名字，不要把 config 的原始值倒出來。
+        # 「主題 dark／臉 pixel」這種寫法有兩個問題：設定頁那一列叫「外觀」
+        # 不叫「主題」，同一個東西在兩個地方用不同名字；而「臉」是隨手造的
+        # 口語詞，介面上根本沒有。使用者看不懂自己貼出去的是什麼。
+        THEME = {"auto": "跟隨系統", "light": "淺色", "dark": "深色"}
+        FACE = {"pixel": "像素", "geometry": "幾何"}
         scr = QApplication.primaryScreen()
         screens = QApplication.screens()
         lines = [
@@ -2038,16 +2048,17 @@ class SettingsPage(QWidget):
             f"Windows {platform.version()}（{platform.machine()}）",
             f"Python {platform.python_version()}",
             f"螢幕 {len(screens)} 個，主要 "
-            f"{scr.geometry().width()}x{scr.geometry().height()}"
-            f" @ {scr.devicePixelRatio():.2f}x",
-            f"字體 {'內嵌' if typeface.ensure_loaded()[0] else '系統 fallback'}",
-            f"主題 {self.cfg.get('theme')}／臉 {self.cfg.get('face_style')}",
+            f"{scr.geometry().width()}×{scr.geometry().height()}，"
+            f"縮放 {scr.devicePixelRatio() * 100:.0f}%",
+            f"字體 {'內嵌' if typeface.ensure_loaded()[0] else '系統替代'}",
+            f"外觀 {THEME.get(self.cfg.get('theme'), self.cfg.get('theme'))}，"
+            f"角色 {FACE.get(self.cfg.get('face_style'), self.cfg.get('face_style'))}",
             # 只放推導出來的目標，**不放體重**。體重是個人健康資料，而且目標
             # 已經是它算出來的結果，對修 bug 沒有額外資訊——這一段會被貼進
             # 公開的 issue 裡。
-            f"目標 {appsettings.effective_target(self.cfg)} 次"
+            f"每日目標 {appsettings.effective_target(self.cfg)} 次"
             f"（{'依體重推導' if not self.cfg.get('target_manual') else '手動指定'}）",
-            f"間隔 {self.cfg.get('interval_min')} 分",
+            f"提醒間隔 {self.cfg.get('interval_min')} 分鐘",
             f"崩潰紀錄 {crashlog.summary()}",
         ]
         return "\n".join(lines)
