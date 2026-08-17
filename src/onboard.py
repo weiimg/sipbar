@@ -47,6 +47,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 import pixelface
 import settings as appsettings
+import sound                                  # 第五頁當場放一次升級的提示音
 import stats_window as sw
 import typeface
 from motion import PRESET, Spring, clamp, ease, lerp
@@ -115,20 +116,9 @@ WATER_LEAD = ("你只要先做一件事：把水放在手邊。"
 FILL_LEAD = "先去裝，我在這等你！"
 # 彩蛋真的開起來了才這樣寫。開失敗還說「配了首歌」就是介面在說謊。
 FILL_LEAD_SONG = "先去裝，我在這等你，順便配了首歌！"
-# 第四條是音效的告知。**這條不能省**：一個平常完全安靜的工具突然發出聲音，
-# 沒有預告的話第一反應是「哪來的聲音」，而那一刻使用者要找的是關掉的方法，
-# 不是水。先說了，那一聲就會被認出來是誰。
-#
-# 寫法上要小心，這是整份引導最靠近底線的一句。「你不喝我就會叫」是把持續
-# 當籌碼（見上面的規則），所以主詞放在杯子的狀態上——「等太久」是它的處境，
-# 不是使用者的失職——而且緊接著就給出關掉的位置。
-# 告知跟威脅的差別就在後半句：有出口的是告知。
-#
-# 「小聲」是真的。合成的時候尖峰壓在滿刻度的 26%，見 tools/build_sound.py。
 HOW_BULLETS = ("平常我不會出現，時間到才從螢幕上緣滑下來",
                "點我一下就算喝了，點系統匣的圖示也可以",
-               "沒有關閉按鈕，喝完我就自己回去了",
-               "等太久我會小聲叫一下，設定裡可以關掉")
+               "沒有關閉按鈕，喝完我就自己回去了")
 HOW_SETTINGS = "覺得太吵或不夠，設定裡都可以改。從系統匣圖示的選單，或紀錄視窗右上角的齒輪進去。"
 # 第四頁：在真的島上點一次。
 #
@@ -140,6 +130,19 @@ HOW_SETTINGS = "覺得太吵或不夠，設定裡都可以改。從系統匣圖�
 # 最後看到的字，寫在視窗裡等於寫在他沒在看的地方。
 TRY_LEAD = "我跑到螢幕最上面了，看得到嗎？"
 TRY_DONE = "就是這樣。之後時間到我就會這樣出現。"
+# 音效的告知，跟著聲音本人一起出現。**這一段不能只用寫的。**
+#
+# 第一版是在「這樣用」那頁加一條「等太久我會小聲叫一下」。字看過就忘，
+# 而一個平常完全安靜的工具第一次出聲的那一刻，使用者的反應是「哪來的聲音」，
+# 那時候他要找的是關掉的方法，不是水。
+#
+# 所以改成當場放給他聽：練習點完的那一下，聲音跟這段字一起出現，
+# 底下就是開關。聽過的聲音之後再響起來會被認出來，沒聽過的只會是干擾。
+#
+# 寫法上這是整份引導最靠近底線的一句——「你不喝我就會叫」是把持續當籌碼
+# （見上面的規則）。主詞放在杯子的處境上（「我等太久」不是「你沒喝」），
+# 而且出口就在下一行、看得見也按得到。有出口的是告知，沒有的才是威脅。
+TRY_SOUND = "剛剛那一聲，是我等太久的時候會發出的。平常都是安靜的，不想要現在就可以關掉。"
 # 它自己的名字。維持白話的叫法，不另外取一個。這個工具全篇都不用內部術語，
 # 角色也一樣：使用者看到的是一隻杯子，那它就叫杯子。
 NAME = "杯子"
@@ -722,7 +725,7 @@ class OnboardWindow(QWidget):
     # 引導多問一題就要改一次簽章的話，呼叫端一定會有人漏掉。
     finished = Signal(dict)
 
-    def __init__(self, on_practice=None, wake=8, bedtime=0):
+    def __init__(self, on_practice=None, wake=8, bedtime=0, sound_on=True):
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -733,6 +736,14 @@ class OnboardWindow(QWidget):
         self.up_cue = UpCue()               # 第四頁，把視線帶到螢幕上緣
         self.on_practice = on_practice      # 第四頁叫真的島出來，見 _page_try
         self.autostart = sw.Toggle(True)
+        # 提醒音效。放在第五頁而不是第四頁：那是它真的響起來的地方，
+        # 開關要跟聲音在同一個畫面上，否則使用者是在對一個沒聽過的東西表態。
+        self.sound_on = sw.Toggle(sound_on)
+        # 在這裡（而且只在這裡）扳開會放一次。設定頁不這樣做，因為那邊每一列
+        # 都有「試聽」；這一頁沒有，而它整段存在的意義就是「先聽聽看再決定」。
+        # 關掉的人重看導覽時走的正是這條路：進來是安靜的，想聽再扳開。
+        self.sound_on.toggled.connect(
+            lambda on: sound.play(sound.WEAK) if on else None)
         # 就寢用 24:00 而不是 00:00：就寢是一天的結束，00:00 會被讀成「今天開始」。
         # 起床沒有這個問題，00:00 就是 00:00。
         self.wake_pick = sw.HourStepper(wake)
@@ -955,7 +966,19 @@ class OnboardWindow(QWidget):
         self.start_btn.clicked.connect(self._finish)
         self.start_btn.set_enabled(False)
         self.try_lead = sw.para(TRY_LEAD)
-        return self._page("試一次", [_speech(None, self.try_lead)],
+        # 音效那一段先藏起來，點過才長出來。理由跟這一頁本身一樣：
+        # 它講的是「剛剛那一聲」，在還沒發生之前放上去就是在指一件不存在的事。
+        #
+        # 藏起來的元件不佔版面高度（Qt 的版面引擎會跳過），所以這一頁在點之前
+        # 跟原本一樣高，點完 remeasure 一次就長開——不必為它預留空白。
+        self.sound_block = sw.col(
+            sw.Divider(),
+            sw.para(TRY_SOUND),
+            sw.setting_row("提醒音效", self.sound_on),
+            spacing=sw.S3)
+        self.sound_block.setVisible(False)
+        return self._page("試一次", [_speech(None, self.try_lead),
+                                    self.sound_block],
                           [self._back_button(), self.start_btn],
                           portrait=self.up_cue)
 
@@ -963,6 +986,16 @@ class OnboardWindow(QWidget):
         self.try_lead.setText(TRY_DONE)
         # 練到了才解鎖。這是「開始」唯一的解鎖條件。
         self.start_btn.set_enabled(True)
+        # 聲音跟它的說明一起出場。整份引導只有這裡會出聲，而這是刻意的：
+        # 使用者剛剛親手點了一下，注意力就在島上，這一刻放給他聽最省解釋。
+        self.sound_block.setVisible(True)
+        # 延一下再播。跟畫面同一瞬間出聲的話，那一聲會被讀成「我按下去的音效」，
+        # 而它其實是「沒理我太久的時候」的聲音——差一個節拍就分得開。
+        #
+        # 已經關掉的人不放。重看導覽不該把他關掉的東西播回他臉上——
+        # 想聽的話扳一下開關就有（見 __init__ 掛的那條）。
+        if self.sound_on.on:
+            QTimer.singleShot(420, lambda: sound.play(sound.WEAK))
         self.deck.remeasure(self.page_index["try"])
         self._h_from = self._h_to = self.deck.natural()
         self._apply_height()
@@ -1040,6 +1073,7 @@ class OnboardWindow(QWidget):
         # 作息標記為手動：他剛剛親口回答過，推導不該再去蓋掉。
         self.finished.emit({
             "autostart": self.autostart.on,
+            "sound_enabled": self.sound_on.on,
             "day_rollover_hour": self.wake_pick.hour,
             "wake_manual": True,
             "bedtime_hour": self.bed_pick.hour,
@@ -1106,17 +1140,20 @@ class OnboardWindow(QWidget):
         self._drag = None
 
 
-def open_window(on_finished, on_practice=None, wake=8, bedtime=0):
+def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True):
     """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。
 
     `on_practice(done_cb)` 由島提供：最後一頁會叫它，讓真的島出來讓人點一次。
     沒給的話那一頁就只有文字（測試與單獨執行 onboard.py 時是這條路）。
 
-    `wake` / `bedtime` 是作息那一頁的起始值。傳現有設定進來，重看使用說明的人
-    才不會看到一組跟他實際設定無關的數字、然後按完「開始」把自己的設定洗掉。
+    `wake` / `bedtime` / `sound_on` 是各頁控制項的起始值。傳現有設定進來，
+    重看使用說明的人才不會看到一組跟他實際設定無關的值、然後按完「開始」
+    把自己的設定洗掉。音效那一項尤其明顯：關掉的人重看一次導覽就會被開回來，
+    而且中途還會被叫一聲。
     """
     typeface.ensure_loaded()
-    win = OnboardWindow(on_practice=on_practice, wake=wake, bedtime=bedtime)
+    win = OnboardWindow(on_practice=on_practice, wake=wake, bedtime=bedtime,
+                        sound_on=sound_on)
     win.finished.connect(on_finished)
     screen = QApplication.primaryScreen().availableGeometry()
     # 對齊螢幕中心，不是對齊第一頁的中心：後面兩頁高度不同，鎖住中心線

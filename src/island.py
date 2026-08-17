@@ -1083,12 +1083,13 @@ class Island(QWidget):
             wake=self.cfg.get("day_rollover_hour",
                               settings.DEFAULTS["day_rollover_hour"]),
             bedtime=self.cfg.get("bedtime_hour",
-                                 settings.DEFAULTS["bedtime_hour"]))
+                                 settings.DEFAULTS["bedtime_hour"]),
+            sound_on=self.cfg.get("sound_enabled", True))
 
     def _onboarding_done(self, result, first_run):
         """引導按下「開始」之後：存設定、標記已引導，然後安靜地結束。"""
         settings.set_autostart(result["autostart"])
-        for key in ("day_rollover_hour", "wake_manual",
+        for key in ("sound_enabled", "day_rollover_hour", "wake_manual",
                     "bedtime_hour", "bedtime_manual"):
             self.cfg[key] = result[key]
         # 深夜起點是就寢時間的導出值，作息一改就要重算。不重算的話它會停在

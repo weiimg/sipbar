@@ -30,7 +30,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QIntValidator, QLinearGradient,
     QPainter, QPainterPath, QPen,
@@ -418,21 +418,27 @@ class Flame(Graphic):
 
 
 class Shields(Graphic):
+    """護盾圖示本身就是那一列的全部。
+
+    這一列的右邊走過三個版本：先是常駐的「8/13 已消耗」（使用者問「這是什麼」
+    ——它緊挨著計數用的圖示，日期被讀成分數），改成「9月1日補滿」，
+    再收進一顆 ⓘ。最後拿掉了。
+
+    收斂到這裡的理由是每一版都在回答同一個問題的更小版本：**護盾會自己運作，
+    不知道細節不影響任何事。** 那顆 ⓘ 雖然只有 16px，仍然是在一列不需要說明的
+    東西旁邊放一個「這裡有說明」的記號，而圖示自己就已經是可以滑過去的東西了。
+
+    所以說明掛在圖示上，那一列乾乾淨淨。
+    """
+
     STEP, R = 38, 14
 
-    def __init__(self, total, left, used_days=()):
+    def __init__(self, total, left, tip=""):
         super().__init__(total * Shields.STEP, Shields.R * 2 + S2)
         self.total = total
         self.left = left
-        tip = (f"未達標時自動消耗一個，連續不歸零。每月補回 {total} 個。\n"
-               f"目前剩 {left} 個。")
-        if used_days:
-            # 用「消耗」，跟這個機制在別處的用詞一致。第一版寫「各擋下一次」，
-            # 那是隨手造的詞——使用者實際回報看不懂「擋下」是擋掉什麼。
-            # 講消耗而不是「你那天沒達標」也是刻意的：護盾是來救的，
-            # 這一行要讀起來像它做了事，不是像一張失敗清單。
-            tip += "\n" + "、".join(used_days) + " 各擋下一次。"
-        self.setToolTip(tip)
+        if tip:
+            self.setToolTip(tip)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -773,44 +779,52 @@ def build_streak_card(d):
             gauge,
             spacing=S3),
         Label(status, "body", INK2, elide=True),
+        # 這一列右邊什麼都不放，說明掛在圖示上——理由見 Shields 的 docstring。
         row(Label("護盾", "caption", INK3),
-            Shields(s["saves_total"], s["saves_left"], _saves_used_this_month(d)),
+            Shields(s["saves_total"], s["saves_left"], _saves_tip(d)),
             "stretch",
-            # 不能用 elide=True：那會把 sizePolicy 設成 Ignored，而前面的
-            # "stretch" 已經把剩餘空間吃光，於是它拿到 0 寬、省略成空字串——
-            # 標籤在那裡，只是什麼都畫不出來。一個月最多 2 個護盾，
-            # 這行字最長就是「8/13、8/14 擋下」，本來也不需要省略。
-            Label(_saves_note(d), "caption", INK3),
             spacing=S3),
     )
     return card
 
 
-def _saves_used_this_month(d):
-    """這個月被護盾擋下的日子，格式 M/D。
+def _saves_refill(d):
+    """還有幾天補滿。
 
-    **一定要過濾月份。** streak["saved_days"] 是跨月累積的，而 saves_left 只算
-    當月（compute_streaks 的 used 是以月為鍵）。直接把整份清單畫出來，就會是
-    「上個月的日期」配上「這個月的剩餘數」，兩個數字對不起來。
+    **用相對天數，不用日期。** 「9月1日補滿」要讀的人自己去查今天幾號、再減一次，
+    而他真正想知道的是「還要撐多久」——「14 天後」直接就是答案。
+    月底看到「3 天後」跟月初看到「29 天後」，那個差別是有感覺的；
+    寫成日期的話兩者長得一樣。
+
+    額度以自然月為單位（`compute_streaks` 的 used 以 YYYY-MM 為鍵），
+    所以補滿的那一天永遠是下個月 1 號。用日期相減而不是 `month + 1`，
+    才不會在 12 月算出 13 月。
     """
-    month = d["today_key"][:7]
-    return [f"{k[5:7].lstrip('0')}/{k[8:10].lstrip('0')}"
-            for k in d["streak"]["saved_days"] if k[:7] == month]
+    t = datetime.strptime(d["today_key"], "%Y-%m-%d")
+    nxt = (t.replace(day=1) + timedelta(days=32)).replace(day=1)
+    days = (nxt - t).days
+    return "明天補滿" if days <= 1 else f"{days} 天後補滿"
 
 
-def _saves_note(d):
-    """護盾那一列右邊的小字。
+def _saves_tip(d):
+    """滑過護盾圖示時顯示什麼。
 
-    沒用到就不寫「還沒用過」——那是一句沒有資訊的話，只會佔掉一行。
-    用完了要講，因為那是「下一次沒達標就會斷」的預告，是這一列唯一真的需要
-    提前知道的狀態。
+    兩個都在的時候不講「16 天後補滿」——沒有缺口就沒有要補的東西，
+    那句話是在回答沒有人問的問題。但也不該是空的：**這一頁不是設定面板，
+    是動機的介面**（熱力圖、連續天數、徽章都在這裡），而兩個護盾都完好
+    本來就是一件值得被拍拍肩膀的事。所以這一格給一句話，不給一個數字。
+
+    少了才講數字，而且是相對天數——見 `_saves_refill()`。
+
+    用 saves_left 判斷而不是去數 saved_days 有哪幾天落在這個月。
+    後者要自己過濾月份（saved_days 是跨月累積的，saves_left 只算當月），
+    漏掉就會拿上個月的日子配這個月的剩餘數，兩個數字對不起來。
+    **saves_left 本來就是按月算好的**，用它就不存在那個對不起來的機會。
     """
-    used = _saves_used_this_month(d)
-    if not used:
-        return ""
-    if d["streak"]["saves_left"] == 0:
-        return "本月用完了"
-    return "、".join(used) + " 已消耗"
+    s = d["streak"]
+    if s["saves_left"] >= s["saves_total"]:
+        return "保持水分！"
+    return _saves_refill(d)
 
 
 def build_week_card(d):

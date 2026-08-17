@@ -597,25 +597,38 @@ check("沙箱路徑照樣放行", ap.guard_real_write(ap.CONFIG_PATH), None)
 check("除了故意探測那次，沒有其他攔截",
       len(ap.real_write_violations()), len(_probe))
 
-print("\n15. 護盾用在哪幾天：只算當月")
-# streak["saved_days"] 是跨月累積的，saves_left 只算當月（compute_streaks 的
-# used 以月為鍵）。不過濾的話畫面上會是「上個月的日期」配「這個月的剩餘數」，
-# 兩個數字對不起來，而那種錯誤看起來完全合理，很難被發現。
+print("\n15. 護盾：滑過去只講還要幾天補滿")
+# 這一列的右邊走過三個版本（消耗的日期、補滿的日期、一顆 ⓘ），最後全部拿掉。
+# 護盾會自己運作，不知道細節不影響任何事——說明掛在圖示上就夠了。
 import stats_window as _sw  # noqa: E402
 
 _d = {"today_key": "2026-08-16",
-      "streak": {"saved_days": ["2026-07-09", "2026-07-10",
-                                "2026-08-01", "2026-08-13"],
+      "streak": {"saved_days": ["2026-07-09", "2026-08-01", "2026-08-13"],
                  "saves_left": 0, "saves_total": 2}}
-check("跨月的清單只留當月", _sw._saves_used_this_month(_d), ["8/1", "8/13"])
-check("用完了要預告，因為下次沒達標就會斷", _sw._saves_note(_d), "本月用完了")
+check("用完了照樣講得出還要撐多久", _sw._saves_tip(_d), "16 天後補滿")
 
 _d["streak"]["saves_left"] = 1
-check("還有剩就列出消耗的日子", _sw._saves_note(_d), "8/1、8/13 已消耗")
+check("剩一個也一樣", _sw._saves_tip(_d), "16 天後補滿")
 
-_d["streak"]["saved_days"] = ["2026-07-09"]
-check("當月沒用過就不寫", _sw._saves_note(_d), "")
-check("也不會誤把上個月的算進來", _sw._saves_used_this_month(_d), [])
+# 兩個都在就沒有要補的東西，不講天數。但也不留空白——這一頁是動機的介面，
+# 兩個護盾都完好本來就值得被拍拍肩膀。
+_d["streak"]["saves_left"] = 2
+check("兩個都在時給一句話而不是數字", _sw._saves_tip(_d), "保持水分！")
+
+# 補滿要用相對天數。「9月1日補滿」要讀的人自己查今天幾號再減一次，
+# 而他想知道的是「還要撐多久」——那才是「16 天後」直接回答的問題。
+check("用相對天數不用日期", "月" in _sw._saves_refill(_d), False)
+check("月底剩得少", _sw._saves_refill({"today_key": "2026-08-29"}), "3 天後補滿")
+check("只差一天就講明天", _sw._saves_refill({"today_key": "2026-08-31"}), "明天補滿")
+# 12 月不能算出「13 月」
+check("跨年也算得對", _sw._saves_refill({"today_key": "2026-12-20"}), "12 天後補滿")
+
+# 上個月用掉的不能影響這個月的判斷。saves_left 本來就是按月算好的，
+# 用它就不存在「拿上個月的日子配這個月的剩餘數」那種對不起來的機會。
+check("上個月用過、這個月沒用，算兩個都在",
+      _sw._saves_tip({"today_key": "2026-08-16",
+                      "streak": {"saved_days": ["2026-07-09"],
+                                 "saves_left": 2, "saves_total": 2}}), "保持水分！")
 
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))

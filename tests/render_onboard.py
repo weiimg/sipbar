@@ -69,6 +69,26 @@ def shot_flow(theme_name):
               f"按鈕底部 {actions.geometry().bottom()} / 可視 {page.height()}")
         frames.append(win.grab())
 
+    # 「試一次」還有第二個樣子：點過之後長出音效那一段。
+    #
+    # 那一段預設是藏著的，所以上面那一輪只看得到點之前的版本——而點之後才是
+    # 使用者真的要做決定的那一格（聽到聲音、決定要不要留著）。
+    # 它比點之前高一截，最容易被切到按鈕，一定要有人用眼睛看過。
+    win._go(win.page_index["try"])
+    win._on_tried()
+    win.sp_h.snap()
+    win._apply_height()
+    app.processEvents()
+    tried = win.deck.pages[win.page_index["try"]]
+    check(win.height() - onboard.CHROME == tried.height(),
+          "「試一次」點過之後仍然剛好包住內容",
+          f"視窗內容區 {win.height() - onboard.CHROME}px / 頁面 {tried.height()}px")
+    actions = tried.layout().itemAt(tried.layout().count() - 1).widget()
+    check(actions.geometry().bottom() <= tried.height(),
+          "點過之後按鈕沒有被音效那一段擠出去",
+          f"按鈕底部 {actions.geometry().bottom()} / 可視 {tried.height()}")
+    frames.append(win.grab())
+
     # 補間中途：把高度停在一半，頁面的內部尺寸不能跟著縮。
     #
     # 要驗的是放著預覽動畫的那一頁，因為它是唯一有固定尺寸內容的頁面。

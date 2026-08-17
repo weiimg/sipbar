@@ -21,6 +21,7 @@
 """
 import os
 import sys
+import time
 import wave
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
@@ -243,12 +244,59 @@ _app = QApplication.instance() or QApplication(sys.argv)    # noqa: F841
 import onboard  # noqa: E402
 import settings as appsettings  # noqa: E402
 
-check("「這樣用」那一頁提到聲音",
-      any("叫" in b or "聲" in b for b in onboard.HOW_BULLETS), True)
-# 而且要一起講出關掉的位置。只說「我會叫」是威脅，附上出口才是告知。
-check("同一句就給出關掉的去處",
-      any(("設定" in b) and ("叫" in b or "聲" in b) for b in onboard.HOW_BULLETS),
-      True)
+# 用寫的沒有用，要當場放給他聽。所以驗的是「試一次」那一頁的行為，
+# 不是某一條文案有沒有提到聲音。
+_played = []
+_real = sound.play
+sound.play = lambda n: _played.append(n) or True
+
+win = onboard.OnboardWindow()
+win.frame.stop()
+check("點之前音效那一段是藏著的", win.sound_block.isVisible(), False)
+check("點之前不出聲", _played, [])
+
+win.show()
+win._go(win.page_index["try"])
+win._on_tried()
+check("點完就長出來", win.sound_block.isVisible(), True)
+check("而且開關就在同一個畫面上", win.sound_on.isVisibleTo(win.sound_block), True)
+check("說明講的是剛剛那一聲", "剛剛" in onboard.TRY_SOUND, True)
+# 只說「我會叫」是威脅，附上出口才是告知。這一頁的出口是底下那個開關，
+# 文案也要指得到它。
+check("同一段就給出關掉的方法", "關掉" in onboard.TRY_SOUND, True)
+
+# 聲音是延一拍才播的：跟畫面同時出聲會被讀成「我按下去的音效」
+check("還沒到那一拍時不出聲", _played, [])
+_app.processEvents()
+_t0 = time.time()
+while not _played and time.time() - _t0 < 3.0:
+    _app.processEvents()
+check("一拍之後放一次升級的聲音", _played, [sound.WEAK])
+
+# 已經關掉的人重看導覽，不該被播回臉上
+_played.clear()
+win2 = onboard.OnboardWindow(sound_on=False)
+win2.frame.stop()
+win2.show()
+win2._go(win2.page_index["try"])
+win2._on_tried()
+_t0 = time.time()
+while time.time() - _t0 < 0.9:
+    _app.processEvents()
+check("關掉的人重看導覽不出聲", _played, [])
+# 但想聽的話扳一下就有——這一頁沒有「試聽」，開關就是試聽
+win2.sound_on.set_on(True)
+check("在這一頁扳開會放一次", _played, [sound.WEAK])
+
+# 引導的選擇要真的被帶出去。沒有這一步，那個開關就只是個裝飾。
+_result = {}
+win2.finished.connect(_result.update)
+win2.sound_on.set_on(False)
+win2._emit_finish()
+check("按下開始會把音效的選擇帶出去", _result.get("sound_enabled"), False)
+
+sound.play = _real
+win.close(); win2.close()
 check("預設是開著的", appsettings.DEFAULTS["sound_enabled"], True)
 
 # 顯示用的檔名不能是巢狀的可變值。DEFAULTS 是 dict() 淺複製出去的，
