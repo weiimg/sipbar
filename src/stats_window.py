@@ -423,12 +423,12 @@ class Shields(Graphic):
         super().__init__(total * Shields.STEP, Shields.R * 2 + S2)
         self.total = total
         self.left = left
-        tip = (f"未達標時自動抵用，連續不歸零。每月補回 {total} 個。\n"
+        tip = (f"未達標時自動消耗一個，連續不歸零。每月補回 {total} 個。\n"
                f"目前剩 {left} 個。")
         if used_days:
-            # 用「抵用」，跟這個機制在別處的用詞一致。第一版寫「各擋下一次」，
+            # 用「消耗」，跟這個機制在別處的用詞一致。第一版寫「各擋下一次」，
             # 那是隨手造的詞——使用者實際回報看不懂「擋下」是擋掉什麼。
-            # 講抵用而不是「你那天沒達標」也是刻意的：護盾是來救的，
+            # 講消耗而不是「你那天沒達標」也是刻意的：護盾是來救的，
             # 這一行要讀起來像它做了事，不是像一張失敗清單。
             tip += "\n" + "、".join(used_days) + " 各擋下一次。"
         self.setToolTip(tip)
@@ -594,7 +594,7 @@ class Heatmap(Graphic):
 
                 n = info["drinks"] if info else 0
                 if key in self.data["streak"]["saved_days"]:
-                    note = f"{n} / {target} 次，護盾抵用"
+                    note = f"{n} / {target} 次，護盾已消耗"
                 elif info and (info["drinks"] or info["reminds"]):
                     note = f"{n} / {target} 次"
                 else:
@@ -802,7 +802,7 @@ def _saves_note(d):
         return ""
     if d["streak"]["saves_left"] == 0:
         return "本月用完了"
-    return "、".join(used) + " 已抵用"
+    return "、".join(used) + " 已消耗"
 
 
 def build_week_card(d):

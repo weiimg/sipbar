@@ -611,7 +611,7 @@ check("跨月的清單只留當月", _sw._saves_used_this_month(_d), ["8/1", "8/
 check("用完了要預告，因為下次沒達標就會斷", _sw._saves_note(_d), "本月用完了")
 
 _d["streak"]["saves_left"] = 1
-check("還有剩就列出抵用的日子", _sw._saves_note(_d), "8/1、8/13 已抵用")
+check("還有剩就列出消耗的日子", _sw._saves_note(_d), "8/1、8/13 已消耗")
 
 _d["streak"]["saved_days"] = ["2026-07-09"]
 check("當月沒用過就不寫", _sw._saves_note(_d), "")
