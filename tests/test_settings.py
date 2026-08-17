@@ -289,6 +289,18 @@ win = sw.StatsWindow(dict(cfg), isl.EVENTS_PATH, on_config=lambda c: got.append(
 win.show()
 win.frame.stop()
 
+# 視窗沒有作用中時，Qt 預設不顯示 setToolTip() 的提示——而這個視窗常常就是
+# 沒有作用中的：使用者從系統匣叫出來、直接把游標移過去看，中間沒有點過它。
+# 屬性要設在視窗上，不是設在有 tooltip 的元件上。
+#
+# 開發時看不出來（從程式碼啟動、剛按過滑鼠，視窗正好是作用中的），
+# 所以要有一條測試守著。
+check("視窗在非作用狀態也要顯示 tooltip",
+      win.testAttribute(Qt.WA_AlwaysShowToolTips), True)
+# 順便確認那些 tooltip 真的掛上去了。少了它，上面那個屬性守的是一個空的承諾。
+_tips = [w.toolTip() for w in win.findChildren(sw.Shields) + win.findChildren(sw.CupGauge)]
+check("護盾與杯子都有 tooltip", bool(_tips) and all(_tips), True)
+
 
 def click(x, y):
     ev = QMouseEvent(QMouseEvent.MouseButtonPress, QPointF(x, y),

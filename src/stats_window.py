@@ -2269,6 +2269,18 @@ class StatsWindow(QWidget):
 
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        # 視窗沒有作用中（active）時，Qt 預設不顯示 setToolTip() 的提示。
+        # 這個屬性解除那條限制，而且要設在**視窗**上，不是設在有 tooltip 的元件上。
+        #
+        # 這個視窗特別容易踩到：它是從系統匣選單或島叫出來的，使用者常常是
+        # 「叫出來、直接把游標移過去看」——中間沒有點過視窗，於是它從頭到尾
+        # 不是作用中的視窗，所有 setToolTip() 就一個都不會出現。
+        #
+        # 熱圖與週曆沒有這個問題，因為它們是自己呼叫 QToolTip.showText()
+        # （那是為了逐格顯示不同的文字）——手動呼叫繞過了這條限制。
+        # 於是同一個視窗裡有兩種 tooltip，一種會出現一種不會，而且**壞掉的那種
+        # 在開發時多半是好的**：從程式碼啟動、剛按下滑鼠，視窗正好是作用中的。
+        self.setAttribute(Qt.WA_AlwaysShowToolTips)
         self.setWindowTitle("喝水紀錄")
         self.resize(WIN_W + SHADOW * 2, WIN_H + SHADOW * 2)
 
