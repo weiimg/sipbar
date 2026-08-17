@@ -40,7 +40,12 @@ for label, weight in (("有填體重", 65), ("沒填體重", None), ("清除紀�
     if "確認" in label:
         # 破壞性動作的第二段。這個狀態一樣要看得到——它是使用者真的會停在
         # 上面做決定的那一格，卻最容易只在程式碼裡存在、從沒被人看過。
-        win.settings_page.danger._arm()
+        #
+        # 就地確認已經拿掉了（理由見 DangerRow 的 docstring：確認鍵會長在
+        # 觸發鍵剛剛的位置，手快點兩下就誤刪），現在走 ConfirmOverlay。
+        # 這支腳本一度還在呼叫已經不存在的 danger._arm()，跑起來直接 
+        # AttributeError——沒有人跑它，所以壞了很久沒被發現。
+        win._ask_reset()
     for c in win.cards:
         c.sp.snap(1.0)
         c.set_reveal(1.0)
