@@ -1084,7 +1084,16 @@ class Island(QWidget):
                               settings.DEFAULTS["day_rollover_hour"]),
             bedtime=self.cfg.get("bedtime_hour",
                                  settings.DEFAULTS["bedtime_hour"]),
-            sound_on=self.cfg.get("sound_enabled", True))
+            sound_on=self.cfg.get("sound_enabled", True),
+            # 第一次給建議值，重看給現況。
+            #
+            # 引導按下「開始」會把這個開關寫回登錄檔，所以重看的路徑上一定要
+            # 帶現況進去——否則自啟關著的人重看一次就被打開，而他從頭到尾
+            # 沒被問過（那個開關在第四頁，一路按「下一步」不會注意到）。
+            #
+            # 第一次不能照實帶：那時候登錄檔本來就沒那一筆，帶進去就是「關」。
+            # 而這個工具平常完全隱藏，不開機自啟基本上等於不存在。
+            autostart=True if first_run else settings.autostart_enabled())
 
     def _onboarding_done(self, result, first_run):
         """引導按下「開始」之後：存設定、標記已引導，然後安靜地結束。"""

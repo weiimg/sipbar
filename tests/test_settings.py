@@ -630,6 +630,55 @@ check("上個月用過、這個月沒用，算兩個都在",
                       "streak": {"saved_days": ["2026-07-09"],
                                  "saves_left": 2, "saves_total": 2}}), "保持水分！")
 
+print("\n16. 引導不能悄悄改掉使用者原本的設定")
+# 引導按下「開始」會把開關的值寫回設定（_emit_finish -> _onboarding_done）。
+# 所以任何一個寫死在 OnboardWindow 裡的預設值，都會在「再看一次」的路徑上
+# 把使用者原本的設定改掉——而那幾個開關在第四、五頁，一路按「下一步」
+# 根本不會注意到。
+#
+# 自啟就是這樣漏掉的：它一度寫死 Toggle(True)。
+import onboard as _ob  # noqa: E402
+
+# 絕對不要讓這一節碰到真的登錄檔。show_onboarding() 會呼叫 autostart_enabled()，
+# 而我們要驗的正是「它有沒有被讀進去」，不是「這台機器現在設什麼」。
+_real_enabled = ap.autostart_enabled
+_fake_enabled = [False]
+ap.autostart_enabled = lambda: _fake_enabled[0]
+
+_w = _ob.OnboardWindow(autostart=False, sound_on=False)
+_w.frame.stop()
+check("帶什麼進去，開關就是什麼", _w.autostart.on, False)
+_got = {}
+_w.finished.connect(_got.update)
+_w._emit_finish()
+check("按下開始吐出的就是開關當下的值", _got["autostart"], False)
+check("音效同一條路", _got["sound_enabled"], False)
+_w.close()
+
+# 呼叫端的分流：第一次給建議值（開），重看給現況。
+# 直接驗 show_onboarding() 傳了什麼，不去戳 open_window 的內部。
+_passed = {}
+_ob_open = _ob.open_window
+_ob.open_window = lambda *a, **k: _passed.update(k) or None
+
+_isl_w = isl.Island(dict(isl.DEFAULT_CONFIG))
+_isl_w.tick_timer.stop(); _isl_w.frame.stop()
+_isl_w.hold_timer.stop(); _isl_w.peek_timer.stop()
+
+_fake_enabled[0] = False
+_isl_w.show_onboarding(first_run=True)
+check("第一次啟動一律建議開著（登錄檔那時本來就是空的）",
+      _passed["autostart"], True)
+
+_isl_w.show_onboarding(first_run=False)
+check("重看導覽帶現況：關著的就是關著", _passed["autostart"], False)
+_fake_enabled[0] = True
+_isl_w.show_onboarding(first_run=False)
+check("重看導覽帶現況：開著的就是開著", _passed["autostart"], True)
+
+_ob.open_window = _ob_open
+ap.autostart_enabled = _real_enabled
+
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

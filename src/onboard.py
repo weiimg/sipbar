@@ -725,7 +725,8 @@ class OnboardWindow(QWidget):
     # 引導多問一題就要改一次簽章的話，呼叫端一定會有人漏掉。
     finished = Signal(dict)
 
-    def __init__(self, on_practice=None, wake=8, bedtime=0, sound_on=True):
+    def __init__(self, on_practice=None, wake=8, bedtime=0, sound_on=True,
+                 autostart=True):
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -735,7 +736,11 @@ class OnboardWindow(QWidget):
         self.preview = IslandPreview()      # 第三頁，循環展示
         self.up_cue = UpCue()               # 第四頁，把視線帶到螢幕上緣
         self.on_practice = on_practice      # 第四頁叫真的島出來，見 _page_try
-        self.autostart = sw.Toggle(True)
+        # 起始值由呼叫端決定，而它在兩種情況下是兩種意思：
+        # 第一次啟動時是**建議值**（開，理由見 open_window()），
+        # 從設定「再看一次」時是**現況**。兩種語意共用一個控制項，
+        # 所以判斷寫在呼叫端（island.show_onboarding()），那裡才知道是哪一種。
+        self.autostart = sw.Toggle(autostart)
         # 提醒音效。放在第五頁而不是第四頁：那是它真的響起來的地方，
         # 開關要跟聲音在同一個畫面上，否則使用者是在對一個沒聽過的東西表態。
         self.sound_on = sw.Toggle(sound_on)
@@ -1140,20 +1145,35 @@ class OnboardWindow(QWidget):
         self._drag = None
 
 
-def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True):
+def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True,
+                autostart=True):
     """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。
 
     `on_practice(done_cb)` 由島提供：最後一頁會叫它，讓真的島出來讓人點一次。
     沒給的話那一頁就只有文字（測試與單獨執行 onboard.py 時是這條路）。
 
-    `wake` / `bedtime` / `sound_on` 是各頁控制項的起始值。傳現有設定進來，
-    重看使用說明的人才不會看到一組跟他實際設定無關的值、然後按完「開始」
-    把自己的設定洗掉。音效那一項尤其明顯：關掉的人重看一次導覽就會被開回來，
-    而且中途還會被叫一聲。
+    ## 每個控制項的起始值都要從外面帶進來
+
+    `wake` / `bedtime` / `sound_on` / `autostart` 全部由呼叫端給。**引導按下
+    「開始」會把這幾個值寫回設定**，所以任何一個寫死在這裡的預設值，都會在
+    「再看一次」的路徑上把使用者原本的設定悄悄改掉。
+
+    自啟這一項就是這樣漏掉的：它一度寫死 `Toggle(True)`，於是自啟關著的人
+    從設定重看一次導覽、按下「開始」，自啟就被打開了，而他從頭到尾沒有被問過
+    ——那個開關在第四頁，他一路按「下一步」根本沒注意到。
+
+    ## 但第一次啟動的建議值不等於現況
+
+    自啟跟其他三項不同：第一次啟動時登錄檔本來就沒有那一筆，照實帶進來就是
+    「關」。而這個工具平常完全隱藏，不開機自啟基本上等於不存在——第一次的
+    建議值必須是「開」。
+
+    所以「第一次給建議值、重看給現況」的判斷放在 `island.show_onboarding()`，
+    那裡才有 `first_run` 可以分。這裡只負責照收。
     """
     typeface.ensure_loaded()
     win = OnboardWindow(on_practice=on_practice, wake=wake, bedtime=bedtime,
-                        sound_on=sound_on)
+                        sound_on=sound_on, autostart=autostart)
     win.finished.connect(on_finished)
     screen = QApplication.primaryScreen().availableGeometry()
     # 對齊螢幕中心，不是對齊第一頁的中心：後面兩頁高度不同，鎖住中心線
