@@ -90,25 +90,25 @@ FLAME_CORE_ART = (
     ".######.",
     "..####..",
 )
-# 游標自己帶描邊。白色游標在 GitHub 的淺色主題上會整個消失——
-# 底是 #FAFAFA，游標是 #FFFFFF，差 5 階。README 兩種主題都要能看。
-# `#` 是白色實心，`o` 是深色描邊。
+# 游標的形狀照 make_social_demo.py 裡那支——同一個箭頭，只是縮到格子上。
+# 第一版是憑感覺排的，尾巴跟主體接不起來，看起來像斷掉。
+# 描邊不寫在這裡：交給 sprite() 自己長，手排描邊漏一格就是缺一個口。
 CURSOR_ART = (
-    "oo.........",
-    "o#o........",
-    "o##o.......",
-    "o###o......",
-    "o####o.....",
-    "o#####o....",
-    "o######o...",
-    "o#######o..",
-    "o########o.",
-    "o#####oooo.",
-    "o##o##o....",
-    "oo.o##o....",
-    "...o##o....",
-    "....o#o....",
-    ".....oo....",
+    "#.........",
+    "##........",
+    "###.......",
+    "####......",
+    "#####.....",
+    "######....",
+    "#######...",
+    "########..",
+    "#########.",
+    "##########",
+    "#####.....",
+    "##.###....",
+    "#..###....",
+    "....###...",
+    ".....##...",
 )
 CHECK_ART = (
     "........##",
@@ -128,13 +128,20 @@ def px(p, x, y, w, h, color):
 
 
 def sprite(p, art, x, y, color, outline=None):
-    """`#` 用 color 畫，`o` 用 outline 畫。其餘留空。"""
-    for r, line in enumerate(art):
-        for c, ch in enumerate(line):
-            if ch == "#":
-                px(p, x + c, y + r, 1, 1, color)
-            elif ch == "o" and outline is not None:
-                px(p, x + c, y + r, 1, 1, outline)
+    """把字串圖形畫出來。`#` 是實心，其餘留空。
+
+    給了 outline 就自己往外長一圈描邊。**不要手排描邊**——漏一格就是缺一個口，
+    而那種缺口在 32 格上看不出來，放大 8 倍才會現形。規則的東西用算的。
+    """
+    cells = {(c, r) for r, line in enumerate(art)
+             for c, ch in enumerate(line) if ch == "#"}
+    if outline is not None:
+        edge = {(c + dx, r + dy) for c, r in cells
+                for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - cells
+        for c, r in edge:
+            px(p, x + c, y + r, 1, 1, outline)
+    for c, r in cells:
+        px(p, x + c, y + r, 1, 1, color)
 
 
 def frame(p, x, y, w, h, color, t=2):
