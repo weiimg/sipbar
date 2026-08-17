@@ -586,17 +586,24 @@ class Heatmap(Graphic):
                     continue
                 key = day.strftime("%Y-%m-%d")
                 info = self.data["days"].get(key)
+                # 每一格用「那天的目標」上色，不是現在的目標。
+                # 這裡原本吃 self.data["target"]，於是調一次體重或單次水量，
+                # 整片熱圖的顏色就跟著重畫一次——8/10 當天 7/7 是滿的，
+                # 目標改成 9 之後那一格會從全綠掉成淺綠。跟達標判定是同一個
+                # 回溯問題（見 dashboard.day_target），當時漏了這裡。
+                tgt = (dashboard.day_target(info, key, self.data["today_key"], target)
+                       if info else target)
                 c = cell * lerp(0.55, 1.0, local)
                 off = (cell - c) / 2
                 x, y = self.LABEL_W + w * step, wd * step
-                p.setBrush(QBrush(self._color(info, target)))
+                p.setBrush(QBrush(self._color(info, tgt)))
                 p.drawRoundedRect(QRectF(x + off, y + off, c, c), 5, 5)
 
                 n = info["drinks"] if info else 0
                 if key in self.data["streak"]["saved_days"]:
-                    note = f"{n} / {target} 次，護盾已消耗"
+                    note = f"{n} / {tgt} 次，護盾已消耗"
                 elif info and (info["drinks"] or info["reminds"]):
-                    note = f"{n} / {target} 次"
+                    note = f"{n} / {tgt} 次"
                 else:
                     note = "沒開電腦，不計入連續"
                 self._hit.append((QRectF(x, y, cell, cell), f"{key}　{note}"))
@@ -2061,8 +2068,36 @@ class SettingsPage(QWidget):
             f"（{'依體重推導' if not self.cfg.get('target_manual') else '手動指定'}）",
             f"提醒間隔 {self.cfg.get('interval_min')} 分鐘",
             f"崩潰紀錄 {crashlog.summary()}",
+            # 資料檔的實際狀況。使用者回報「紀錄不見了」「數字不對」的時候，
+            # 第一個要分辨的是「程式讀不到檔案」還是「讀到了但算錯」——
+            # 而那兩件事從畫面上長得一模一樣。
+            self._data_file_line(),
         ]
         return "\n".join(lines)
+
+    def _data_file_line(self):
+        """兩條路徑各報一次，因為它們有可能不一樣。
+
+        `settings.EVENTS_PATH` 是設定頁「資料位置」那一列顯示的來源；
+        紀錄視窗讀的則是 `island.EVENTS_PATH` 傳進來的那一份。兩個模組各有一份
+        同名的變數，正常情況下相同——但如果哪天不同，畫面上會是「路徑看起來對、
+        數字卻不對」，而那從外面完全看不出來。
+        """
+        def stat(p):
+            try:
+                if not os.path.exists(p):
+                    return "不存在"
+                n = sum(1 for _ in open(p, encoding="utf-8", errors="replace"))
+                return f"{os.path.getsize(p)} bytes／{n} 筆"
+            except Exception as e:                        # noqa: BLE001
+                return f"讀取失敗 {type(e).__name__}"
+
+        a = appsettings.EVENTS_PATH
+        b = getattr(self, "_events_path", None)
+        out = [f"資料檔 {a} → {stat(a)}"]
+        if b and os.path.normcase(b) != os.path.normcase(a):
+            out.append(f"視窗實際讀 {b} → {stat(b)}")
+        return "\n".join(out)
 
     def _copy_diagnostics(self):
         QApplication.clipboard().setText(self.diagnostics())
@@ -2243,6 +2278,8 @@ class StatsWindow(QWidget):
 
     def _make_settings_page(self):
         page = SettingsPage(self.cfg)
+        # 診斷資訊要能比對「設定頁認為的路徑」與「這個視窗實際讀的路徑」。
+        page._events_path = self.events_path
         page.changed.connect(self._on_config_changed)
         page.reset_requested.connect(self._ask_reset)
         page.reset_done.connect(self._on_reset_done)

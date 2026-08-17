@@ -31,7 +31,7 @@ from motion import clamp
 #
 # 改這個字串會讓程式在下次啟動時打一次招呼（滑下來 4 秒），那是刻意的——
 # 版本換了就值得說一聲。見 island.main() 的 greeted_version。
-VERSION = "0.9.0-beta"
+VERSION = "0.10.0-beta"
 
 APP_NAME = "Sipbar"
 APP_TITLE = "Sipbar"
@@ -48,10 +48,11 @@ ISSUES_URL = "https://github.com/weiimg/sipbar/issues"
 # 起床時間設 10 點的話，你 8 點起來工作，那兩小時全部算前一天，而前一天
 # 如果已經達標，島整個早上不會出聲。
 #
-# 試過讓它學：從活動紀錄找最長的安靜段，取中點當分界。實測撐不起來——
-# 使用者七天的資料裡，白天離開電腦的空檔（4.0 小時）跟睡眠一樣長，分不出來；
-# 而且五筆事件就能讓 infer_wake_hour() 從 8 變成 None。
-# 一個學不準的機制比一個誠實訂死的常數更糟。
+# 試過讓它學：從活動紀錄找最長的安靜段，取中點當分界。不做的理由有兩層——
+# 表層是 infer_wake_hour() 自己的 docstring 就寫著「連續段偵測對雜訊很敏感」
+# （幾筆多餘的事件就能讓它縮短或直接回 None）；深層是即使推得準，
+# 這個工具的資料量本來就不足以支撐一個會浮動的日界線。
+# **一個學不準的機制比一個誠實訂死的常數更糟。**
 #
 # 5 點是原本的設計意圖（day_key 的 docstring 一直是這樣寫的），也是通用的
 # 合理值：幾乎沒有人在 5 點活動，而午夜幾乎所有人都還醒著。
@@ -675,6 +676,34 @@ def _migrate_autostart():
             winreg.DeleteValue(k, OLD_RUN_VALUE)
         return True
     except OSError:
+        return False
+
+
+def refresh_autostart_path():
+    """自啟開著、但登錄檔指向別的地方，就改指到現在這個執行檔。回傳有沒有改。
+
+    這是給「更新」用的。攜帶版沒有安裝程式，使用者拿到新版就是解壓縮——
+    而他很可能解到新的資料夾（`Sipbar-0.10.0-beta\\` 之類），舊的那包還在原地。
+
+    不修的話會靜默出錯，而且很難發現：
+      - `autostart_enabled()` 只看「登錄檔有沒有這一筆」，不看它指去哪
+      - 所以設定頁照樣顯示「開機時啟動」是開的
+      - 但每天開機拉起來的是**舊版**
+      - 使用者以為自己更新了，其實用的還是舊的，連版本號都對不上
+
+    只在已經開著自啟時才動。沒開就不要自作主張幫他開。
+    """
+    if not autostart_enabled():
+        return False
+    want = autostart_command()
+    if _run_key_value() == want:
+        return False
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.SetValueEx(k, RUN_VALUE, 0, winreg.REG_SZ, want)
+        return True
+    except (ImportError, OSError):
         return False
 
 

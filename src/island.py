@@ -187,6 +187,16 @@ DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
 
 # ---------------------------------------------------------------- Windows 閒置偵測
 
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", _RECT),
+                ("rcWork", _RECT), ("dwFlags", wintypes.DWORD)]
+
+
 class _LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
 
@@ -389,7 +399,29 @@ class Island(QWidget):
         self._persist()      # 啟動就先落檔，否則第一分鐘內被關掉會什麼都沒存到
 
     def _reposition(self):
-        """把島貼到指定螢幕的頂端中央。換螢幕的設定改完要重叫一次。"""
+        """把島貼到指定螢幕的頂端中央。換螢幕的設定改完要重叫一次。
+
+        `scr.center().x()` 是那台螢幕自己的中心——21:9 算 1720、16:9 算 960，
+        跟長寬比與解析度都無關。
+
+        ## 執行期間改顯示縮放不會跟上，這是已知限制
+
+        試過三種修法，三種都不行，記在這裡免得有人再走一次：
+
+        1. 掛 `QScreen.geometryChanged` / `logicalDotsPerInchChanged` 重算——
+           訊號有響，但重算出來的位置照樣錯（見第 3 點）。
+        2. 在 `show()` 之前重算——那時候視窗的比例還沒更新，等於用舊比例算。
+        3. 顯示之後用 Win32 的 `GetWindowRect` 量實際落點再補差值——**位置修好了，
+           但尺寸還是錯的**（100% 下視窗仍是 673px，該是 538），對齊之後反而更明顯。
+
+        根因是同一個：`QScreen` 的資料在 DPI 變更後是正確的（實測 100/125/150/
+        175/200% 每一級都跟得上），但 Qt 把邏輯座標與尺寸換算成實體像素時，用的是
+        **視窗自己記著的比例**，而那個比例來自 Windows 的 WM_DPICHANGED——
+        **隱藏的視窗收不到那則通知，而且一旦過期就不會自己恢復。**
+
+        要真的修得銷毀並重建原生視窗，那是核心元件的生命週期，代價不對等。
+        重開程式就正常，已知限制寫在 docs/USAGE.md。
+        """
         scr = target_screen(self.cfg).geometry()
         self.move(scr.center().x() - WIN_W // 2, scr.top())
 
@@ -449,6 +481,9 @@ class Island(QWidget):
             s.step(dt)
 
         if self.sp_reveal.value > 0.005 and not self.isVisible():
+            # 要現身之前重算一次。位置只有在看得見的時候才有意義，
+            # 而它隱藏的時間遠比出現的時間長——螢幕在那期間換了、DPI 變了、
+            # 筆電接上外接螢幕了，都不會有事件送到一個不在畫面上的視窗。
             self.show()
         elif self.sp_reveal.target == 0.0 and self.sp_reveal.value <= 0.005 and self.isVisible():
             self.hide()
@@ -1443,6 +1478,9 @@ def main():
     # 自啟這份在這裡——它跟設定檔無關，而且要在使用者有機會去動開關之前做完，
     # 否則面板讀到的是「沒有自啟」，一按就寫了新的，舊的那筆從此沒人管。
     settings._migrate_autostart()
+    # 更新之後如果解到新的資料夾，登錄檔還指著舊的那個 exe——設定頁會顯示
+    # 自啟是開的，但每天開機拉起來的是舊版。這裡把它改指到現在這支。
+    settings.refresh_autostart_path()
     cfg = load_config()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)

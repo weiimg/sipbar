@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
-[![release](https://img.shields.io/badge/%E4%B8%8B%E8%BC%89-v0.9.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
+[![release](https://img.shields.io/badge/%E4%B8%8B%E8%BC%89-v0.10.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
 
 <img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
 
@@ -50,7 +50,7 @@
 ## 下載與安裝
 
 1. 到 [Releases](https://github.com/weiimg/sipbar/releases/latest) 下載
-   `Sipbar-0.9.0-beta-portable.zip`
+   `Sipbar-0.10.0-beta-portable.zip`
 2. 解壓縮至目的地
 3. 執行 `Sipbar.exe`
 
@@ -59,6 +59,16 @@
 第一次執行時 Windows 會跳出「已保護您的電腦」。<br>
 點**其他資訊**，再點**仍要執行**。<br>
 Windows 對所有未經數位簽章的程式皆會顯示此提示。
+
+&nbsp;
+
+**若您已安裝過舊版**
+
+1. 右鍵點系統匣圖示，選擇「結束程式」
+2. 解壓縮新版並執行
+
+設定與紀錄存放於程式之外，會自動接上，不需要搬移。舊的資料夾確認新版可以正常
+執行之後即可刪除。若您開啟過「開機時啟動」，新版會自動將它改指向自己。
 
 ---
 
