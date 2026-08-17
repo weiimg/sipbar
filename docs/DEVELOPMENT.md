@@ -46,8 +46,20 @@ python tools/build_font.py       # 合成 assets/fonts 的兩個 OTF
 python tools/make_icon.py        # 產生 assets/icon.ico 與 docs/icon.png
 python tools/make_demo.py        # 產生 docs/demo.webp
 python tools/make_feature_icons.py   # 產生 README 功能區的四個圖示
+python tools/make_stats_illustration.py  # 產生 docs/stats-window.png
+python tools/make_social_demo.py # 產生社群用的 docs/social-laptop.webp 與 .gif
 python tools/time_launch.py      # 量 onefile 與 onedir 的啟動時間
 ```
+
+`docs/` 底下的圖也全部是產物，一樣不該手改。其中兩張刻意畫成像素風而不是截圖：
+
+- **`stats-window.png`** —— 三個分頁的示意圖。截圖在 GitHub 上一個視窗只剩 260px，
+  裡面每一行字都在 4px 高，沒有人讀得到；而且改一個標籤截圖就過期、沒有人會發現。
+- **`social-laptop.webp`** —— 社群貼文用，島的部分是真的 widget 逐幀 grab 的。
+
+畫插畫不違反「宣傳圖不能說謊」那條規矩。那條針對的是**看起來像截圖的假圖**；
+像素風一眼就宣告自己是插畫，而它要傳達的（三個分頁、有熱圖、有成就清單）
+是不會變的結構。
 
 ## 測試
 
