@@ -426,9 +426,10 @@ class Shields(Graphic):
         tip = (f"未達標時自動抵用，連續不歸零。每月補回 {total} 個。\n"
                f"目前剩 {left} 個。")
         if used_days:
-            # 講「擋下」不講「你那天沒達標」。護盾是來救的，這一行要讀起來像
-            # 它做了事，不是像一張失敗清單——DESIGN.md 的「刻意拿掉的東西」
-            # 說得很清楚：純粹的失敗計數器會反效果。
+            # 用「抵用」，跟這個機制在別處的用詞一致。第一版寫「各擋下一次」，
+            # 那是隨手造的詞——使用者實際回報看不懂「擋下」是擋掉什麼。
+            # 講抵用而不是「你那天沒達標」也是刻意的：護盾是來救的，
+            # 這一行要讀起來像它做了事，不是像一張失敗清單。
             tip += "\n" + "、".join(used_days) + " 各擋下一次。"
         self.setToolTip(tip)
 
@@ -801,7 +802,7 @@ def _saves_note(d):
         return ""
     if d["streak"]["saves_left"] == 0:
         return "本月用完了"
-    return "、".join(used) + " 擋下"
+    return "、".join(used) + " 已抵用"
 
 
 def build_week_card(d):

@@ -66,7 +66,6 @@ print(f"有紀錄天數 {data['active_days']}　達標 {data['hit_days']}　"
       f"連續 {data['streak']['streak']}　最長 {data['longest']}")
 print(f"回應率 {data['rate'] * 100:.0f}%　補救額度剩 {data['streak']['saves_left']}"
       f"　被補救的日子 {len(data['streak']['saved_days'])}")
-print("Phase 1 判準:", "過" if data["phase1_passed"] else "未過")
 
 path = os.path.join(OUT, "dashboard.html")
 with open(path, "w", encoding="utf-8") as f:

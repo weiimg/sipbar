@@ -222,22 +222,6 @@ def compute(cfg, events_path):
 
     streak_info = compute_streaks(days, target, today_key)
 
-    # Phase 1 判準：連續 3 天回應率 > 50%。
-    #
-    # 這個數字不可信，不要拿它做決定，真正的訊號是上面的 hit_days。理由見
-    # docs/DESIGN.md 的「判準」，摘要：分母是 reminds（程式問了幾次），
-    # 不是每日目標。程式沒在跑就不會問，分母跟著縮小——2026-08-12 整天沒開，
-    # 只發出 1 次提醒、回應 1 次，算出 100%，而當天實際補水 1/7 次。
-    # 方向還是反的：程式當掉、被關掉、人不在電腦前，這些最該被抓到的失敗
-    # 剛好都會讓分母變小，於是失敗越嚴重分數越漂亮。
-    #
-    # 算式保留原樣是刻意的，但要知道：這兩個值目前沒有任何地方讀。stats_window
-    # 顯示的是 rate（整體回應率）與平均回應時間，不是這個是非題。island.py 的
-    # build_stats_text() 另有一份重複實作，正式版沒呼叫，只有 test_island 在測。
-    # 要留要刪是另一個決定，不在這次的範圍。
-    recent = [days[k] for k in sorted(active.keys())[-3:] if days[k]["reminds"] > 0]
-    passed = len(recent) == 3 and all(d["responded"] / d["reminds"] > 0.5 for d in recent)
-
     hours = defaultdict(int)
     for v in active.values():
         for h in v["hours"]:
@@ -258,8 +242,6 @@ def compute(cfg, events_path):
         "rate": (total_responded / total_reminds) if total_reminds else None,
         "streak": streak_info,
         "longest": streak_info["longest"],
-        "phase1_passed": passed,
-        "phase1_sample": len(recent),
         "hours": dict(hours),
         "collapses": sum(v["collapses"] for v in active.values()),
     }

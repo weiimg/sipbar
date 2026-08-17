@@ -155,9 +155,6 @@ saved = isl.load_state()
 check("存檔鍵", sorted(saved.keys()),
       ["active_s", "day", "drinks", "interval_s", "paused_until", "saved_ts",
        "state"])
-text = isl.build_stats_text(cfg)
-print("     " + text.replace("\n", "\n     "))
-check("統計有內容", "提醒" in text, True)
 
 print("\n12b. 視窗要容得下藥丸＋擠壓＋陰影，否則圓角會被視窗邊界切掉")
 settle_springs()

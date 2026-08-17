@@ -1428,51 +1428,6 @@ class Island(QWidget):
 
 # ---------------------------------------------------------------- 統計
 
-def build_stats_text(cfg):
-    """Phase 1 存在的唯一理由就是這個數字。判準：連續 3 天回應率 > 50%。"""
-    if not os.path.exists(EVENTS_PATH):
-        return "還沒有任何紀錄。"
-
-    days = {}
-    with open(EVENTS_PATH, "r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            d = days.setdefault(row.get("day", "?"),
-                                {"remind": 0, "responded": 0, "drinks": 0, "waits": []})
-            ev = row.get("event")
-            if ev == "remind":
-                d["remind"] += 1
-            elif ev == "drink":
-                d["drinks"] += 1
-                if row.get("responded"):
-                    d["responded"] += 1
-                    d["waits"].append(row.get("wait_active_s", 0))
-
-    if not days:
-        return "還沒有任何紀錄。"
-
-    lines = []
-    for key in sorted(days.keys())[-7:]:
-        d = days[key]
-        rate = f"{d['responded'] / d['remind'] * 100:.0f}%" if d["remind"] else "—"
-        wait = f"{sum(d['waits']) / len(d['waits']) / 60:.0f} 分" if d["waits"] else "—"
-        lines.append(
-            f"{key}　提醒 {d['remind']} 次　回應 {d['responded']} 次（{rate}）"
-            f"　平均等 {wait}　補水 {d['drinks']} 次 / 約 {d['drinks'] * cfg['ml_per_drink_estimate']}cc"
-        )
-
-    recent = [days[k] for k in sorted(days.keys())[-3:] if days[k]["remind"] > 0]
-    if len(recent) == 3 and all(d["responded"] / d["remind"] > 0.5 for d in recent):
-        verdict = "連續 3 天回應率過 50%，達標 → 可以進 Phase 2（自製動畫、streak）。"
-    else:
-        verdict = "還沒連續 3 天過 50%。沒過就別急著加功能，先看是行動成本還是節奏的問題。"
-
-    return "\n".join(lines) + "\n\n" + verdict
-
-
 def main():
     if not single_instance_guard():
         return 0
