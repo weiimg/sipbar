@@ -59,15 +59,22 @@ def set_custom(kind):
 
 # 三種情況都要看：有填體重（推導出來的次數）、沒填（用預設值，新使用者的第一眼），
 # 以及自訂音效那兩列的各種狀態。
-for label, weight, snd in (("有填體重", 65, None),
-                           ("沒填體重", None, None),
-                           ("自訂音效", 65, "custom"),
-                           ("音效檔格式不對", 65, "bad"),
-                           ("清除紀錄的確認狀態", 65, None)):
+# 作息手動指定的樣子也要看：那時候兩列各多一個「改為自動」，而它跟時間步進器
+# 擠在同一個控制項欄裡——排不排得下只有用眼睛看得出來。
+for label, weight, snd, sched in (("有填體重", 65, None, None),
+                                  ("沒填體重", None, None, None),
+                                  ("自訂音效", 65, "custom", None),
+                                  ("音效檔格式不對", 65, "bad", None),
+                                  ("作息手動指定", 65, None, "manual"),
+                                  ("清除紀錄的確認狀態", 65, None, None)):
     cfg = dict(appsettings.DEFAULTS)
     cfg["weight_kg"] = weight
     cfg["daily_target_drinks"] = appsettings.effective_target(cfg)
     cfg.update(set_custom(snd))
+    if sched == "manual":
+        cfg.update({"wake_manual": True, "bedtime_manual": True,
+                    "day_rollover_hour": 10, "bedtime_hour": 2,
+                    "late_night_start_hour": appsettings.late_start_from_bedtime(2)})
 
     win = sw.StatsWindow(cfg, EVENTS)
     win.show()

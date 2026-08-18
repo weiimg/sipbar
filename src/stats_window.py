@@ -358,8 +358,21 @@ class Tip(QWidget):
 
     @classmethod
     def hide_tip(cls):
-        if cls._one is not None:
+        """收起來。已經被 Qt 回收掉也不能炸。
+
+        關閉程式時的拆除順序會走到這裡：Qt 先把這顆泡泡的 C++ 物件回收，
+        然後才輪到視窗的 hideEvent——而那裡會再叫一次 hide_tip()。
+        Python 這邊的參考還在，底下的東西已經沒了，`hide()` 直接拋 RuntimeError。
+
+        症狀是關程式時在 atexit 吐一段 traceback。使用者看到「程式關掉時報錯」，
+        而實際上什麼事都沒有——那種訊息只會讓人以為壞了。
+        """
+        if cls._one is None:
+            return
+        try:
             cls._one.hide()
+        except RuntimeError:
+            cls._one = None
 
     # -------------------------------------------------------- 內部
 
@@ -666,8 +679,14 @@ class WeekStrip(Graphic):
             cy = self.height() - rad - 6
             r = rad * lerp(0.74, 1.0, local)
 
+            # 今天用「星期標成藍色」來標，不再在圓外面加一圈。
+            #
+            # 先前那一圈跟裡面的進度是同一個藍、只差粗細，兩個同心圓疊在一起
+            # 讀起來像畫歪了——使用者的原話是「外圍藍色線條的設計有點奇怪」。
+            # 標籤本來就在那裡、本來就會為今天換顏色，把它換成強調色就夠了，
+            # 不必為此多佔任何空間。
             p.setFont(font("body"))
-            p.setPen(PAL.ink_a(255) if day["today"] else PAL.ink_a(168))
+            p.setPen(C_ACCENT if day["today"] else PAL.ink_a(168))
             lw = fm_l.horizontalAdvance(day["label"])
             p.drawText(int(cx - lw / 2), int(fm_l.ascent()) + 2, day["label"])
 
@@ -689,13 +708,26 @@ class WeekStrip(Graphic):
                            QPoint(int(cx + r * 0.36), int(cy - r * 0.26)))
                 note = f"{day['drinks']} / {self.target} 次，達標"
             elif day["used"]:
+                # 進度畫成水位，不畫環。
+                #
+                # 這是一個喝水的工具，圓圈裡裝著水是它唯一不用學就懂的圖形，
+                # 而且跟島上那顆像素杯講同一件事——整套視覺語言收斂到一個比喻。
+                #
+                # 環還有一個具體的問題：粗弧配圓頭端點看起來像載入中的轉圈，
+                # 那是「等待」的語彙，不是「你喝了 2 次」。
                 pct = (day["drinks"] / self.target) * local if self.target else 0
-                p.setPen(QPen(PAL.veil(28), 5))
-                p.setBrush(Qt.NoBrush)
+                p.setBrush(QBrush(PAL.veil(16)))
                 p.drawEllipse(box)
                 if pct > 0:
-                    p.setPen(QPen(C_ACCENT, 5, Qt.SolidLine, Qt.RoundCap))
-                    p.drawArc(box, 90 * 16, -int(360 * 16 * pct))
+                    # 裁進圓裡再畫矩形，水面就是一條平的線——圓弧的水面要另外
+                    # 算貝茲曲線，而在這個尺寸下看不出差別。
+                    clip = QPainterPath()
+                    clip.addEllipse(box)
+                    p.save()
+                    p.setClipPath(clip)
+                    p.setBrush(QBrush(C_ACCENT))
+                    p.drawRect(QRectF(cx - r, cy + r - 2 * r * pct, r * 2, 2 * r * pct))
+                    p.restore()
                 n = str(day["drinks"])
                 p.setFont(font("headline"))
                 p.setPen(PAL.ink_a(255))
@@ -706,11 +738,6 @@ class WeekStrip(Graphic):
                 p.setBrush(QBrush(C_SLOT))
                 p.drawEllipse(box)
                 note = "沒開電腦，不計入連續"
-
-            if day["today"]:
-                p.setPen(QPen(C_ACCENT, 2))
-                p.setBrush(Qt.NoBrush)
-                p.drawEllipse(QRectF(cx - r - 7, cy - r - 7, (r + 7) * 2, (r + 7) * 2))
 
             self._hit.append((QRectF(cx - rad - 8, cy - rad - 8, (rad + 8) * 2, (rad + 8) * 2),
                               f"{day['key']}　{note}"))
@@ -1398,8 +1425,11 @@ def setting_row(label, control, hint=None):
     return w
 
 
-def info_row(label, value, trailing=None, elide_value=False):
+def info_row(label, value, trailing=None, elide_value=False, indent=0):
     """唯讀資訊列：左邊名稱、右邊值。跟設定列共用同一條基線。
+
+    `indent` 把整列往右推，用來表示「這一列屬於上面那一列」。縮排是層級唯一
+    看得出來的訊號——同一張卡裡的列預設全部齊左，讀起來就是並列的同級項目。
 
     `value` 可以是字串，也可以是外面先建好的 Label（需要之後更新內容時）。
 
@@ -1418,7 +1448,7 @@ def info_row(label, value, trailing=None, elide_value=False):
     items += [(val, 1)] if elide_value else ["stretch", val]
     if trailing is not None:
         items.append(trailing)
-    w = row(*items, spacing=S3, align=Qt.AlignVCenter)
+    w = row(*items, spacing=S3, margins=(indent, 0, 0, 0), align=Qt.AlignVCenter)
     w.setFixedHeight(ROW_INFO)
     return w
 
@@ -1941,7 +1971,11 @@ class SettingsPage(QWidget):
         self.bedtime.changed.connect(self._on_bedtime)
         # hint 傳 Label 而不是字串：間隔改了、就寢改了，這行都要跟著重算。
         self.late_lbl = Label(self._late_text(), "caption", INK3, elide=True)
-        card.add(setting_row("預計就寢時間", self.bedtime, self.late_lbl))
+        self.bed_auto = TapLabel("改為自動", C_ACCENT.name())
+        self.bed_auto.clicked.connect(lambda: self._back_to_auto("bedtime"))
+        card.add(setting_row("預計就寢時間",
+                             row(self.bed_auto, self.bedtime, spacing=S3),
+                             self.late_lbl))
         card.add(Divider())
 
         # 問「起床時間」而不是「換日時間」：後者是系統概念，使用者得反推該填什麼；
@@ -1949,7 +1983,16 @@ class SettingsPage(QWidget):
         # 那就還是同一天，不會在你工作到一半時把當天次數歸零。
         self.wake = HourStepper(self.cfg.get("day_rollover_hour", 8))
         self.wake.changed.connect(self._on_wake)
-        card.add(setting_row("習慣起床時間", self.wake, "次數將於每日重置"))
+        # 說明不能再寫「次數將於每日重置」。換日已經訂死在早上 5 點
+        # （settings.DAY_ROLLOVER_HOUR），這一列跟次數重置**沒有關係了**——
+        # 它現在只有一個職責：告訴夜間模式幾點該結束。
+        # 留著舊句子等於介面在說謊，而且是那種沒有人會發現的謊。
+        self.wake_lbl = Label(self._wake_text(), "caption", INK3, elide=True)
+        self.wake_auto = TapLabel("改為自動", C_ACCENT.name())
+        self.wake_auto.clicked.connect(lambda: self._back_to_auto("wake"))
+        card.add(setting_row("習慣起床時間",
+                             row(self.wake_auto, self.wake, spacing=S3),
+                             self.wake_lbl))
         card.add(Divider())
 
         # 放在「提醒」而不是「顯示」：它管的是提醒怎麼傳到人身上，
@@ -1981,6 +2024,7 @@ class SettingsPage(QWidget):
                 card.add(Divider())
             card.add(self._sound_file_row(name, f"忽略 {mins} 分鐘後"))
         self._refresh_target_label()
+        self._refresh_schedule_labels()
         return card
 
     def _sound_file_row(self, name, label):
@@ -1998,8 +2042,10 @@ class SettingsPage(QWidget):
         reset.clicked.connect(lambda n=name: self._reset_sound(n))
         self._sound_rows[name] = (val, reset)
         self._refresh_sound_row(name)
+        # 縮排：這兩列是「提醒音效」的子項，不是跟它並列的設定。
+        # 沒有縮排的話，一張卡裡四列齊左，看起來是四個同級的東西。
         return info_row(label, val, row(test, pick, reset, spacing=S3),
-                        elide_value=True)
+                        elide_value=True, indent=S3)
 
     def _sound_row_text(self, name):
         """那一列的值。回報事實，不給指示。
@@ -2251,6 +2297,48 @@ class SettingsPage(QWidget):
         self._refresh_late_label()
         self._emit()
 
+    def _back_to_auto(self, which):
+        """把某一項作息交還給推導。
+
+        使用者的話：「我都設定 02:00/10:00，但最近比較早起，可是看到設定不一樣
+        會有點煩」——手動設過的值不會跟著生活變，而**先前沒有任何一條路可以
+        改回自動**（`*_manual` 一旦是 True 就永遠是 True，只能去改 config.json）。
+        設定進得去出不來，那不是設定，是單向門。
+
+        清掉旗標之後立刻重推一次並更新畫面。不重推的話使用者按完什麼都沒發生，
+        要等到下次啟動才看得到——而那時候他已經認定這顆按鈕壞了。
+        """
+        self.cfg[f"{'wake' if which == 'wake' else 'bedtime'}_manual"] = False
+        appsettings.apply_auto_schedule(self.cfg, appsettings.EVENTS_PATH)
+        # 兩個步進器都要同步：起床改了，就寢是從它推的，也會跟著動。
+        # emit=False 是關鍵——發訊號會被 _on_wake 當成使用者手動設定，
+        # 於是「改為自動」這個動作自己把旗標又設回 True。
+        self.wake.set_hour(self.cfg["day_rollover_hour"], emit=False)
+        self.bedtime.set_hour(self.cfg["bedtime_hour"], emit=False)
+        self._refresh_schedule_labels()
+        self._emit()
+
+    def _refresh_schedule_labels(self):
+        """兩列的說明與「改為自動」的顯示與否，一起重算。"""
+        self.late_lbl.setText(self._late_text())
+        self.wake_lbl.setText(self._wake_text())
+        # 已經是自動的就不放「改為自動」——按下去不會有事的東西不該出現。
+        self.bed_auto.setVisible(bool(self.cfg.get("bedtime_manual")))
+        self.wake_auto.setVisible(bool(self.cfg.get("wake_manual")))
+
+    def _wake_text(self):
+        """起床那一列的說明：它現在管什麼，以及這個值是誰決定的。
+
+        **不能寫「次數將於每日重置」。** 換日訂死在早上 5 點
+        （settings.DAY_ROLLOVER_HOUR），這一列早就跟次數重置無關了。
+        """
+        tail = "夜間模式於此結束"
+        if self.cfg.get("wake_manual"):
+            return f"手動指定，{tail}"
+        if appsettings.infer_wake_hour(appsettings.EVENTS_PATH) is None:
+            return f"預設值，累積足夠紀錄後自動校準，{tail}"
+        return f"依活動紀錄推算，{tail}"
+
     def _late_text(self):
         """深夜放慢這列顯示什麼。
 
@@ -2263,14 +2351,17 @@ class SettingsPage(QWidget):
                             appsettings.DEFAULTS["late_night_start_hour"])
         mins = appsettings.late_night_interval(self.cfg)
         tail = f"{late:02d}:00 起改為每 {mins} 分"
-        # 只有「資料還不夠、這個值是猜的」才特別標出來。推算成功或使用者自己設過
-        # 都不必說——沒消息就是好消息，每一行常駐的字都要自己賺到位置。
+        # 這個值是誰決定的要寫出來。使用者的抱怨是「為什麼每次打開都不一樣」
+        # ——自動推算的值本來就會隨著紀錄變，但畫面上看不出它是自動的，
+        # 於是那個變動讀起來像壞掉。標出來之後，會變就變得合理。
+        if self.cfg.get("bedtime_manual"):
+            return f"手動指定，{tail}"
         if self._schedule_note().startswith("推估"):
-            return f"推估值，{tail}"
-        return tail
+            return f"推估值，累積足夠紀錄後自動校準，{tail}"
+        return f"依活動紀錄推算，{tail}"
 
     def _refresh_late_label(self):
-        self.late_lbl.setText(self._late_text())
+        self._refresh_schedule_labels()
 
     def _on_theme(self, i):
         self.cfg["theme"] = self._theme_keys[i]

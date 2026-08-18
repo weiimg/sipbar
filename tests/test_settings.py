@@ -739,6 +739,32 @@ check("按下關閉時也會", bool(_hidden), True)
 _sw.Tip.hide_tip = _orig_hide
 _w2.deleteLater()
 
+print("\n18. 作息可以從手動改回自動")# 使用者的話：「我都設定 02:00/10:00，但最近比較早起，可是看到設定不一樣會有點煩」。
+# 手動設過的值不會跟著生活變，而先前沒有任何一條路可以改回自動——
+# `*_manual` 一旦是 True 就永遠是 True，只能去改 config.json。
+# 設定進得去出不來，那不是設定，是單向門。
+_c = dict(cfg)
+_c.update({"wake_manual": True, "bedtime_manual": True,
+           "day_rollover_hour": 10, "bedtime_hour": 2})
+_p = _sw.SettingsPage(_c)
+check("手動時說明要標出來", "手動指定" in _p._wake_text(), True)
+check("就寢那一列也標", "手動指定" in _p._late_text(), True)
+check("手動時才出現「改為自動」", _p.wake_auto.isVisibleTo(_p), True)
+
+_p._back_to_auto("wake")
+check("按下去就交還給推導", _p.cfg["wake_manual"], False)
+check("說明跟著改", "手動指定" in _p._wake_text(), False)
+check("連結跟著收起來", _p.wake_auto.isVisibleTo(_p), False)
+# 這一條是最容易寫錯的地方：同步步進器時若發訊號，_on_wake 會把旗標又設回
+# True，於是「改為自動」按下去等於沒按。
+check("同步步進器不能把旗標又設回手動", _p.cfg["wake_manual"], False)
+
+# 起床那一列的說明不能再寫「次數將於每日重置」——換日已經訂死在早上 5 點
+# （settings.DAY_ROLLOVER_HOUR），這一列跟次數重置沒有關係了。
+check("起床那一列不再宣稱自己管重置",
+      "重置" in _p._wake_text(), False)
+check("而且講得出它現在管什麼", "夜間" in _p._wake_text(), True)
+
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)
