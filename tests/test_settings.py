@@ -681,6 +681,28 @@ check("重看導覽帶現況：開著的就是開著", _passed["autostart"], Tru
 _ob.open_window = _ob_open
 ap.autostart_enabled = _real_enabled
 
+# 作息那兩個步進器：只有真的動過才算「手動」。
+#
+# 先前 _emit_finish() 無條件寫 True，理由是「他剛剛親口回答過」。但被問到跟
+# 回答了是兩件事——一路按「下一步」的人從頭到尾沒碰過那兩個數字，而他正是
+# 最需要自動推導的那一種。重看導覽更明顯：本來自動的人走一遍就被改成手動。
+for _label, _kw, _move, _want_wake, _want_bed in (
+        ("第一次沒碰", dict(wake=8, bedtime=0), None, False, False),
+        ("第一次調了起床", dict(wake=8, bedtime=0), 10, True, False),
+        ("重看，本來手動", dict(wake=10, bedtime=2, wake_manual=True,
+                                bedtime_manual=True), None, True, True),
+        ("重看，本來自動", dict(wake=9, bedtime=1), None, False, False)):
+    _w3 = _ob.OnboardWindow(**_kw)
+    _w3.frame.stop()
+    if _move is not None:
+        _w3.wake_pick.set_hour(_move)
+    _r3 = {}
+    _w3.finished.connect(_r3.update)
+    _w3._emit_finish()
+    check(f"{_label}：起床", _r3["wake_manual"], _want_wake)
+    check(f"{_label}：就寢", _r3["bedtime_manual"], _want_bed)
+    _w3.close()
+
 print("\n17. 自繪的提示泡泡")
 sw_qt_flag = _sw.Qt.WindowTransparentForInput
 # 原生 QToolTip 有兩個改不掉的問題：要等將近一秒，而且是方角系統字的補丁。

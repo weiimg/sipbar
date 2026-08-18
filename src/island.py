@@ -1087,7 +1087,12 @@ class Island(QWidget):
             #
             # 第一次不能照實帶：那時候登錄檔本來就沒那一筆，帶進去就是「關」。
             # 而這個工具平常完全隱藏，不開機自啟基本上等於不存在。
-            autostart=True if first_run else settings.autostart_enabled())
+            autostart=True if first_run else settings.autostart_enabled(),
+            # 作息的手動旗標也要帶進去。引導只在使用者真的動過步進器時
+            # 才標記手動，但本來就是手動的人不能被降級回自動——
+            # 那兩件事都要知道現況才判斷得出來。
+            wake_manual=bool(self.cfg.get("wake_manual")),
+            bedtime_manual=bool(self.cfg.get("bedtime_manual")))
 
     def _onboarding_done(self, result, first_run):
         """引導按下「開始」之後：存設定、標記已引導，然後安靜地結束。"""

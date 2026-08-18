@@ -15,7 +15,8 @@
 
 所以作息那一頁回來了，而且問的是「幾點起床、幾點就寢」這兩個他本來就知道的
 事實，不是「深夜幾點開始放慢」那種要他自己反推的系統概念。
-答過就標記為手動，之後推導不再覆蓋。
+**真的動過那兩個步進器**才標記為手動，之後推導不再覆蓋它——只是被問到、
+一路按「下一步」不算（見 _emit_finish）。
 
 規劃文件裡最重的一句：
 
@@ -726,7 +727,7 @@ class OnboardWindow(QWidget):
     finished = Signal(dict)
 
     def __init__(self, on_practice=None, wake=8, bedtime=0, sound_on=True,
-                 autostart=True):
+                 autostart=True, wake_manual=False, bedtime_manual=False):
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -753,6 +754,10 @@ class OnboardWindow(QWidget):
         # 起床沒有這個問題，00:00 就是 00:00。
         self.wake_pick = sw.HourStepper(wake)
         self.bed_pick = sw.HourStepper(bedtime, midnight_as_24=True)
+        # 進來時是什麼樣子，記下來。按下「開始」時要靠它判斷使用者到底有沒有
+        # 動過那兩個步進器——見 _emit_finish()。
+        self._wake0, self._bed0 = wake, bedtime
+        self._wake_manual0, self._bed_manual0 = wake_manual, bedtime_manual
 
         # 視窗自己排幾何，不掛 layout。掛了的話 Deck 的高度變化會回頭去改視窗的
         # 最小／最大高度，跟這裡逐格設定的高度打架，動畫會抖。
@@ -1075,14 +1080,26 @@ class OnboardWindow(QWidget):
     def _emit_finish(self):
         self.preview.stop()
         self.up_cue.stop()
-        # 作息標記為手動：他剛剛親口回答過，推導不該再去蓋掉。
+        # 「手動」只在使用者真的動過那個步進器時才成立。
+        #
+        # 這裡一度無條件寫 True，理由寫著「他剛剛親口回答過」。但**被問到**跟
+        # **回答了**是兩件事：一路按「下一步」的人從頭到尾沒碰過那兩個數字，
+        # 而他正是最需要自動推導的那一種——標成手動之後，推導對他從此不存在。
+        #
+        # 重看導覽更明顯：本來設成自動的人走一遍，就被悄悄改成手動。
+        # 那跟自啟、音效那兩個漏掉的地方是同一個毛病（見 open_window 的說明）。
+        #
+        # 反過來也不能降級：本來就是手動的人一路按下去，不該被改回自動。
+        # 所以是「動過 或 本來就是手動」。
+        wake_manual = (self.wake_pick.hour != self._wake0) or self._wake_manual0
+        bed_manual = (self.bed_pick.hour != self._bed0) or self._bed_manual0
         self.finished.emit({
             "autostart": self.autostart.on,
             "sound_enabled": self.sound_on.on,
             "day_rollover_hour": self.wake_pick.hour,
-            "wake_manual": True,
+            "wake_manual": wake_manual,
             "bedtime_hour": self.bed_pick.hour,
-            "bedtime_manual": True,
+            "bedtime_manual": bed_manual,
         })
         self.close()
 
@@ -1146,7 +1163,7 @@ class OnboardWindow(QWidget):
 
 
 def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True,
-                autostart=True):
+                autostart=True, wake_manual=False, bedtime_manual=False):
     """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。
 
     `on_practice(done_cb)` 由島提供：最後一頁會叫它，讓真的島出來讓人點一次。
@@ -1173,7 +1190,8 @@ def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True,
     """
     typeface.ensure_loaded()
     win = OnboardWindow(on_practice=on_practice, wake=wake, bedtime=bedtime,
-                        sound_on=sound_on, autostart=autostart)
+                        sound_on=sound_on, autostart=autostart,
+                        wake_manual=wake_manual, bedtime_manual=bedtime_manual)
     win.finished.connect(on_finished)
     screen = QApplication.primaryScreen().availableGeometry()
     # 對齊螢幕中心，不是對齊第一頁的中心：後面兩頁高度不同，鎖住中心線
