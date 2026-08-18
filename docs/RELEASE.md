@@ -92,7 +92,17 @@ gh release create v0.9.0-beta dist/Sipbar-0.9.0-beta-portable.zip --title "v0.9.
 正式版拿掉 `--prerelease`；beta 要加。
 
 Release notes 至少要有：下載連結與檔案大小、系統需求、**SmartScreen 那段說明**、
-資料存放位置、已知限制。0.9.0-beta 那篇可以直接拿來改：
+資料存放位置、已知限制，以及 **zip 的 SHA256**。
+
+雜湊在 `build_exe.py` 跑完時就印出來了，直接複製那一行。它是下載的人唯一能
+確認「拿到的是不是原本那一份」的辦法——exe 沒有數位簽章，而簽章憑證要年費。
+Release notes 裡順手附上驗法：
+
+```
+Get-FileHash .\Sipbar-x.y.z-portable.zip -Algorithm SHA256
+```
+
+0.9.0-beta 那篇可以直接拿來改：
 
 ```bash
 gh release view v0.9.0-beta --json body -q .body

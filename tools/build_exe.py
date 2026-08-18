@@ -72,6 +72,16 @@ def write_version_file(v, nums):
     return path
 
 
+def sha256(path):
+    """發布檔的雜湊。給 release 頁面貼，讓下載的人驗得了完整性。"""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def build(onefile, verfile):
     out = os.path.join(DIST, "onefile" if onefile else "onedir")
     shutil.rmtree(out, ignore_errors=True)
@@ -196,6 +206,12 @@ def main():
 
     zip_path = package(v)
     print(f"\n發布用 {tree_size(zip_path) / 1024 / 1024:>6.1f} MB   {zip_path}")
+    # SHA256 一起印出來，發版時貼進 release 頁面。
+    #
+    # exe 沒有數位簽章（憑證要年費），所以下載的人沒有任何辦法確認拿到的
+    # 是不是原本那一份。雜湊擋不掉 SmartScreen 的警告，但至少驗得了完整性。
+    # 要人「自己去算一個雜湊」不會有人做，發版時順手貼上去才會有人用。
+    print(f"       SHA256 {sha256(zip_path)}")
     print("\n啟動時間要另外量，見 tools/time_launch.py")
     return 0
 

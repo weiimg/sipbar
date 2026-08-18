@@ -103,6 +103,8 @@ License 1.1 散布，條件與來源見 [assets/fonts](assets/fonts/README.md)�
 
 自行建置、專案結構與設計取捨見[開發說明](docs/DEVELOPMENT.md)。
 
+程式碰得到哪些東西、以及怎麼回報安全性問題，見[安全性說明](SECURITY.md)。
+
 ---
 
 > 這是一項使用 Claude 撰寫的 side project。

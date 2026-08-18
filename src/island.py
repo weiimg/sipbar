@@ -188,15 +188,6 @@ DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
 
 # ---------------------------------------------------------------- Windows 閒置偵測
 
-class _RECT(ctypes.Structure):
-    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-
-class _MONITORINFO(ctypes.Structure):
-    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", _RECT),
-                ("rcWork", _RECT), ("dwFlags", wintypes.DWORD)]
-
 
 class _LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
@@ -595,22 +586,25 @@ class Island(QWidget):
         # 分隔符用半形空白而非全形，目標次數變多時進度點會吃掉寬度，
         # 全形空白會讓這行剛好超過而被省略號截掉。
         #
-        # 深夜要標示出來：抖動有 ±15%，「這次怎麼比較久」在畫面上跟深夜模式長得
-        # 一模一樣，而這個機制全自動、推導可能算錯、每次啟動又無聲重算——
-        # 連「它正在作用」都不顯示的話，壞掉時使用者無從歸因。
+        # 一律寫「下次」，深夜不另外標示。
         #
-        # 標示的做法是換掉「下次」這個詞，不是插入一段新的。加一段就得多一個
-        # 分隔點，而最長情況（連續破百 + 三位數分鐘）只剩 34px 餘裕，插什麼都爆
-        #（「深夜 · 下次約」實測 284px、可用 262px）；為了塞進去而省掉分隔點的
-        # 寫法又會被讀成「放慢了 100 分」，是另一個意思。
-        # 換詞則一個字都沒多：白天「下次約 N 分後」、深夜「夜間約 N 分後」，
-        # 同寬同節奏，變的那個詞正好就是要傳達的資訊。
-        late = self._is_late()
+        # 先前深夜會換成「夜間約 N 分後」，用意是解釋「這次怎麼比較久」——
+        # 抖動有 ±15%，光看數字分不出是抖動還是深夜模式。
+        #
+        # 但那個標示會在早上出現。深夜的範圍是
+        # `hour >= late_night_start_hour or hour < day_rollover_hour`（見
+        # `_is_late()`），也就是一路延續到起床時間為止——起床設 9 點的人，
+        # 早上 8:40 坐在電腦前看到的是「夜間約 62 分後」。
+        #
+        # 那一刻它在事實上沒有錯（間隔確實還是放慢的），但**讀起來是錯的**，
+        # 而一個讀起來是錯的標籤比沒有標籤糟：使用者會開始懷疑其他數字。
+        #
+        # 那它解釋的那件事怎麼辦——不解釋。深夜放慢是自動的、使用者沒有要求過、
+        # 也不需要為它做任何事；「為什麼是 109 分不是 75 分」屬於設定頁
+        #（那裡寫著「21:00 起改為每 109 分」），不屬於一個滑過去看一眼的地方。
         if remain <= 0:
-            # 這裡不標示深夜。標示是用來解釋「這個數字為什麼這麼大」的，
-            # 而「快到了」沒有數字——沒有要解釋的東西就不要加字。
             return f"{head} · 快到了"
-        return f"{head} · {'夜間' if late else '下次'}約 {remain} 分後"
+        return f"{head} · 下次約 {remain} 分後"
 
     def _reminding_sub(self):
         target = self.cfg["daily_target_drinks"]

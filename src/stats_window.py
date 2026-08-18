@@ -30,7 +30,10 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+import PySide6
+from PySide6.QtCore import (
+    QPoint, QPointF, QRectF, Qt, QTimer, Signal, qVersion,
+)
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QIntValidator, QLinearGradient,
     QPainter, QPainterPath, QPen,
@@ -2339,6 +2342,11 @@ class SettingsPage(QWidget):
             f"Sipbar {appsettings.VERSION}",
             f"Windows {platform.version()}（{platform.machine()}）",
             f"Python {platform.python_version()}",
+            # Qt 版本要報。攜帶版把整套 Qt 凍在包裡，使用者自己更新不了，
+            # 所以 Qt 出了安全性修正時，唯一能回答「誰拿到了哪一版」的地方
+            # 就是這一行。requirements.txt 只寫下界（>=6.11），同一個 commit
+            # 在不同時間建出來可能夾帶不同版本。
+            f"Qt {qVersion()}（PySide6 {PySide6.__version__}）",
             f"螢幕 {len(screens)} 個，主要 "
             f"{scr.geometry().width()}×{scr.geometry().height()}，"
             f"縮放 {scr.devicePixelRatio() * 100:.0f}%",
@@ -2367,20 +2375,37 @@ class SettingsPage(QWidget):
         同名的變數，正常情況下相同——但如果哪天不同，畫面上會是「路徑看起來對、
         數字卻不對」，而那從外面完全看不出來。
         """
+        home = os.path.expanduser("~")
+
+        def show(p):
+            """把家目錄換成 %USERPROFILE%。
+
+            這一段是給人貼進**公開的** issue 的（旁邊就是「回報問題」），
+            而路徑裡的 Windows 帳號名稱，在個人電腦上經常就是本名。
+
+            遮掉不影響診斷力：要分辨的是**路徑後半段對不對**——沙箱重導向那次，
+            差別在家目錄之後多插了一段容器資料夾，而那一段照樣看得見。
+            """
+            if home and os.path.normcase(p).startswith(os.path.normcase(home)):
+                return "%USERPROFILE%" + p[len(home):]
+            return p
+
         def stat(p):
+            # 只報大小，不報筆數。筆數是使用量，而這個函式上面那條規矩
+            # （「沒有喝水紀錄」）本來就把使用量排除在外——先前這裡是自己
+            # 破了自己的規矩。分辨「空的／有東西／是另一份」大小一樣夠用。
             try:
                 if not os.path.exists(p):
                     return "不存在"
-                n = sum(1 for _ in open(p, encoding="utf-8", errors="replace"))
-                return f"{os.path.getsize(p)} bytes／{n} 筆"
+                return f"{os.path.getsize(p)} bytes"
             except Exception as e:                        # noqa: BLE001
                 return f"讀取失敗 {type(e).__name__}"
 
         a = appsettings.EVENTS_PATH
         b = getattr(self, "_events_path", None)
-        out = [f"資料檔 {a} → {stat(a)}"]
+        out = [f"資料檔 {show(a)} → {stat(a)}"]
         if b and os.path.normcase(b) != os.path.normcase(a):
-            out.append(f"視窗實際讀 {b} → {stat(b)}")
+            out.append(f"視窗實際讀 {show(b)} → {stat(b)}")
         return "\n".join(out)
 
     def _copy_diagnostics(self):
