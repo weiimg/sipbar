@@ -381,6 +381,42 @@ def load_config():
     return cfg
 
 
+# ---------------------------------------------------------------- 寫入健康狀態
+#
+# 三個寫使用者資料的函式（save_config、island.save_state、island.log_event）
+# 全都是「寫不進去就當作沒事」。那個設計本身是對的——寫檔失敗不該讓程式崩潰，
+# 也不該讓補水這個動作停擺。
+#
+# **但它安靜過頭了。** 2026-08-19 實際發生過：程式活著、島照常提醒、倒數照常走，
+# 而補水一次都沒有被記錄，整整 3.5 小時。使用者不會發現，因為畫面上一切正常；
+# 他不發現就不會回報，於是這種災情永遠不會有人知道。
+#
+# 所以失敗要被數出來，並且讓介面說得出口。
+#
+# 門檻放 3 是因為偶發失敗很常見（防毒或索引服務會在檔案剛寫完時開一個掃描用的
+# handle，save_state() 自己就為此重試六次）。心跳每 60 秒落檔一次，所以大約
+# 三分鐘存不進去才會出聲，短暫的干擾不會變成狼來了。
+WRITE_FAIL_THRESHOLD = 3
+
+_write_fail_streak = 0
+
+
+def note_write(ok):
+    """每次寫使用者資料之後回報成敗。成功就把連續失敗歸零。"""
+    global _write_fail_streak
+    _write_fail_streak = 0 if ok else _write_fail_streak + 1
+
+
+def write_trouble():
+    """紀錄是不是已經連續存不進去了。介面拿它決定要不要示警。"""
+    return _write_fail_streak >= WRITE_FAIL_THRESHOLD
+
+
+def write_fail_streak():
+    """連續失敗幾次。診斷資訊要附這個，否則回報者說不清楚壞得多嚴重。"""
+    return _write_fail_streak
+
+
 def save_config(cfg):
     """寫設定。先寫暫存再換檔，中途斷電不會留下半個檔。"""
     guard_real_write(CONFIG_PATH)
@@ -390,12 +426,41 @@ def save_config(cfg):
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
         os.replace(tmp, CONFIG_PATH)
+        note_write(True)
         return True
     except OSError:
+        note_write(False)
         return False
 
 
 # ---------------------------------------------------------------- 推導
+
+def _as_number(v):
+    """設定檔裡的值當成數字讀。讀不出來就回 None（＝當作沒填）。
+
+    **`config.json` 是純文字，使用者改得到**，而說明文件本身就在教人去改它
+    （單次水量沒有上面板，想調只能手改）。手改就會有 `"weight_kg": "65"` 這種
+    多了引號的情況——JSON 讀進來是字串，`kg * 30` 就變成把字串重複 30 次，
+    然後除以 200 當場 TypeError。
+
+    這條例外炸得起來的位置很糟：`effective_target()` 在 `island.main()` 裡、
+    **建立動態島之前**被呼叫，那一行沒有任何 try。於是一個引號就讓整個程式
+    開不起來，而使用者看到的是「點了圖示什麼都沒發生」——跟程式沒裝好一樣，
+    他不會知道問題出在自己改的那個字元上。
+
+    2026-08-19 實際在沙箱重現過：寫一份 `weight_kg` 是字串的設定檔，
+    `load_config()` 過得去，下一行就死。
+
+    bool 特別擋掉：Python 的 `True` 是 `int` 的子類別，會被 `float()` 收成 1.0，
+    於是「體重 True」變成 1 公斤。那不是使用者的意思，當作沒填才對。
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
 
 def target_from_weight(kg, ml_per_drink=None):
     """體重換算每日補水次數。回傳 None 代表沒填體重。
@@ -416,16 +481,22 @@ def target_from_weight(kg, ml_per_drink=None):
 
     65kg：200cc → 7 次（原始設計）、150cc → 9 次。
     """
+    kg = _as_number(kg)
     if not kg:
         return None
-    ml = ml_per_drink or DEFAULTS["ml_per_drink_estimate"]
+    ml = _as_number(ml_per_drink) or DEFAULTS["ml_per_drink_estimate"]
     return int(clamp(round(kg * 30 * 0.7 / ml), TARGET_MIN, TARGET_MAX))
 
 
 def effective_target(cfg):
-    """實際要用的每日次數：手動覆寫 > 體重推導 > 預設。"""
+    """實際要用的每日次數：手動覆寫 > 體重推導 > 預設。
+
+    三個入口值都經過 `_as_number()`。它們全部來自 `config.json`，而這個函式
+    在建立動態島之前就會被呼叫，任何一個型別不對都會讓程式開不起來。
+    """
     if cfg.get("target_manual"):
-        return int(clamp(cfg.get("daily_target_drinks") or DEFAULTS["daily_target_drinks"],
+        manual = _as_number(cfg.get("daily_target_drinks"))
+        return int(clamp(manual or DEFAULTS["daily_target_drinks"],
                          TARGET_MIN, TARGET_MAX))
     return target_from_weight(cfg.get("weight_kg"),
                               cfg.get("ml_per_drink_estimate")) \

@@ -2459,6 +2459,11 @@ class SettingsPage(QWidget):
             f"（{'依體重推導' if not self.cfg.get('target_manual') else '手動指定'}）",
             f"提醒間隔 {self.cfg.get('interval_min')} 分鐘",
             f"崩潰紀錄 {crashlog.summary()}",
+            # 寫入健康狀態。這一行是給「紀錄怎麼少了一段」那種回報用的：
+            # 寫檔失敗會被安靜吞掉（不吞的話程式會崩潰，那更糟），所以
+            # 畫面上一切正常、資料卻沒存進去。沒有這一行就查不出來。
+            f"寫入失敗 連續 {appsettings.write_fail_streak()} 次"
+            f"{'（已示警）' if appsettings.write_trouble() else ''}",
             # 資料檔的實際狀況。使用者回報「紀錄不見了」「數字不對」的時候，
             # 第一個要分辨的是「程式讀不到檔案」還是「讀到了但算錯」——
             # 而那兩件事從畫面上長得一模一樣。

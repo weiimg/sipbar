@@ -233,13 +233,95 @@ def idle_seconds():
     return ((_kernel32.GetTickCount64() - lii.dwTime) & 0xFFFFFFFF) / 1000.0
 
 
+# 心跳的間隔，與判定「那一個已經死了」的門檻。
+#
+# 中間留了 5 拍的餘裕，這是刻意的。電腦從睡眠醒來時心跳看起來是舊的，
+# 要過一拍才會補上；餘裕太小的話，睡醒後手動開第二個就會把還活著的那一個
+# 判成死的，於是兩個一起跑、次數重複計算——那正是這把鎖當初要防的事。
+#
+# 間隔取 60 秒而不是更密，是因為 save_state() 的重試路徑裡有 time.sleep(0.03)
+# ×5，**而它跑在 UI 執行緒上**：防毒或索引服務剛好開著 handle 時，一次落檔
+# 最壞會卡 150ms。60 秒剛好是這段程式碼原本就在用的落檔頻率，
+# 也就是這個風險的曝露量沒有比先前高。判死判得快一點沒有價值——
+# 卡死是在「使用者下次啟動」時才被發現的，而那通常是幾小時之後。
+HEARTBEAT_SECONDS = 60
+STALE_AFTER_SECONDS = 300
+
+LOCK_SOLO, LOCK_RUNNING, LOCK_STALE = "solo", "running", "stale"
+
+
+def last_heartbeat_age():
+    """上一次落檔到現在幾秒。讀不到回 None。
+
+    拿 state.json 的 saved_ts 當心跳，不另外開一個檔：它本來就會被反覆覆寫，
+    而多一個檔就多一個要納入防線、要記得清掉、要在遷移時處理的東西。
+    """
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        return (datetime.now()
+                - datetime.fromisoformat(saved["saved_ts"])).total_seconds()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def lock_status(mutex_taken, age_s):
+    """鎖的狀況：只有我 / 有人在跑 / 前一個已經死了。
+
+    決策抽成純函式是為了能測。`single_instance_guard()` 會真的去建 mutex，
+    在開著 Sipbar 的機器上跑，結果會跟著環境走——那種測試驗不到東西。
+    """
+    if not mutex_taken:
+        return LOCK_SOLO
+    # 讀不到心跳（檔案不在、壞了、沒有 saved_ts）一律當作死的。鎖在、卻連一次
+    # 都沒落檔，代表那一個在寫出第一份狀態之前就卡住了——真的發生過。
+    if age_s is None:
+        return LOCK_STALE
+    # 時鐘被往回調時 age 會是負的，那會落進這裡當成「剛落檔」。這是要的：
+    # 誤判成活著只是多一個提示視窗，誤判成死掉會變成兩個一起跑。
+    if age_s < STALE_AFTER_SECONDS:
+        return LOCK_RUNNING
+    return LOCK_STALE
+
+
 def single_instance_guard():
-    """島與桌寵共用同一組資料，同時跑會讓次數重複計算，所以共用一把鎖。"""
+    """島與桌寵共用同一組資料，同時跑會讓次數重複計算，所以共用一把鎖。
+
+    **鎖在不等於那一個還活著。** 只問 mutex 在不在的話，任何一次卡死都會讓
+    程式從此打不開：mutex 活在記憶體裡，卡死的行程照樣握著它，於是後面每一次
+    啟動都安靜地結束。這件事發生過，代價是整整一天沒有任何提醒，而且使用者
+    完全沒有線索——工作管理員裡只是一個看起來正常的 Sipbar.exe。
+
+    所以要再問一句心跳。回傳 (狀況, 心跳幾秒前)。
+    """
     # 名字跟著改名走。這個 mutex 只活在記憶體裡、沒有任何東西保存它，
     # 所以不需要遷移——唯一的代價是改名後第一次啟動時，若還有一個舊版程式
     # 開著，兩者的鎖名不同會同時跑。重開一次就沒事。
     _kernel32.CreateMutexW(None, False, f"{settings.APP_NAME}SingletonMutex")
-    return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
+    taken = ctypes.get_last_error() == 183      # ERROR_ALREADY_EXISTS
+    age = last_heartbeat_age() if taken else None
+    return lock_status(taken, age), age
+
+
+def say_already_running():
+    """第二個實例要講一聲再走。
+
+    **不要靜靜結束。** 使用者點了圖示、什麼都沒發生，他不會想到「因為已經有
+    一個在跑」，他會想「這程式壞了」。而島平常是隱藏的，「它已經在跑」這件事
+    在畫面上沒有任何證據，只能由這裡補上。
+
+    用 Win32 的 MessageBox 而不是 QMessageBox：這一步在 QApplication 之前，
+    為了一句提示把整套 Qt 拉起來不划算。
+    """
+    try:
+        _user32.MessageBoxW(
+            None,
+            f"{APP_TITLE} 已經在執行中。\n\n"
+            "動態島的入口在螢幕頂端中央。",
+            APP_TITLE,
+            0x40)       # MB_OK | MB_ICONINFORMATION
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- 設定與存檔
@@ -272,33 +354,46 @@ def save_state(state):
     重試幾次仍失敗就放棄：最多丟掉一分鐘，比讓例外往上炸好。
     """
     settings.guard_real_write(STATE_PATH)
-    os.makedirs(DATA_DIR, exist_ok=True)
     tmp = STATE_PATH + ".tmp"
     try:
+        # makedirs 也要在 try 裡。它在外面的話，資料夾建不出來時例外會往上炸，
+        # 而這個函式的呼叫點全是「事情已經發生了、現在要存檔」，理由同 log_event()。
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
         for attempt in range(6):
             try:
                 os.replace(tmp, STATE_PATH)
+                settings.note_write(True)
                 return
             except PermissionError:
                 if attempt == 5:
                     raise
                 time.sleep(0.03)
     except OSError:
-        pass
+        # 吞掉例外是對的（見上面的 docstring），但不能連「發生過」都不留下來。
+        settings.note_write(False)
 
 
 def log_event(day, event, **fields):
+    """記一筆事件。**寫不進去不能往上炸。**
+
+    `os.makedirs()` 原本在 try 之外。資料夾建不出來（磁碟滿、路徑被佔、
+    權限被拿掉）時它會拋 OSError，而這個函式被呼叫的地方全都是「動作已經
+    發生了、現在要記帳」——例外往上炸就會把那個動作一起帶走。最慘的一次是
+    `drink()`：使用者按了島，次數沒加、倒數沒歸零、確認訊息也沒出現，
+    他只會以為自己沒點到。記帳失敗最多丟一行歷史，不該演變成功能壞掉。
+    """
     settings.guard_real_write(EVENTS_PATH)
-    os.makedirs(DATA_DIR, exist_ok=True)
     row = {"ts": datetime.now().isoformat(timespec="seconds"), "day": day, "event": event}
     row.update(fields)
     try:
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(EVENTS_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        settings.note_write(True)
     except OSError:
-        pass
+        settings.note_write(False)
 
 
 # ---------------------------------------------------------------- 彈簧
@@ -342,7 +437,6 @@ class Island(QWidget):
         # 累積的在電腦前時間就歸零、間隔還會重新擲一次——提醒被無限往後推，
         # 而且探頭看到的倒數會莫名其妙變多。
         self._restore_timing(saved, same_day, now)
-        self._persist_countdown = 0
         self._refresh_streak()
 
         self.sp_expand = Spring(0.0)
@@ -380,6 +474,17 @@ class Island(QWidget):
         self.tick_timer = QTimer(self)
         self.tick_timer.timeout.connect(self.tick)
         self.tick_timer.start(int(cfg["tick_seconds"] * 1000))
+
+        # 心跳。**刻意不放進 tick()**：tick 有三道 early return（暫停中、今天
+        # 已達標、離開電腦），任何一道都會讓落檔停下來。而「落檔停了」正是下一個
+        # 實例用來判斷「前一個已經死了」的依據——被 early return 擋住，一個
+        # 暫停中或已達標的程式就會被當成屍體，然後被接手，變成兩個一起跑。
+        #
+        # 它同時取代了原本 tick() 裡那段「每分鐘落檔一次」：頻率一樣，
+        # 但這裡不會漏。
+        self.beat_timer = QTimer(self)
+        self.beat_timer.timeout.connect(self._persist)
+        self.beat_timer.start(HEARTBEAT_SECONDS * 1000)
 
         self.peek_timer = QTimer(self)
         self.peek_timer.timeout.connect(self._peek_tick)
@@ -575,6 +680,11 @@ class Island(QWidget):
         使用者得開口問「多久跳一次」，就代表這個資訊沒被放進介面。
         """
         target = self.cfg["daily_target_drinks"]
+        # 存不進去的時候，倒數與連續天數都是次要的：那兩個數字會讓使用者以為
+        # 自己在累積，而實際上什麼都沒留下來。這一行要蓋過其他所有資訊，
+        # 包含暫停中——暫停是他自己按的，他知道；存不進去他不知道。
+        if settings.write_trouble():
+            return "紀錄存不進去"
         if self.paused_until:
             return f"暫停中，{self.paused_until.strftime('%H:%M')} 恢復"
         # 底下那排進度點已經表達了今天的次數，這裡就不重複——
@@ -830,11 +940,9 @@ class Island(QWidget):
             return
         self.active_s += self.cfg["tick_seconds"]
 
-        # 每分鐘落檔一次，程式意外結束最多只丟一分鐘的累積
-        self._persist_countdown += 1
-        if self._persist_countdown >= max(1, int(60 / self.cfg["tick_seconds"])):
-            self._persist_countdown = 0
-            self._persist()
+        # 落檔不在這裡做，在 beat_timer——同樣是 60 秒一次，但它不會被上面那三道
+        # early return 擋住。兩邊都寫的話會有兩個機制做同一件事，而其中一個是壞的
+        # （見 beat_timer 的註解）。
 
         weak_at = self.interval_s + self.cfg["escalate_weak_min"] * 60
         collapse_at = self.interval_s + self.cfg["escalate_collapsed_min"] * 60
@@ -932,17 +1040,29 @@ class Island(QWidget):
             "responded": responded,
             "wait_active_s": waited,
         }
-        log_event(
-            self.day, "drink",
-            from_state=self.state,
-            responded=responded,
-            wait_active_s=waited,
-            drinks=self.drinks + 1,
-            target=self.cfg["daily_target_drinks"],
-        )
+        # **狀態先改，記帳後補。** 反過來的話，記帳一旦出事就會把功能一起帶走：
+        # 次數沒加、倒數沒歸零、連確認訊息都不出現，使用者按了島什麼都沒發生，
+        # 只會以為自己沒點到，然後再按一次、再一次。2026-08-19 真的發生過。
+        #
+        # log_event() 現在已經不會往上炸了（見它的 docstring），這裡的順序是
+        # 第二道防線：哪天又有東西在記帳這條路上拋例外，使用者按的那一下
+        # 仍然算數。記帳失敗最多丟一行歷史，那和「程式壞了」不對等。
+        #
+        # from_state 要先抓起來：底下 _enter(SATISFIED) 會把 self.state 換掉，
+        # 而事件要記的是「按下去之前島在哪一級」。
+        from_state = self.state
         self.drinks += 1
         self.active_s = 0.0
         self.interval_s = self._roll_interval()
+
+        log_event(
+            self.day, "drink",
+            from_state=from_state,
+            responded=responded,
+            wait_active_s=waited,
+            drinks=self.drinks,
+            target=self.cfg["daily_target_drinks"],
+        )
         self._persist()
 
         target = self.cfg["daily_target_drinks"]
@@ -1597,7 +1717,9 @@ class Island(QWidget):
 # ---------------------------------------------------------------- 統計
 
 def main():
-    if not single_instance_guard():
+    lock, heartbeat_age = single_instance_guard()
+    if lock == LOCK_RUNNING:
+        say_already_running()
         return 0
     # 舉手：只有走到這裡的本尊可以寫真實的設定、狀態與紀錄。
     # 其他任何人（測試、臨時驗證腳本、互動式 shell）碰到真實路徑一律當場拋例外。
@@ -1607,6 +1729,13 @@ def main():
     # 留下 traceback——在此之前崩潰的話，程式還沒碰到使用者的資料，
     # 而且那種崩潰從 console 跑一次就看得到。
     crashlog.install()
+    if lock == LOCK_STALE:
+        # 前一個還握著鎖，但心跳停了——它卡在某個地方，不會自己好，接手繼續跑。
+        # 留一筆紀錄：接手成功的話畫面上什麼都不會發生，使用者不會知道，
+        # 但這是「計時為什麼從頭開始」的唯一解釋，也是同一個卡死反覆出現時
+        # 唯一的線索。crashlog 補不上這一塊——它接的是例外，而那是 hang。
+        log_event(day_key(datetime.now(), settings.DAY_ROLLOVER_HOUR), "takeover",
+                  stale_s=int(heartbeat_age) if heartbeat_age is not None else None)
     # 改名的遷移。資料夾那份在 load_config() 裡（它得先搬完才有東西可讀），
     # 自啟這份在這裡——它跟設定檔無關，而且要在使用者有機會去動開關之前做完，
     # 否則面板讀到的是「沒有自啟」，一按就寫了新的，舊的那筆從此沒人管。
