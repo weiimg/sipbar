@@ -143,4 +143,63 @@ for name, lineno, text, word, why in fails:
     print(f"       含「{word}」—— {why}")
 
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 個字串不合風格"))
-sys.exit(1 if fails else 0)
+
+# ---------------------------------------------------------------- 更新紀錄
+#
+# CHANGELOG 的規則本來只寫在它自己的開頭，沒有人守。實際的下場：
+# 全形破折號那條規則 CHANGELOG 本體 0 次違反，但**發版當下趕出來的
+# release notes 漏了一個進去**，發布之後才被讀的人看出來。
+#
+# 這裡只查兩件事，兩件都是機器查得準的：破折號與句子長度。「段落要拆幾段」
+# 那種要看內容的判斷不查，硬性規定只會逼人湊數。
+#
+# 為什麼要用機器查而不是多寫一條規則：本檔開頭那段已經回答過了。
+# 規則裡的數字最容易被忽略，尤其在趕發版的時候。
+DOC = os.path.join(ROOT, "docs", "CHANGELOG.md")
+
+# 40 字是量出來的，不是拍腦袋：改版之前那四條最長的句子是 63 字，
+# 讀起來一口氣接不完；拆過之後最長 42 字。門檻放 45 留一點餘裕，
+# 真正要擋的是 60 字以上那種。
+MAX_SENTENCE = 45
+
+doc_fails = []
+doc_text = io.open(DOC, encoding="utf-8").read()
+
+# **只查「未發布」那一段。** 已經發布的段落是歷史，回頭改它等於改寫已經送到
+# 使用者手上的說明；而這道檢查的用途是「發版之前擋下來」，那個時機就在這裡。
+# 未發布是空的時候這一段什麼都不做，那也是對的。
+head = doc_text.split("## 未發布", 1)
+pending = head[1].split("\n## ", 1)[0] if len(head) > 1 else ""
+
+for i, line in enumerate(pending.split("\n"), 1):
+    if "——" in line:
+        doc_fails.append((i, "全形破折號", line.strip()[:40]))
+
+# 句子會跨行，要先接起來再切。程式碼區塊、表格、引言不算文案。
+# **條列項目要當成斷句點**：它們通常不以句號結尾，不切的話整串會被接成
+# 一個一百多字的假句子，然後報一個不存在的問題。
+prose, in_code = [], False
+for line in pending.split("\n"):
+    s = line.strip()
+    if s.startswith("```"):
+        in_code = not in_code
+        continue
+    if in_code or s.startswith(("|", ">", "#")):
+        continue
+    prose.append("。" if re.match(r"(- |\d+\. )", s) else "")
+    prose.append(s)
+flat = re.sub(r"\s+", "", "".join(prose))
+flat = re.sub(r"\*\*|`[^`]*`|\[[^\]]*\]\([^)]*\)", "", flat)
+for sent in re.split(r"[。！？]", flat):
+    if len(sent) > MAX_SENTENCE:
+        doc_fails.append((0, f"單句 {len(sent)} 字（上限 {MAX_SENTENCE}）",
+                          sent[:34] + "…"))
+
+print(f"\n檢查 docs/CHANGELOG.md 的排版")
+for lineno, why, text in doc_fails:
+    where = f":{lineno}" if lineno else ""
+    print(f"  FAIL CHANGELOG.md{where}  {why}")
+    print(f"       「{text}」")
+print("  " + ("排版通過" if not doc_fails else f"有 {len(doc_fails)} 處要改"))
+
+sys.exit(1 if fails or doc_fails else 0)
