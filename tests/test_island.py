@@ -156,8 +156,9 @@ print("\n12. 存檔與統計")
 w._persist()
 saved = isl.load_state()
 check("存檔鍵", sorted(saved.keys()),
-      ["active_s", "day", "drinks", "interval_s", "paused_until", "saved_ts",
-       "state"])
+      # pid 不參與任何判斷，只讓「那一個沒有回應」的訊息指得出該結束哪一個
+      ["active_s", "day", "drinks", "interval_s", "paused_until", "pid",
+       "saved_ts", "state"])
 
 print("\n12b. 視窗要容得下藥丸＋擠壓＋陰影，否則圓角會被視窗邊界切掉")
 settle_springs()
@@ -789,48 +790,52 @@ print("\n29. 卡死的那一個不能讓程式從此打不開")
 # single_instance_guard() 只問「mutex 在不在」，於是之後每一次啟動都在
 # main() 第一行靜靜 return 0。使用者整天沒有任何提醒，也沒有任何線索——
 # 工作管理員裡只是一個看起來正常的 Sipbar.exe。
-check("沒有人佔著就是我的", isl.lock_status(False, None), isl.LOCK_SOLO)
-check("心跳新鮮 -> 真的有一個在跑", isl.lock_status(True, 5.0), isl.LOCK_RUNNING)
-check("心跳停很久 -> 那一個已經死了", isl.lock_status(True, 8 * 3600), isl.LOCK_STALE)
-# 事故當天就是這一格：鎖在，但它連第一份狀態都還沒寫出來就卡住了
-check("完全讀不到心跳 -> 也算死了", isl.lock_status(True, None), isl.LOCK_STALE)
-# 時鐘被往回調時 age 會是負的。寧可誤判成活著：多一個提示視窗，
-# 總好過兩個一起跑、把次數算兩遍
-check("時鐘倒退 -> 寧可當成活著", isl.lock_status(True, -30.0), isl.LOCK_RUNNING)
-check("門檻前一秒還算活著",
-      isl.lock_status(True, isl.STALE_AFTER_SECONDS - 1), isl.LOCK_RUNNING)
-check("到門檻就算死了",
-      isl.lock_status(True, isl.STALE_AFTER_SECONDS), isl.LOCK_STALE)
-# 心跳與判死門檻之間要留餘裕。睡眠醒來時心跳看起來是舊的，要過一拍才補上；
-# 餘裕不夠就會把剛睡醒、還活著的那一個判成屍體，於是兩個一起跑。
-check("判死門檻至少留 3 拍餘裕",
-      isl.STALE_AFTER_SECONDS >= isl.HEARTBEAT_SECONDS * 3, True)
+# 修法用兩件工具，缺一不可：**mutex 排他，本機管線問活性**。
+# 只用管線是不夠的——實測過，Windows 上兩個行程可以開同一個管線名字，
+# 兩邊都會拿到「我是第一個」。那個坑是寫這一節之前先撞到的。
+_SI = isl.SingleInstance
+_lk_a = _SI("sipbar-test-single-%d" % os.getpid())
+check("沒有人佔著 -> 我是本尊", _lk_a.claim(), _SI.MINE)
 
-# 心跳必須有自己的計時器。**不能放進 tick()**——tick 有三道 early return
-# （暫停中、今天已達標、離開電腦），任何一道都會讓落檔停下來，於是一個
-# 暫停中或已達標的程式會被下一個實例當成屍體接手。
-# 要驗「島一建出來心跳就在跑」，就不能用 fresh()——它為了測試穩定會把心跳停掉。
+# 第二個實例：mutex 拿不到，管線連得上但沒有人在另一端讀（因為這個行程的
+# 事件迴圈沒在跑）——那正是 Windows 上一個卡死的行程呈現的樣子。
+# **判成沒有回應，而不是接手。** 接手等於在一台已經有狀況的機器上再疊一個實例。
+_to_save = (isl.CONNECT_TIMEOUT_MS, isl.ANSWER_TIMEOUT_MS)
+isl.CONNECT_TIMEOUT_MS, isl.ANSWER_TIMEOUT_MS = 200, 300   # 測試不必等滿 4 秒
+check("佔著位子卻不回話 -> 判定沒有回應，不接手",
+      _SI(_lk_a.name).claim(), _SI.UNRESPONSIVE)
+isl.CONNECT_TIMEOUT_MS, isl.ANSWER_TIMEOUT_MS = _to_save
+
+# 「請既有的實例現身」需要對方的事件迴圈在跑，同一個行程驗不到。
+# 那條路徑用真的兩個行程驗過：holder 回報 mine 並收到現身請求，
+# 第二個行程拿到 handed-off；holder 改成不跑事件迴圈時則是 unresponsive（4 秒）。
+check("現身的處理器可以後掛（島還沒建好時來敲門的一樣要收到回話）",
+      (_lk_a.set_show_handler(lambda: None), _lk_a._on_show is not None)[1], True)
+
+# 落檔要記下行程編號。「那一個沒有回應」的訊息靠它告訴使用者該結束哪一個，
+# 不然叫人去工作管理員等於叫他自己猜。
+_lock_w = fresh()                # 之後手動控制落檔，免得計時器在測試中途自己跳
+_lock_w._persist()
+check("落檔會記下行程編號", isl.load_state().get("pid"), os.getpid())
+check("讀得回來", isl._saved_pid(), os.getpid())
+
+# 定期落檔必須有自己的計時器。**不能放回 tick()**——tick 有三道 early return
+# （暫停中、今天已達標、離開電腦），任何一道都會讓落檔停下來，於是暫停一整個
+# 下午之後意外關掉，那個下午的累積就回不來了。
+# 要驗「島一建出來就在跑」就不能用 fresh()，它為了測試穩定會把它停掉。
 _beat_probe = isl.Island(dict(cfg))
-check("心跳有自己的計時器且在跑", _beat_probe.beat_timer.isActive(), True)
-check("心跳間隔就是 HEARTBEAT_SECONDS",
-      _beat_probe.beat_timer.interval(), isl.HEARTBEAT_SECONDS * 1000)
+check("落檔有自己的計時器且在跑", _beat_probe.beat_timer.isActive(), True)
+check("落檔間隔就是 PERSIST_SECONDS",
+      _beat_probe.beat_timer.interval(), isl.PERSIST_SECONDS * 1000)
 _beat_probe.tick_timer.stop(); _beat_probe.frame.stop()
 _beat_probe.hold_timer.stop(); _beat_probe.peek_timer.stop()
 _beat_probe.beat_timer.stop()
 
-_lock_w = fresh()                # 之後手動控制落檔，免得心跳在測試中途自己跳
-
-# 走一次真的檔案，確認 last_heartbeat_age() 讀得到、而且接得上判斷
-_lock_w._persist()
-check("剛落檔 -> 判定為有人在跑",
-      isl.lock_status(True, isl.last_heartbeat_age()), isl.LOCK_RUNNING)
-_stale = isl.load_state()
-_stale["saved_ts"] = (datetime.now() - timedelta(hours=8)).isoformat(timespec="seconds")
-isl.save_state(_stale)
-check("八小時前的心跳 -> 判定為死了（事故當天的情境）",
-      isl.lock_status(True, isl.last_heartbeat_age()), isl.LOCK_STALE)
-
-# 暫停中 tick 會 early return，所以落檔絕不能只掛在 tick 上
+# 暫停中 tick 會 early return，所以落檔絕不能只掛在 tick 上。
+# 先把存檔時間推到很久以前，否則整段測試跑在同一秒內，「有沒有更新」比不出來。
+_old = isl.load_state()
+_old["saved_ts"] = "2020-01-01T00:00:00"
+isl.save_state(_old)
 _before = isl.load_state()["saved_ts"]
 _lock_w.paused_until = datetime.now() + timedelta(hours=2)
 for _ in range(30):
@@ -890,16 +895,39 @@ print("\n31. 寫檔失敗不能繼續無聲")
 # 整整 3.5 小時。使用者不會發現（畫面上一切正常），不發現就不會回報，
 # 於是這種災情永遠不會有人知道。吞掉例外是對的，但不能連「發生過」都不留。
 _st = isl.settings
-_st.note_write(True)                 # 先歸零，免得被前面的段落污染
+
+
+def _reset_writes():
+    for _k in ("config", "state", "events"):
+        _st.note_write(_k, True)
+
+
+_reset_writes()
 check("一開始沒有問題", _st.write_trouble(), False)
 for _ in range(_st.WRITE_FAIL_THRESHOLD - 1):
-    _st.note_write(False)
+    _st.note_write("events", False)
 # 偶發失敗很常見（防毒會在檔案剛寫完時開掃描用的 handle），第一次就喊會變狼來了
 check("還沒到門檻不出聲", _st.write_trouble(), False)
-_st.note_write(False)
+_st.note_write("events", False)
 check("連續失敗到門檻就示警", _st.write_trouble(), True)
-_st.note_write(True)
-check("成功一次就歸零", _st.write_trouble(), False)
+check("而且說得出是哪一個檔案", _st.failing_writes(), ["events"])
+_st.note_write("events", True)
+check("那個檔案恢復就不再示警", _st.write_trouble(), False)
+
+# **這一條是整節的重點。** 第一版用一個共用的計數器，任何一次成功就歸零，
+# 於是「只有 events.jsonl 壞掉」永遠達不到門檻：drink() 是記錄緊接著存檔，
+# 記錄失敗的下一行就被存檔的成功抹掉；就算不補水，定期落檔每 60 秒也會抹一次。
+# 實測過的後果：連按十次補水，十筆全部遺失，計數器從頭到尾 0、島上顯示已達標。
+# 而那正是 CHANGELOG 拿來當例子的情境（檔案被雲端同步或防毒單獨鎖住）。
+_reset_writes()
+for _ in range(_st.WRITE_FAIL_THRESHOLD * 4):
+    _st.note_write("events", False)
+    _st.note_write("state", True)          # 另外兩個一直是好的，模擬單檔被鎖住
+    _st.note_write("config", True)
+check("只有紀錄檔壞掉時照樣示警（共用計數器會漏掉這個）",
+      _st.write_trouble(), True)
+check("而且指得出是紀錄檔", _st.failing_writes(), ["events"])
+_reset_writes()
 
 # 真的讓寫檔失敗，確認計數器接得上——不能只有計數函式自己會動
 _dd2, _evp2 = isl.DATA_DIR, isl.EVENTS_PATH
@@ -910,16 +938,23 @@ for _ in range(_st.WRITE_FAIL_THRESHOLD):
 check("log_event 真的寫不進去時會被數到", _st.write_trouble(), True)
 isl.DATA_DIR, isl.EVENTS_PATH = _dd2, _evp2
 
-# 島上要說得出口。而且要蓋過「暫停中」——暫停是使用者自己按的，他知道；
-# 存不進去他不知道，所以那一則比較急。
+# 島上兩條路徑都要說得出口。
 # 先建島再製造失敗：Island.__init__ 最後會落檔一次，成功的話計數就歸零了
 _w31 = fresh()
+_reset_writes()
 _w31.paused_until = datetime.now() + timedelta(hours=2)
 for _ in range(_st.WRITE_FAIL_THRESHOLD):
-    _st.note_write(False)
-check("島上的說明改成示警", _w31._status_sub(), "紀錄存不進去")
-_st.note_write(True)
-check("恢復之後不再示警", "紀錄存不進去" in _w31._status_sub(), False)
+    _st.note_write("events", False)
+# 探頭看到的那一行。示警要蓋過「暫停中」——暫停是使用者自己按的，他知道；
+# 存不進去他不知道，所以那一則比較急。
+check("探頭時說得出來", _w31._status_sub(), "紀錄存不進去")
+# **島真的掛在畫面上時走的是另一條分支。** 那才是使用者唯一會盯著看的時候，
+# 而底下那個「今天 N/M 次」在存不進去的時候是假的。
+check("島跳出來時也說得出來", _w31._reminding_sub(), "紀錄存不進去")
+_reset_writes()
+check("恢復之後兩條都不再示警",
+      ("紀錄存不進去" in _w31._status_sub(),
+       "紀錄存不進去" in _w31._reminding_sub()), (False, False))
 _w31.paused_until = None
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")

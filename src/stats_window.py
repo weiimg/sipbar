@@ -2462,8 +2462,11 @@ class SettingsPage(QWidget):
             # 寫入健康狀態。這一行是給「紀錄怎麼少了一段」那種回報用的：
             # 寫檔失敗會被安靜吞掉（不吞的話程式會崩潰，那更糟），所以
             # 畫面上一切正常、資料卻沒存進去。沒有這一行就查不出來。
+            # 要講得出是**哪一個**檔案在失敗。只報一個次數的話，回報者只能說
+            # 「紀錄好像不見了」，而設定、狀態、紀錄三個檔壞掉的症狀完全不同。
             f"寫入失敗 連續 {appsettings.write_fail_streak()} 次"
-            f"{'（已示警）' if appsettings.write_trouble() else ''}",
+            + (f"（{'、'.join(appsettings.failing_writes())} 已示警）"
+               if appsettings.write_trouble() else ""),
             # 資料檔的實際狀況。使用者回報「紀錄不見了」「數字不對」的時候，
             # 第一個要分辨的是「程式讀不到檔案」還是「讀到了但算錯」——
             # 而那兩件事從畫面上長得一模一樣。

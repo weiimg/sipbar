@@ -398,23 +398,43 @@ def load_config():
 # 三分鐘存不進去才會出聲，短暫的干擾不會變成狼來了。
 WRITE_FAIL_THRESHOLD = 3
 
-_write_fail_streak = 0
+# **每個檔案各記一份，不能共用一個計數器。**
+#
+# 第一版是共用的，任何一次成功就歸零——那讓它偵測不到最可能發生的那種故障。
+# events.jsonl 被雲端同步或防毒單獨鎖住時：drink() 是 log_event() 緊接著存檔，
+# 記錄失敗的下一行就被存檔的成功抹掉；就算不補水，定期落檔每 60 秒也會抹一次。
+# 於是「一整天的補水一筆都沒寫進去」在畫面上完全看不出來，而那正是要修的災情。
+#
+# 這件事實測過：把 events.jsonl 設成唯讀、其他一切正常，連按十次補水，
+# 十筆全部遺失，而計數器從頭到尾是 0、島上顯示「今天已達標」。
+#
+# 而且 events.jsonl 特別容易單獨失敗：save_state() 會重試六次把暫時性干擾濾掉，
+# log_event() 是直接 append、零重試。最脆弱的那個偏偏是共用計數器看不見的。
+_write_fail_streaks = {}
 
 
-def note_write(ok):
-    """每次寫使用者資料之後回報成敗。成功就把連續失敗歸零。"""
-    global _write_fail_streak
-    _write_fail_streak = 0 if ok else _write_fail_streak + 1
+def note_write(kind, ok):
+    """每次寫使用者資料之後回報成敗。kind 是 config / state / events。"""
+    _write_fail_streaks[kind] = 0 if ok else _write_fail_streaks.get(kind, 0) + 1
 
 
 def write_trouble():
-    """紀錄是不是已經連續存不進去了。介面拿它決定要不要示警。"""
-    return _write_fail_streak >= WRITE_FAIL_THRESHOLD
+    """**任何一個**檔案連續存不進去就算有問題。介面拿它決定要不要示警。"""
+    return any(n >= WRITE_FAIL_THRESHOLD for n in _write_fail_streaks.values())
 
 
-def write_fail_streak():
-    """連續失敗幾次。診斷資訊要附這個，否則回報者說不清楚壞得多嚴重。"""
-    return _write_fail_streak
+def failing_writes():
+    """哪些檔案正在連續失敗。診斷資訊要講得出是哪一個，不然回報者只能說
+    「紀錄好像不見了」，而那句話沒辦法縮小範圍。"""
+    return sorted(k for k, n in _write_fail_streaks.items()
+                  if n >= WRITE_FAIL_THRESHOLD)
+
+
+def write_fail_streak(kind=None):
+    """連續失敗幾次。不指定 kind 就回傳最嚴重的那一個。"""
+    if kind is not None:
+        return _write_fail_streaks.get(kind, 0)
+    return max(_write_fail_streaks.values(), default=0)
 
 
 def save_config(cfg):
@@ -426,10 +446,10 @@ def save_config(cfg):
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
         os.replace(tmp, CONFIG_PATH)
-        note_write(True)
+        note_write("config", True)
         return True
     except OSError:
-        note_write(False)
+        note_write("config", False)
         return False
 
 
