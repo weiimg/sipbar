@@ -53,6 +53,19 @@ python tests/test_island.py && python tests/test_streak.py && python tests/test_
 
 ## 四、建置
 
+**建置之前先把跑著的 Sipbar 關掉，包含從原始碼跑的那種。**
+
+沒關的話 PyInstaller 會在清理暫存目錄時失敗，訊息長這樣：
+
+```
+PermissionError: [WinError 5] 存取被拒。: ...\build\onedir\Sipbar\localpycs
+FAIL PyInstaller 失敗（onedir）
+```
+
+那個 `localpycs` 是 PyInstaller 這一輪自己剛建出來、然後刪不掉的，
+所以看起來像殘留檔案的問題——**手動刪掉 `build/` 與 `dist/` 再跑一次沒有用，
+會停在同一個地方**。2026-08-20 發 0.10.1 時卡在這裡三次才找到原因。
+
 ```bash
 python tools/build_exe.py
 ```
