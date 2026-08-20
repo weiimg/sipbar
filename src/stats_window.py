@@ -2465,8 +2465,8 @@ class SettingsPage(QWidget):
             # 要講得出是**哪一個**檔案在失敗。只報一個次數的話，回報者只能說
             # 「紀錄好像不見了」，而設定、狀態、紀錄三個檔壞掉的症狀完全不同。
             f"寫入失敗 連續 {appsettings.write_fail_streak()} 次"
-            + (f"（{'、'.join(appsettings.failing_writes())} 已示警）"
-               if appsettings.write_trouble() else ""),
+            + (f"（{'、'.join(appsettings.failing_writes())}）"
+               if appsettings.failing_writes() else ""),
             # 資料檔的實際狀況。使用者回報「紀錄不見了」「數字不對」的時候，
             # 第一個要分辨的是「程式讀不到檔案」還是「讀到了但算錯」——
             # 而那兩件事從畫面上長得一模一樣。

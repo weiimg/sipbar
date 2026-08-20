@@ -156,9 +156,8 @@ print("\n12. 存檔與統計")
 w._persist()
 saved = isl.load_state()
 check("存檔鍵", sorted(saved.keys()),
-      # pid 不參與任何判斷，只讓「那一個沒有回應」的訊息指得出該結束哪一個
-      ["active_s", "day", "drinks", "interval_s", "paused_until", "pid",
-       "saved_ts", "state"])
+      ["active_s", "day", "drinks", "interval_s", "paused_until", "saved_ts",
+       "state"])
 
 print("\n12b. 視窗要容得下藥丸＋擠壓＋陰影，否則圓角會被視窗邊界切掉")
 settle_springs()
@@ -785,39 +784,35 @@ check("記過之後選單才有這一項",
 
 isl.EVENTS_PATH = _ev_save
 
-print("\n29. 卡死的那一個不能讓程式從此打不開")
-# 這一節對應真的發生過的事故：一支卡死的行程握著 mutex 八小時，而舊的
-# single_instance_guard() 只問「mutex 在不在」，於是之後每一次啟動都在
-# main() 第一行靜靜 return 0。使用者整天沒有任何提醒，也沒有任何線索——
-# 工作管理員裡只是一個看起來正常的 Sipbar.exe。
-# 修法用兩件工具，缺一不可：**mutex 排他，本機管線問活性**。
-# 只用管線是不夠的——實測過，Windows 上兩個行程可以開同一個管線名字，
-# 兩邊都會拿到「我是第一個」。那個坑是寫這一節之前先撞到的。
-_SI = isl.SingleInstance
-_lk_a = _SI("sipbar-test-single-%d" % os.getpid())
-check("沒有人佔著 -> 我是本尊", _lk_a.claim(), _SI.MINE)
+print("\n29. 第二個實例不能靜靜消失")
+# 事故：一支卡死的行程握著 mutex 八小時，而 main() 第一行 `return 0` 靜靜結束。
+# 使用者整天沒有提醒，也沒有任何線索——工作管理員裡只是一個看起來正常的
+# Sipbar.exe。**真正的傷害是「什麼都沒發生」，不是「打不開」。**
+#
+# 這裡刻意**不驗活性判斷**，因為程式刻意不做活性判斷。兩種判法都寫過也都
+# 退掉了（心跳、本機管線），兩種都會在啟動那幾百毫秒內把一個健康的實例
+# 判成屍體——理由寫在 single_instance_guard() 的 docstring，那段是這個決定
+# 唯一的紀錄，動它之前先讀。
+#
+# 所以這一節驗的是：鎖還在、而且**話有講出來**。
+# 用自己的鎖名，**絕對不要碰真實的那把**：機器上開著 Sipbar 是常態，
+# 搶真實的鎖會讓這一節必定失敗，而且測試跑的那幾秒真的 Sipbar 會啟動不了。
+_LKN = "SipbarTestLock-%d" % os.getpid()
+check("沒有人佔著時拿得到", isl.single_instance_guard(_LKN), True)
+check("已經有人佔著就拿不到", isl.single_instance_guard(_LKN), False)
 
-# 第二個實例：mutex 拿不到，管線連得上但沒有人在另一端讀（因為這個行程的
-# 事件迴圈沒在跑）——那正是 Windows 上一個卡死的行程呈現的樣子。
-# **判成沒有回應，而不是接手。** 接手等於在一台已經有狀況的機器上再疊一個實例。
-_to_save = (isl.CONNECT_TIMEOUT_MS, isl.ANSWER_TIMEOUT_MS)
-isl.CONNECT_TIMEOUT_MS, isl.ANSWER_TIMEOUT_MS = 200, 300   # 測試不必等滿 4 秒
-check("佔著位子卻不回話 -> 判定沒有回應，不接手",
-      _SI(_lk_a.name).claim(), _SI.UNRESPONSIVE)
-isl.CONNECT_TIMEOUT_MS, isl.ANSWER_TIMEOUT_MS = _to_save
+# 訊息要一句涵蓋兩種情況：好好跑著的話講入口在哪，卡住的話講怎麼處理。
+# 程式不分辨是哪一種，所以兩句都必須在。
+_msg = []
+_mb_save = isl._message_box
+isl._message_box = lambda t: _msg.append(t)
+isl.say_already_running()
+isl._message_box = _mb_save
+check("訊息真的送出去了（不是靜靜結束）", len(_msg), 1)
+check("有講入口在哪", "螢幕頂端中央" in _msg[0], True)
+check("也有講沒反應時怎麼辦", "工作管理員" in _msg[0], True)
 
-# 「請既有的實例現身」需要對方的事件迴圈在跑，同一個行程驗不到。
-# 那條路徑用真的兩個行程驗過：holder 回報 mine 並收到現身請求，
-# 第二個行程拿到 handed-off；holder 改成不跑事件迴圈時則是 unresponsive（4 秒）。
-check("現身的處理器可以後掛（島還沒建好時來敲門的一樣要收到回話）",
-      (_lk_a.set_show_handler(lambda: None), _lk_a._on_show is not None)[1], True)
-
-# 落檔要記下行程編號。「那一個沒有回應」的訊息靠它告訴使用者該結束哪一個，
-# 不然叫人去工作管理員等於叫他自己猜。
 _lock_w = fresh()                # 之後手動控制落檔，免得計時器在測試中途自己跳
-_lock_w._persist()
-check("落檔會記下行程編號", isl.load_state().get("pid"), os.getpid())
-check("讀得回來", isl._saved_pid(), os.getpid())
 
 # 定期落檔必須有自己的計時器。**不能放回 tick()**——tick 有三道 early return
 # （暫停中、今天已達標、離開電腦），任何一道都會讓落檔停下來，於是暫停一整個

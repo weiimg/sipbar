@@ -418,9 +418,24 @@ def note_write(kind, ok):
     _write_fail_streaks[kind] = 0 if ok else _write_fail_streaks.get(kind, 0) + 1
 
 
+# 島上那句示警只講「紀錄」，所以只有這兩個檔案該讓它出聲。
+#
+# **config.json 刻意不算在內**，兩個理由：
+#   - 它只在使用者動設定時才寫，沒有任何定期寫入可以把計數歸零。一旦踩到門檻
+#     （設定頁的時間步進器滾一下滾輪就送出好幾次存檔，很容易踩到），示警就會
+#     掛著一整個 session 不走，還蓋掉「暫停中」與倒數。示警不會消失等於沒有示警：
+#     使用者學會無視它，等到真的掉紀錄那天它已經沒有意義了。
+#   - 設定存不進去是**看得見的**：下次打開設定頁就會發現值退回去了。
+#     而紀錄存不進去完全看不見，那才是這道示警存在的理由。
+#
+# 它仍然被計數，診斷資訊看得到。
+RECORD_FILES = ("state", "events")
+
+
 def write_trouble():
-    """**任何一個**檔案連續存不進去就算有問題。介面拿它決定要不要示警。"""
-    return any(n >= WRITE_FAIL_THRESHOLD for n in _write_fail_streaks.values())
+    """紀錄是不是連續存不進去了。介面拿它決定要不要示警。"""
+    return any(_write_fail_streaks.get(k, 0) >= WRITE_FAIL_THRESHOLD
+               for k in RECORD_FILES)
 
 
 def failing_writes():

@@ -233,8 +233,8 @@ def idle_seconds():
     return ((_kernel32.GetTickCount64() - lii.dwTime) & 0xFFFFFFFF) / 1000.0
 
 
-# 落檔的間隔。這是純粹的存檔節奏，**不再兼任「還活著嗎」的訊號**（見
-# SingleInstance 的 docstring）。
+# 落檔的間隔。純粹的存檔節奏，**不兼任任何「還活著嗎」的訊號**——
+# 拿存檔當活性訊號試過，失敗了，理由見 single_instance_guard() 的 docstring。
 #
 # 取 60 秒而不是更密，是因為 save_state() 的重試路徑裡有 time.sleep(0.03) ×5，
 # **而它跑在 UI 執行緒上**：防毒或索引服務剛好開著 handle 時，一次落檔最壞
@@ -242,197 +242,70 @@ def idle_seconds():
 PERSIST_SECONDS = 60
 
 # 本機管線的名字。跟著 APP_NAME 走，改名時自然分家。
-LOCK_NAME = f"{settings.APP_NAME}-single-instance"
-
-# 連上之後等回話多久。給得寬鬆：判斷錯的代價是對一個健康的程式宣告它壞了，
-# 而使用者當下正站在螢幕前等畫面出現。機器在重載下慢個兩三秒是常態。
-CONNECT_TIMEOUT_MS = 1500
-ANSWER_TIMEOUT_MS = 4000
-
 
 def _message_box(text):
-    """Win32 的提示視窗。失敗就算了，它只是個提示，不值得讓啟動掛掉。"""
+    """Win32 的提示視窗。失敗就算了，它只是個提示，不值得讓啟動掛掉。
+
+    用 Win32 而不是 QMessageBox：這一步在 QApplication 之前，
+    為了一句提示把整套 Qt 拉起來不划算。
+    """
     try:
         _user32.MessageBoxW(None, text, APP_TITLE, 0x40)   # MB_OK | MB_ICONINFO
     except OSError:
         pass
 
 
-def _saved_pid():
-    """上一次落檔時記下的行程編號。讀不到回 None。
+def single_instance_guard(name=None):
+    """島與桌寵共用同一組資料，同時跑會讓次數重複計算，所以共用一把鎖。
 
-    只拿來寫進「那一個沒有回應」的訊息裡，讓使用者在工作管理員找得到正確的
-    那一個。**不拿它去砍行程**——編號會被作業系統回收，砍錯的是無辜的程式。
+    **這裡刻意不判斷「那一個還活著嗎」。**
+
+    真的試過兩種判法，兩種都自己長出新的問題，而且是同一類的：
+    把一個健康的實例判成屍體。
+
+      - 用心跳猜（定期蓋時間戳，第二個看那個戳有多舊）：冷啟動時戳記還停在
+        上次關機的時間、睡眠醒來時戳記年齡等於睡了多久、寫檔壞掉時戳記的來源
+        就是那個正在失敗的寫入。三種都必然誤判，而誤判的結果是接手，
+        於是兩個一起跑、次數重複計算。
+      - 用管線問（第二個連上去喊一聲，等回話）：回話能力要等程式進入事件迴圈
+        才存在，而啟動有一段幾百毫秒沒有事件迴圈。這段期間第二次啟動會判定
+        一個正在正常啟動的程式卡死了，然後叫使用者去把它結束掉。
+
+    **問題不在哪一種判法做得不夠好，在於「判斷它是死是活」這件事本身
+    在啟動這個時間點上做不可靠。** 兩次嘗試都是在原本的災情之上疊新的災情。
+
+    所以退回最單純的做法：只問「有沒有人佔著」，然後**把兩種可能都講給
+    使用者聽**。訊息同時涵蓋「它好好的，入口在這裡」與「它沒反應，這樣處理」，
+    於是不需要分辨是哪一種——而分辨正是所有問題的來源。
+
+    原本真正的傷害是「點了圖示什麼都沒發生、完全沒有線索」。那由訊息解決了。
+    剩下的代價是卡死時要自己動手結束它，重開機也會好。
     """
-    try:
-        with open(STATE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f).get("pid")
-    except (OSError, ValueError, AttributeError):
-        return None
+    # 名字跟著改名走。這個 mutex 只活在記憶體裡、沒有任何東西保存它，
+    # 所以不需要遷移——唯一的代價是改名後第一次啟動時，若還有一個舊版程式
+    # 開著，兩者的鎖名不同會同時跑。重開一次就沒事。
+    #
+    # name 可以覆寫，**只給測試用**。不開這個口的話，跑測試等於去搶真實的鎖：
+    # 系統匣裡開著 Sipbar（那是這支常駐程式的正常狀態）測試就會失敗，
+    # 而測試跑的那幾秒真的 Sipbar 又會啟動不了。正式呼叫端一律不要傳。
+    _kernel32.CreateMutexW(None, False, name or f"{settings.APP_NAME}SingletonMutex")
+    return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
 
 
-class SingleInstance:
-    """同時只准一個 Sipbar 在跑。**用問的，不用猜的。**
+def say_already_running():
+    """第二個實例要講一聲再走。**不要靜靜結束。**
 
-    島與桌寵共用同一組資料，兩個一起跑會讓次數重複計算，所以需要這道關卡。
-
-    ## 為什麼不用心跳
-
-    前一版是猜：程式定期在 state.json 蓋一個時間戳，第二個實例去看那個戳有多舊。
-    猜錯的代價是兩個一起跑，而它有三種必然猜錯的時候：
-
-      - **冷啟動。** 取得鎖是啟動的第一件事，寫出第一個戳記卻要等到島建好，
-        中間隔著載設定、開 QApplication、載字體、掃整份紀錄、建系統匣。那段時間
-        戳記還停在上次關機的時間，任何第二次啟動都會把一個健康的程式判成屍體。
-        全新安裝更糟：連 state.json 都還不存在，直接無條件判死。
-      - **睡眠醒來。** 戳記的年齡等於睡了多久，不是一拍。加大門檻解不掉，
-        因為睡多久沒有上限。
-      - **寫檔壞掉。** 戳記的來源就是那個正在失敗的寫入，於是「存不進去」
-        跟「卡死了」在這個判斷裡長得一模一樣。
-
-    ## 改成兩件工具各做一件事
-
-    **mutex 負責排他，管線負責問活性。** 兩個都要，缺一不可：
-
-      - mutex 可靠地回答「有沒有人佔著位子」，但它答不出「那個還活著嗎」
-      - 管線可靠地回答「那個還活著嗎」，但它**在 Windows 上不排他**——
-        實測過，兩個行程可以開同一個管線名字，兩邊都會以為自己是第一個。
-        （Qt 沒有用 FILE_FLAG_FIRST_PIPE_INSTANCE，而多實例的具名管線
-        本來就是合法的，那是伺服器同時服務多個客戶端的正常用法。）
-
-    於是流程是：
-
-      - **拿得到 mutex** → 沒有人在 → 開管線等著，自己當第一個
-      - **拿不到，而對方有回話** → 那個活著 → 請它把島叫出來，自己安靜退場
-      - **拿不到，而對方不回話** → 那個卡死了 → 講清楚再退場
-
-    活性的判斷沒有任何時間比對，所以冷啟動、睡眠、時鐘校正都影響不到它。
-
-    「連得上卻不回話」是 Windows 特有的：行程卡死之後作業系統仍會幫它接通管線，
-    但沒有人在另一端讀。所以判斷一定要看**有沒有回話**，不能只看有沒有接通。
-
-    ## 卡死時為什麼不接手
-
-    接手等於在一台已經有狀況的機器上再疊一個實例，兩邊搶著寫同一份狀態。
-    原本那個 bug 真正的傷害是「什麼都沒發生、使用者毫無線索」——那由訊息解決。
-    自動接手解決的是另一件事，而它帶進來的風險比它解決的大。
-    """
-
-    PING = b"SHOW\n"
-    PONG = b"OK\n"
-
-    MINE = "mine"                 # 我是本尊，繼續跑
-    HANDED_OFF = "handed-off"     # 已經有一個活著，請它現身了，我退場
-    UNRESPONSIVE = "unresponsive" # 有一個佔著位子但不回話，講一聲再退場
-
-    def __init__(self, name=None):
-        self.name = name or LOCK_NAME
-        self._server = None
-        self._on_show = None
-        self._mutex = None
-
-    def claim(self):
-        """回傳 MINE / HANDED_OFF / UNRESPONSIVE。
-
-        **訊息不在這裡跳**，交給呼叫端。這個判斷必須能被測，而一個 modal
-        對話框會讓測試整支卡在那裡等人按確定。
-        """
-        if self._take_mutex():
-            # 排他拿到了，緊接著開管線。兩行之間的空隙是微秒等級，
-            # 所以「有人佔著位子卻還沒開管線」這個狀態幾乎不存在。
-            self._listen()
-            return self.MINE
-
-        answer = self._ask_existing()
-        if answer == "answered":
-            return self.HANDED_OFF            # 島已經被叫出來了，那就是回饋
-        if answer == "absent":
-            # 連不上有兩種可能：對方正好卡在上面那個微秒空隙，或它是還不會說
-            # 這套協定的舊版。給一次重試把前者濾掉，剩下的當作沒有回應——
-            # **不接手**，理由見類別開頭。
-            time.sleep(0.3)
-            if self._ask_existing() == "answered":
-                return self.HANDED_OFF
-        return self.UNRESPONSIVE
-
-    def _take_mutex(self):
-        """拿排他鎖。回傳 True 代表這台機器上目前只有我。
-
-        名字沿用舊版，**刻意不改**：升級的那一刻若舊版還開著，兩者的鎖名相同
-        才擋得住同時跑。改名的話升級當下會有兩個一起跑、次數重複計算。
-        """
-        self._mutex = _kernel32.CreateMutexW(
-            None, False, f"{settings.APP_NAME}SingletonMutex")
-        return ctypes.get_last_error() != 183       # ERROR_ALREADY_EXISTS
-
-    def set_show_handler(self, fn):
-        """島建好之後才接得上。在那之前來敲門的一樣會收到回話——
-
-        **回話跟現身是兩件事。** 還在啟動的程式是活著的，該回話；
-        它只是還沒有島可以叫出來。把兩者綁在一起的話，啟動期間來敲門的人
-        會收到「沒有回應」，然後使用者就被告知一個好好的程式壞掉了。
-        """
-        self._on_show = fn
-
-    # ------------------------------------------------------------ 內部
-
-    def _listen(self):
-        from PySide6.QtNetwork import QLocalServer
-
-        server = QLocalServer()
-        # 只讓同一個使用者連得上，別人的 session 碰不到這條管線。
-        server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
-        if not server.listen(self.name):
-            return False
-        server.newConnection.connect(self._on_knock)
-        self._server = server                 # 要留著，不然會被回收
-        return True
-
-    def _ask_existing(self):
-        """連上既有的實例並請它現身。回傳 answered / silent / absent。"""
-        from PySide6.QtNetwork import QLocalSocket
-
-        sock = QLocalSocket()
-        sock.connectToServer(self.name)
-        if not sock.waitForConnected(CONNECT_TIMEOUT_MS):
-            return "absent"
-        try:
-            sock.write(self.PING)
-            sock.flush()
-            if (sock.waitForReadyRead(ANSWER_TIMEOUT_MS)
-                    and self.PONG in bytes(sock.readAll().data())):
-                return "answered"
-            return "silent"
-        finally:
-            sock.disconnectFromServer()
-
-    def _on_knock(self):
-        sock = self._server.nextPendingConnection()
-        if sock is not None:
-            sock.readyRead.connect(lambda: self._reply(sock))
-
-    def _reply(self, sock):
-        if self.PING not in bytes(sock.readAll().data()):
-            return
-        # **先回話再現身。** 現身會啟動一段動畫，對方還在倒數等回應；
-        # 順序反過來的話，一個好好的程式會因為忙著跑動畫而被判成沒有回應。
-        sock.write(self.PONG)
-        sock.flush()
-        if self._on_show:
-            self._on_show()
-
-def say_unresponsive():
-    """佔著位子卻不回話的時候，講清楚再退場。
-
-    **不要靜靜結束。** 使用者點了圖示、什麼都沒發生，他不會想到「有一個卡死的
-    還佔著」，他會想「這程式壞了」。舊版就是這樣讓人整整一天沒有提醒，
+    使用者點了圖示、什麼都沒發生，他不會想到「因為已經有一個在跑」，
+    他會想「這程式壞了」。舊版就是這樣讓人整整一天沒有提醒，
     而工作管理員裡只是一個看起來正常的 Sipbar.exe。
+
+    **一句話涵蓋兩種情況**：好好跑著的話，第一句告訴他入口在哪；
+    卡住不動的話，第二句告訴他怎麼處理。程式不必分辨是哪一種。
     """
-    pid = _saved_pid()
-    tail = f"（行程編號 {pid}）" if pid else ""
     _message_box(
-        f"{APP_TITLE} 已經在執行中，但沒有回應。\n\n"
-        f"請在工作管理員結束 {APP_TITLE}{tail} 之後重新開啟。")
+        f"{APP_TITLE} 已經在執行中。動態島的入口在螢幕頂端中央。\n\n"
+        f"若沒有任何反應，請在工作管理員結束 {APP_TITLE} 再重新開啟。")
+
 
 
 # ---------------------------------------------------------------- 設定與存檔
@@ -1405,10 +1278,6 @@ class Island(QWidget):
             # 把作息推導用的安靜段填掉（實測三筆就讓推導直接回 None）。
             "state": self.state,
             "saved_ts": datetime.now().isoformat(timespec="seconds"),
-            # 只為了「那一個沒有回應」那則訊息：讓使用者在工作管理員裡找得到
-            # 正確的那一個。程式自己不拿它做任何判斷——行程編號會被作業系統
-            # 回收，拿它去砍或去比對，砍錯或認錯的都是無辜的程式。
-            "pid": os.getpid(),
         })
 
     # ------------------------------------------------------------ 互動
@@ -1840,22 +1709,11 @@ class Island(QWidget):
 # ---------------------------------------------------------------- 統計
 
 def main():
-    # QApplication 要最先建起來：底下的單一實例檢查走 Qt 的本機管線，那需要它。
-    # 放在「舉手」之前是安全的——它完全不碰使用者的任何檔案。
-    app = QApplication(sys.argv)
-    app.setApplicationName(APP_TITLE)
-    app.setApplicationDisplayName(APP_TITLE)
-    app.setQuitOnLastWindowClosed(False)
-
-    # 同時只准一個。連得上既有的實例就請它現身、自己退場；連得上卻沒有回話
-    # 才是真的卡死，那時講一聲再退場。詳見 SingleInstance 的 docstring。
-    lock = SingleInstance()
-    outcome = lock.claim()
-    if outcome != SingleInstance.MINE:
-        if outcome == SingleInstance.UNRESPONSIVE:
-            say_unresponsive()
-        # HANDED_OFF 不出聲：既有的那個已經把島滑下來了，那就是回饋本身，
-        # 再跳一則訊息等於要使用者多按一次確定。
+    # 同時只准一個。**只問「有沒有人佔著」，不判斷它是死是活**——
+    # 兩種活性判法都試過，兩種都會把健康的實例判成屍體，理由見
+    # single_instance_guard() 的 docstring。
+    if not single_instance_guard():
+        say_already_running()
         return 0
 
     # 舉手：只有走到這裡的本尊可以寫真實的設定、狀態與紀錄。
@@ -1874,6 +1732,10 @@ def main():
     # 自啟是開的，但每天開機拉起來的是舊版。這裡把它改指到現在這支。
     settings.refresh_autostart_path()
     cfg = load_config()
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_TITLE)
+    app.setApplicationDisplayName(APP_TITLE)
+    app.setQuitOnLastWindowClosed(False)
 
     # 要在 QApplication 之後：QFontDatabase 需要 QGuiApplication 才能運作。
     # 失敗不致命（會退到 fallback chain），但設定頁會照實顯示是哪一種情況。
@@ -1906,9 +1768,6 @@ def main():
         settings.save_config(cfg)
 
     island = Island(cfg)
-    # 從現在起，重複啟動的人會看到島滑下來，而不是一則訊息。greet() 正好就是
-    # 為這件事寫的：現身幾秒，並且說明怎麼再把它叫出來。
-    lock.set_show_handler(island.greet)
 
     # 啟動時滑下來 4 秒是為了解決「我不知道它在不在、在哪裡」。
     # 對已經知道的人，那是每次開機一次的噪音——所以只在第一次跑、
