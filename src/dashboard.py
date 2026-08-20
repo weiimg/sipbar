@@ -338,12 +338,14 @@ def achievements(data):
     t = data["target"]
     best_day = max((v["drinks"] for v in data["days"].values()), default=0)
     return [
-        ("第一次記錄", "完成一次補水", min(1, data["total_drinks"]), 1),
-        ("單日達標", f"一天內補水 {t} 次", min(best_day, t), t),
-        ("連續 3 天", "連續三天達標", min(data["longest"], 3), 3),
-        ("連續 7 天", "連續七天達標", min(data["longest"], 7), 7),
-        ("累積 100 次", "總補水次數達 100", min(data["total_drinks"], 100), 100),
-        ("連續 30 天", "連續三十天達標", min(data["longest"], 30), 30),
+        # 名字是角色的聲音，說明才是機制。先前兩欄幾乎重複（「連續 3 天」配
+        # 「連續三天達標」），等於浪費一格。
+        ("水啦！", "完成一次補水", min(1, data["total_drinks"]), 1),
+        ("今天很水哦", f"一天內補水 {t} 次", min(best_day, t), t),
+        ("One, two, 水！", "連續三天達標", min(data["longest"], 3), 3),
+        ("需要你", "連續七天達標", min(data["longest"], 7), 7),
+        ("我是一隻魚", "總補水次數達 100", min(data["total_drinks"], 100), 100),
+        ("一氧化二氫成癮者", "連續三十天達標", min(data["longest"], 30), 30),
     ]
 
 
