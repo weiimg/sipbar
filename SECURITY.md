@@ -38,7 +38,7 @@ SmartScreen 會對每個下載的人跳警告。折衷做法是每個 release �
 `Sipbar-x.y.z-portable.zip` 的 SHA256，你可以自己驗：
 
 ```powershell
-Get-FileHash .\Sipbar-0.10.0-beta-portable.zip -Algorithm SHA256
+Get-FileHash .\Sipbar-x.y.z-portable.zip -Algorithm SHA256
 ```
 
 **Qt 是凍在發布包裡的。** 攜帶版夾帶整套 Qt，你自己更新不了。Qt 有安全性修正

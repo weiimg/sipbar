@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![platform](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
-[![release](https://img.shields.io/badge/%E4%B8%8B%E8%BC%89-v0.10.0--beta-success)](https://github.com/weiimg/sipbar/releases/latest)
+[![release](https://img.shields.io/github/v/release/weiimg/sipbar?include_prereleases&label=%E4%B8%8B%E8%BC%89&color=success)](https://github.com/weiimg/sipbar/releases/latest)
 
 <img src="docs/demo.webp" width="464" alt="動態島從螢幕頂端滑下來，游標點一下，杯子變綠、進度多一格，然後滑回去">
 
@@ -49,8 +49,7 @@
 
 ## 下載與安裝
 
-1. 到 [Releases](https://github.com/weiimg/sipbar/releases/latest) 下載
-   `Sipbar-0.10.0-beta-portable.zip`
+1. 到 [Releases](https://github.com/weiimg/sipbar/releases/latest) 下載 zip
 2. 解壓縮至目的地
 3. 執行 `Sipbar.exe`
 
