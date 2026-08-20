@@ -233,13 +233,78 @@ def idle_seconds():
     return ((_kernel32.GetTickCount64() - lii.dwTime) & 0xFFFFFFFF) / 1000.0
 
 
-def single_instance_guard():
-    """島與桌寵共用同一組資料，同時跑會讓次數重複計算，所以共用一把鎖。"""
+# 落檔的間隔。純粹的存檔節奏，**不兼任任何「還活著嗎」的訊號**——
+# 拿存檔當活性訊號試過，失敗了，理由見 single_instance_guard() 的 docstring。
+#
+# 取 60 秒而不是更密，是因為 save_state() 的重試路徑裡有 time.sleep(0.03) ×5，
+# **而它跑在 UI 執行緒上**：防毒或索引服務剛好開著 handle 時，一次落檔最壞
+# 會卡 150ms。60 秒剛好是這段程式碼原本就在用的頻率，曝露量沒有比先前高。
+PERSIST_SECONDS = 60
+
+
+def _message_box(text):
+    """Win32 的提示視窗。失敗就算了，它只是個提示，不值得讓啟動掛掉。
+
+    用 Win32 而不是 QMessageBox：這一步在 QApplication 之前，
+    為了一句提示把整套 Qt 拉起來不划算。
+    """
+    try:
+        _user32.MessageBoxW(None, text, APP_TITLE, 0x40)   # MB_OK | MB_ICONINFO
+    except OSError:
+        pass
+
+
+def single_instance_guard(name=None):
+    """島與桌寵共用同一組資料，同時跑會讓次數重複計算，所以共用一把鎖。
+
+    **這裡刻意不判斷「那一個還活著嗎」。**
+
+    真的試過兩種判法，兩種都自己長出新的問題，而且是同一類的：
+    把一個健康的實例判成屍體。
+
+      - 用心跳猜（定期蓋時間戳，第二個看那個戳有多舊）：冷啟動時戳記還停在
+        上次關機的時間、睡眠醒來時戳記年齡等於睡了多久、寫檔壞掉時戳記的來源
+        就是那個正在失敗的寫入。三種都必然誤判，而誤判的結果是接手，
+        於是兩個一起跑、次數重複計算。
+      - 用管線問（第二個連上去喊一聲，等回話）：回話能力要等程式進入事件迴圈
+        才存在，而啟動有一段幾百毫秒沒有事件迴圈。這段期間第二次啟動會判定
+        一個正在正常啟動的程式卡死了，然後叫使用者去把它結束掉。
+
+    **問題不在哪一種判法做得不夠好，在於「判斷它是死是活」這件事本身
+    在啟動這個時間點上做不可靠。** 兩次嘗試都是在原本的災情之上疊新的災情。
+
+    所以退回最單純的做法：只問「有沒有人佔著」，然後**把兩種可能都講給
+    使用者聽**。訊息同時涵蓋「它好好的，入口在這裡」與「它沒反應，這樣處理」，
+    於是不需要分辨是哪一種——而分辨正是所有問題的來源。
+
+    原本真正的傷害是「點了圖示什麼都沒發生、完全沒有線索」。那由訊息解決了。
+    剩下的代價是卡死時要自己動手結束它，重開機也會好。
+    """
     # 名字跟著改名走。這個 mutex 只活在記憶體裡、沒有任何東西保存它，
     # 所以不需要遷移——唯一的代價是改名後第一次啟動時，若還有一個舊版程式
     # 開著，兩者的鎖名不同會同時跑。重開一次就沒事。
-    _kernel32.CreateMutexW(None, False, f"{settings.APP_NAME}SingletonMutex")
+    #
+    # name 可以覆寫，**只給測試用**。不開這個口的話，跑測試等於去搶真實的鎖：
+    # 系統匣裡開著 Sipbar（那是這支常駐程式的正常狀態）測試就會失敗，
+    # 而測試跑的那幾秒真的 Sipbar 又會啟動不了。正式呼叫端一律不要傳。
+    _kernel32.CreateMutexW(None, False, name or f"{settings.APP_NAME}SingletonMutex")
     return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
+
+
+def say_already_running():
+    """第二個實例要講一聲再走。**不要靜靜結束。**
+
+    使用者點了圖示、什麼都沒發生，他不會想到「因為已經有一個在跑」，
+    他會想「這程式壞了」。舊版就是這樣讓人整整一天沒有提醒，
+    而工作管理員裡只是一個看起來正常的 Sipbar.exe。
+
+    **一句話涵蓋兩種情況**：好好跑著的話，第一句告訴他入口在哪；
+    卡住不動的話，第二句告訴他怎麼處理。程式不必分辨是哪一種。
+    """
+    _message_box(
+        f"{APP_TITLE} 已經在執行中。動態島的入口在螢幕頂端中央。\n\n"
+        f"若沒有任何反應，請在工作管理員結束 {APP_TITLE} 再重新開啟。")
+
 
 
 # ---------------------------------------------------------------- 設定與存檔
@@ -272,33 +337,46 @@ def save_state(state):
     重試幾次仍失敗就放棄：最多丟掉一分鐘，比讓例外往上炸好。
     """
     settings.guard_real_write(STATE_PATH)
-    os.makedirs(DATA_DIR, exist_ok=True)
     tmp = STATE_PATH + ".tmp"
     try:
+        # makedirs 也要在 try 裡。它在外面的話，資料夾建不出來時例外會往上炸，
+        # 而這個函式的呼叫點全是「事情已經發生了、現在要存檔」，理由同 log_event()。
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
         for attempt in range(6):
             try:
                 os.replace(tmp, STATE_PATH)
+                settings.note_write("state", True)
                 return
             except PermissionError:
                 if attempt == 5:
                     raise
                 time.sleep(0.03)
     except OSError:
-        pass
+        # 吞掉例外是對的（見上面的 docstring），但不能連「發生過」都不留下來。
+        settings.note_write("state", False)
 
 
 def log_event(day, event, **fields):
+    """記一筆事件。**寫不進去不能往上炸。**
+
+    `os.makedirs()` 原本在 try 之外。資料夾建不出來（磁碟滿、路徑被佔、
+    權限被拿掉）時它會拋 OSError，而這個函式被呼叫的地方全都是「動作已經
+    發生了、現在要記帳」——例外往上炸就會把那個動作一起帶走。最慘的一次是
+    `drink()`：使用者按了島，次數沒加、倒數沒歸零、確認訊息也沒出現，
+    他只會以為自己沒點到。記帳失敗最多丟一行歷史，不該演變成功能壞掉。
+    """
     settings.guard_real_write(EVENTS_PATH)
-    os.makedirs(DATA_DIR, exist_ok=True)
     row = {"ts": datetime.now().isoformat(timespec="seconds"), "day": day, "event": event}
     row.update(fields)
     try:
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(EVENTS_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        settings.note_write("events", True)
     except OSError:
-        pass
+        settings.note_write("events", False)
 
 
 # ---------------------------------------------------------------- 彈簧
@@ -342,7 +420,6 @@ class Island(QWidget):
         # 累積的在電腦前時間就歸零、間隔還會重新擲一次——提醒被無限往後推，
         # 而且探頭看到的倒數會莫名其妙變多。
         self._restore_timing(saved, same_day, now)
-        self._persist_countdown = 0
         self._refresh_streak()
 
         self.sp_expand = Spring(0.0)
@@ -380,6 +457,20 @@ class Island(QWidget):
         self.tick_timer = QTimer(self)
         self.tick_timer.timeout.connect(self.tick)
         self.tick_timer.start(int(cfg["tick_seconds"] * 1000))
+
+        # 定期落檔。取代原本 tick() 裡那段「每分鐘落檔一次」，頻率相同。
+        #
+        # **刻意不放回 tick()**：那裡有三道 early return（暫停中、今天已達標、
+        # 離開電腦），落檔在它們後面，所以那三種狀態下不會落檔。
+        #
+        # 那三段期間本來就沒有新的累積可以丟（active_s 的遞增也在同一道 return
+        # 後面），所以放在 tick 裡並不會造成資料遺失——**真正的理由是它不該
+        # 依賴那三個條件**。落檔是「把現在的狀態寫下來」，跟「現在該不該計時」
+        # 是兩件事；綁在一起的話，之後任何人動了那三道判斷，落檔就跟著被改到，
+        # 而且不會有人發現。掛在自己的計時器上，它就只做一件事。
+        self.beat_timer = QTimer(self)
+        self.beat_timer.timeout.connect(self._persist)
+        self.beat_timer.start(PERSIST_SECONDS * 1000)
 
         self.peek_timer = QTimer(self)
         self.peek_timer.timeout.connect(self._peek_tick)
@@ -575,6 +666,15 @@ class Island(QWidget):
         使用者得開口問「多久跳一次」，就代表這個資訊沒被放進介面。
         """
         target = self.cfg["daily_target_drinks"]
+        # 存不進去的時候，倒數與連續天數都是次要的：底下那些數字有一部分正在
+        # 流失，而畫面上分不出來是哪一部分（state 壞掉就是計時與次數，events
+        # 壞掉就是歷史與連續天數，兩個都壞就都沒了）。使用者只需要知道
+        # 「有東西沒存到」，細節在設定頁的診斷資訊裡。
+        #
+        # 這一行要蓋過其他所有資訊，包含暫停中——暫停是他自己按的，他知道；
+        # 存不進去他不知道。
+        if settings.write_trouble():
+            return "紀錄存不進去"
         if self.paused_until:
             return f"暫停中，{self.paused_until.strftime('%H:%M')} 恢復"
         # 底下那排進度點已經表達了今天的次數，這裡就不重複——
@@ -607,6 +707,15 @@ class Island(QWidget):
         return f"{head} · 下次約 {remain} 分後"
 
     def _reminding_sub(self):
+        # 示警要蓋過這裡，理由跟 _status_sub() 相同——而且這裡更要緊。
+        #
+        # 這是島**真的掛在螢幕上**時顯示的那一行，也就是使用者唯一會盯著它看的
+        # 時候。示警只寫在 _status_sub() 的話，他要主動把游標移到螢幕頂端探頭
+        # 才看得到，而島自己跳出來的那幾秒反而只報數字、不報狀況。
+        #
+        # 倒地狀態更嚴重：它不會自己收合，那一行會一直掛在畫面上。
+        if settings.write_trouble():
+            return "紀錄存不進去"
         target = self.cfg["daily_target_drinks"]
         if self.streak:
             return f"連續 {self.streak} 天 · 今天 {self.drinks}/{target} 次"
@@ -830,11 +939,9 @@ class Island(QWidget):
             return
         self.active_s += self.cfg["tick_seconds"]
 
-        # 每分鐘落檔一次，程式意外結束最多只丟一分鐘的累積
-        self._persist_countdown += 1
-        if self._persist_countdown >= max(1, int(60 / self.cfg["tick_seconds"])):
-            self._persist_countdown = 0
-            self._persist()
+        # 落檔不在這裡做，在 beat_timer——同樣是 60 秒一次，但它不會被上面那三道
+        # early return 擋住。兩邊都寫的話會有兩個機制做同一件事，而其中一個是壞的
+        # （見 beat_timer 的註解）。
 
         weak_at = self.interval_s + self.cfg["escalate_weak_min"] * 60
         collapse_at = self.interval_s + self.cfg["escalate_collapsed_min"] * 60
@@ -932,17 +1039,29 @@ class Island(QWidget):
             "responded": responded,
             "wait_active_s": waited,
         }
-        log_event(
-            self.day, "drink",
-            from_state=self.state,
-            responded=responded,
-            wait_active_s=waited,
-            drinks=self.drinks + 1,
-            target=self.cfg["daily_target_drinks"],
-        )
+        # **狀態先改，記帳後補。** 反過來的話，記帳一旦出事就會把功能一起帶走：
+        # 次數沒加、倒數沒歸零、連確認訊息都不出現，使用者按了島什麼都沒發生，
+        # 只會以為自己沒點到，然後再按一次、再一次。2026-08-19 真的發生過。
+        #
+        # log_event() 現在已經不會往上炸了（見它的 docstring），這裡的順序是
+        # 第二道防線：哪天又有東西在記帳這條路上拋例外，使用者按的那一下
+        # 仍然算數。記帳失敗最多丟一行歷史，那和「程式壞了」不對等。
+        #
+        # from_state 要先抓起來：底下 _enter(SATISFIED) 會把 self.state 換掉，
+        # 而事件要記的是「按下去之前島在哪一級」。
+        from_state = self.state
         self.drinks += 1
         self.active_s = 0.0
         self.interval_s = self._roll_interval()
+
+        log_event(
+            self.day, "drink",
+            from_state=from_state,
+            responded=responded,
+            wait_active_s=waited,
+            drinks=self.drinks,
+            target=self.cfg["daily_target_drinks"],
+        )
         self._persist()
 
         target = self.cfg["daily_target_drinks"]
@@ -1597,8 +1716,13 @@ class Island(QWidget):
 # ---------------------------------------------------------------- 統計
 
 def main():
+    # 同時只准一個。**只問「有沒有人佔著」，不判斷它是死是活**——
+    # 兩種活性判法都試過，兩種都會把健康的實例判成屍體，理由見
+    # single_instance_guard() 的 docstring。
     if not single_instance_guard():
+        say_already_running()
         return 0
+
     # 舉手：只有走到這裡的本尊可以寫真實的設定、狀態與紀錄。
     # 其他任何人（測試、臨時驗證腳本、互動式 shell）碰到真實路徑一律當場拋例外。
     # 要在 load_config() 之前——設定檔不存在時它會寫一份預設值出去。

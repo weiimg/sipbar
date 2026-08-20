@@ -30,6 +30,10 @@ w = isl.Island(cfg)
 w.tick_timer.stop()
 w.frame.stop()
 w.hold_timer.stop()
+# 定期落檔也要停。它每 PERSIST_SECONDS（60）秒把 state.json 覆寫一次，留著跑
+# 的話會在測試中途蓋掉第 17～19 節刻意擺好的存檔，那幾節就會時好時壞——
+# 而那種失敗最難查。
+w.beat_timer.stop()
 
 fails = []
 
@@ -672,6 +676,7 @@ def fresh(**over):
     c.update(over)
     x = isl.Island(c)
     x.tick_timer.stop(); x.frame.stop(); x.hold_timer.stop(); x.peek_timer.stop()
+    x.beat_timer.stop()          # 理由同檔案開頭：定期落檔會蓋掉測試擺好的存檔
     x.drinks = 0
     x.active_s = 0.0
     x.state = isl.NORMAL
@@ -779,6 +784,175 @@ check("記過之後選單才有這一項",
       any(it[0] and "退回" in it[0] for it in w28c._menu_items()), True)
 
 isl.EVENTS_PATH = _ev_save
+
+print("\n29. 第二個實例不能靜靜消失")
+# 事故：一支卡死的行程握著 mutex 八小時，而 main() 第一行 `return 0` 靜靜結束。
+# 使用者整天沒有提醒，也沒有任何線索——工作管理員裡只是一個看起來正常的
+# Sipbar.exe。**真正的傷害是「什麼都沒發生」，不是「打不開」。**
+#
+# 這裡刻意**不驗活性判斷**，因為程式刻意不做活性判斷。兩種判法都寫過也都
+# 退掉了（心跳、本機管線），兩種都會在啟動那幾百毫秒內把一個健康的實例
+# 判成屍體——理由寫在 single_instance_guard() 的 docstring，那段是這個決定
+# 唯一的紀錄，動它之前先讀。
+#
+# 所以這一節驗的是：鎖還在、而且**話有講出來**。
+# 用自己的鎖名，**絕對不要碰真實的那把**：機器上開著 Sipbar 是常態，
+# 搶真實的鎖會讓這一節必定失敗，而且測試跑的那幾秒真的 Sipbar 會啟動不了。
+_LKN = "SipbarTestLock-%d" % os.getpid()
+check("沒有人佔著時拿得到", isl.single_instance_guard(_LKN), True)
+check("已經有人佔著就拿不到", isl.single_instance_guard(_LKN), False)
+
+# 訊息要一句涵蓋兩種情況：好好跑著的話講入口在哪，卡住的話講怎麼處理。
+# 程式不分辨是哪一種，所以兩句都必須在。
+_msg = []
+_mb_save = isl._message_box
+isl._message_box = lambda t: _msg.append(t)
+isl.say_already_running()
+isl._message_box = _mb_save
+check("訊息真的送出去了（不是靜靜結束）", len(_msg), 1)
+check("有講入口在哪", "螢幕頂端中央" in _msg[0], True)
+check("也有講沒反應時怎麼辦", "工作管理員" in _msg[0], True)
+
+_lock_w = fresh()                # 之後手動控制落檔，免得計時器在測試中途自己跳
+
+# 定期落檔必須有自己的計時器，**不能放回 tick()**——那裡有三道 early return
+# （暫停中、今天已達標、離開電腦），落檔在它們後面，所以那三種狀態下不會落檔。
+# 那三段期間本來就沒有新的累積可以丟，所以不是資料遺失的問題；理由是落檔不該
+# 依賴那三個判斷，否則之後任何人動了它們，落檔就跟著被改到而沒有人發現。
+# 要驗「島一建出來就在跑」就不能用 fresh()，它為了測試穩定會把它停掉。
+_beat_probe = isl.Island(dict(cfg))
+check("落檔有自己的計時器且在跑", _beat_probe.beat_timer.isActive(), True)
+check("落檔間隔就是 PERSIST_SECONDS",
+      _beat_probe.beat_timer.interval(), isl.PERSIST_SECONDS * 1000)
+_beat_probe.tick_timer.stop(); _beat_probe.frame.stop()
+_beat_probe.hold_timer.stop(); _beat_probe.peek_timer.stop()
+_beat_probe.beat_timer.stop()
+
+# 暫停中 tick 會 early return，所以落檔絕不能只掛在 tick 上。
+# 先把存檔時間推到很久以前，否則整段測試跑在同一秒內，「有沒有更新」比不出來。
+_old = isl.load_state()
+_old["saved_ts"] = "2020-01-01T00:00:00"
+isl.save_state(_old)
+_before = isl.load_state()["saved_ts"]
+_lock_w.paused_until = datetime.now() + timedelta(hours=2)
+for _ in range(30):
+    _lock_w.tick()
+check("暫停中 tick 完全不落檔", isl.load_state()["saved_ts"], _before)
+_lock_w._persist()
+check("而定期落檔照樣落得了檔", isl.load_state()["saved_ts"] != _before, True)
+_lock_w.paused_until = None
+
+print("\n30. 記帳失敗不能把功能一起帶走")
+# 2026-08-19 的實況：使用者按了島，次數沒加、倒數沒歸零、確認訊息也沒出現，
+# 他只會以為自己沒點到，然後再按一次。原因是 drink() 先記帳再改狀態。
+
+# (a) log_event 本身不能往上炸。原本 os.makedirs() 在 try 之外，
+#     資料夾建不出來就會拋 OSError 給呼叫端。
+_dd_save, _evp_save = isl.DATA_DIR, isl.EVENTS_PATH
+_blocker = os.path.join(TEST_DIR, "blocker")
+open(_blocker, "w").close()          # 拿一個「檔案」當資料夾的上層，makedirs 一定失敗
+isl.DATA_DIR = os.path.join(_blocker, "sub")
+isl.EVENTS_PATH = os.path.join(isl.DATA_DIR, "events.jsonl")
+_raised = None
+try:
+    isl.log_event("2026-01-01", "drink", drinks=1)
+except Exception as e:                                    # noqa: BLE001
+    _raised = type(e).__name__
+check("資料夾建不出來時 log_event 不往上炸", _raised, None)
+_raised = None
+try:
+    isl.save_state({"day": "2026-01-01", "saved_ts": "2026-01-01T00:00:00"})
+except Exception as e:                                    # noqa: BLE001
+    _raised = type(e).__name__
+check("同樣的情況 save_state 也不往上炸", _raised, None)
+isl.DATA_DIR, isl.EVENTS_PATH = _dd_save, _evp_save
+
+# (b) 就算記帳那一行真的爆了，使用者按的那一下仍然要算數。
+#     這是第二道防線：(a) 已經讓它不會爆，這裡防的是「哪天又有人在這條路上
+#     加了會拋例外的東西」。
+def _boom(*a, **k):
+    raise RuntimeError("模擬記帳爆炸")
+
+_w30 = fresh()
+_w30.active_s = 1234.0
+_w30._last_drink_at = -999.0         # 繞開防連點，否則這一下會被當成手滑
+_orig_log = isl.log_event
+isl.log_event = _boom
+try:
+    _w30.drink()
+except Exception as e:                                    # noqa: BLE001
+    pass                              # 例外照樣往上走沒關係，重點是狀態已經改了
+finally:
+    isl.log_event = _orig_log
+check("記帳爆炸時次數仍然有加", _w30.drinks, 1)
+check("記帳爆炸時倒數仍然歸零", _w30.active_s, 0.0)
+
+print("\n31. 寫檔失敗不能繼續無聲")
+# 2026-08-19 的實況：程式活著、島照常提醒、倒數照常走，而補水一次都沒有被記錄，
+# 整整 3.5 小時。使用者不會發現（畫面上一切正常），不發現就不會回報，
+# 於是這種災情永遠不會有人知道。吞掉例外是對的，但不能連「發生過」都不留。
+_st = isl.settings
+
+
+def _reset_writes():
+    for _k in ("config", "state", "events"):
+        _st.note_write(_k, True)
+
+
+_reset_writes()
+check("一開始沒有問題", _st.write_trouble(), False)
+for _ in range(_st.WRITE_FAIL_THRESHOLD - 1):
+    _st.note_write("events", False)
+# 偶發失敗很常見（防毒會在檔案剛寫完時開掃描用的 handle），第一次就喊會變狼來了
+check("還沒到門檻不出聲", _st.write_trouble(), False)
+_st.note_write("events", False)
+check("連續失敗到門檻就示警", _st.write_trouble(), True)
+check("而且說得出是哪一個檔案", _st.failing_writes(), ["events"])
+_st.note_write("events", True)
+check("那個檔案恢復就不再示警", _st.write_trouble(), False)
+
+# **這一條是整節的重點。** 第一版用一個共用的計數器，任何一次成功就歸零，
+# 於是「只有 events.jsonl 壞掉」永遠達不到門檻：drink() 是記錄緊接著存檔，
+# 記錄失敗的下一行就被存檔的成功抹掉；就算不補水，定期落檔每 60 秒也會抹一次。
+# 實測過的後果：連按十次補水，十筆全部遺失，計數器從頭到尾 0、島上顯示已達標。
+# 而那正是 CHANGELOG 拿來當例子的情境（檔案被雲端同步或防毒單獨鎖住）。
+_reset_writes()
+for _ in range(_st.WRITE_FAIL_THRESHOLD * 4):
+    _st.note_write("events", False)
+    _st.note_write("state", True)          # 另外兩個一直是好的，模擬單檔被鎖住
+    _st.note_write("config", True)
+check("只有紀錄檔壞掉時照樣示警（共用計數器會漏掉這個）",
+      _st.write_trouble(), True)
+check("而且指得出是紀錄檔", _st.failing_writes(), ["events"])
+_reset_writes()
+
+# 真的讓寫檔失敗，確認計數器接得上——不能只有計數函式自己會動
+_dd2, _evp2 = isl.DATA_DIR, isl.EVENTS_PATH
+isl.DATA_DIR = os.path.join(_blocker, "sub2")     # _blocker 是第 30 節建的那個檔案
+isl.EVENTS_PATH = os.path.join(isl.DATA_DIR, "events.jsonl")
+for _ in range(_st.WRITE_FAIL_THRESHOLD):
+    isl.log_event("2026-01-01", "drink", drinks=1)
+check("log_event 真的寫不進去時會被數到", _st.write_trouble(), True)
+isl.DATA_DIR, isl.EVENTS_PATH = _dd2, _evp2
+
+# 島上兩條路徑都要說得出口。
+# 先建島再製造失敗：Island.__init__ 最後會落檔一次，成功的話計數就歸零了
+_w31 = fresh()
+_reset_writes()
+_w31.paused_until = datetime.now() + timedelta(hours=2)
+for _ in range(_st.WRITE_FAIL_THRESHOLD):
+    _st.note_write("events", False)
+# 探頭看到的那一行。示警要蓋過「暫停中」——暫停是使用者自己按的，他知道；
+# 存不進去他不知道，所以那一則比較急。
+check("探頭時說得出來", _w31._status_sub(), "紀錄存不進去")
+# **島真的掛在畫面上時走的是另一條分支。** 那才是使用者唯一會盯著看的時候，
+# 而底下那個「今天 N/M 次」在存不進去的時候是假的。
+check("島跳出來時也說得出來", _w31._reminding_sub(), "紀錄存不進去")
+_reset_writes()
+check("恢復之後兩條都不再示警",
+      ("紀錄存不進去" in _w31._status_sub(),
+       "紀錄存不進去" in _w31._reminding_sub()), (False, False))
+_w31.paused_until = None
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。

@@ -787,6 +787,75 @@ check("起床那一列不再宣稱自己管重置",
       "重置" in _p._wake_text(), False)
 check("而且講得出它現在管什麼", "夜間" in _p._wake_text(), True)
 
+print("\n19. 公式的性質（窮舉，不是抽樣）")
+# 第 1 節只驗了 6 個點，而那 6 個期望值是人自己寫上去的——公式的假設要是錯的，
+# 那 6 項會照著錯的假設一起通過。這一節改成掃過使用者能輸入的整個範圍，
+# 驗的是「不管餵什麼都必須成立」的性質，不依賴任何一個手寫的期望值。
+#
+# 體重的範圍就是輸入框驗證器的範圍（QIntValidator(30, 200)）。
+_WEIGHTS = range(30, 201)
+_MLS = range(50, 601, 10)
+_bad_range = _bad_up = _bad_down = None
+for _ml in _MLS:
+    _prev = None
+    for _kg in _WEIGHTS:
+        _t = ap.target_from_weight(_kg, _ml)
+        if _bad_range is None and (not isinstance(_t, int)
+                                   or not ap.TARGET_MIN <= _t <= ap.TARGET_MAX):
+            _bad_range = f"kg={_kg} ml={_ml} -> {_t!r}"
+        if _bad_up is None and _prev is not None and _t < _prev:
+            _bad_up = f"ml={_ml} kg={_kg}: {_prev} -> {_t}"
+        _prev = _t
+for _kg in _WEIGHTS:
+    _prev = None
+    for _ml in _MLS:
+        _t = ap.target_from_weight(_kg, _ml)
+        if _bad_down is None and _prev is not None and _t > _prev:
+            _bad_down = f"kg={_kg} ml={_ml}: {_prev} -> {_t}"
+        _prev = _t
+print(f"       掃過 {len(_WEIGHTS) * len(_MLS)} 組（{len(_WEIGHTS)} 種體重 × {len(_MLS)} 種單次水量）")
+check("一律是 4~12 的整數", _bad_range, None)
+# 「越重反而喝越少」是實際收到的使用者回報。公式本身不會這樣，但改壞了會。
+check("體重越重，次數不會變少", _bad_up, None)
+check("單次喝越多，次數不會變多", _bad_down, None)
+
+print("\n20. 設定檔被手改成怪值時不能讓程式開不起來")
+# config.json 是純文字，使用者改得到，而說明本身就在教人改它（單次水量沒上面板）。
+# 手改最常見的失誤是多加引號：JSON 讀進來是字串，kg * 30 變成字串重複 30 次。
+#
+# 這條例外炸得起來的位置特別糟：effective_target() 在 island.main() 裡、
+# **建立動態島之前**被呼叫，那一行沒有 try。一個引號就讓整個程式開不起來，
+# 而使用者只會看到「點了圖示什麼都沒發生」。
+# 2026-08-19 在沙箱用真的設定檔重現過，這一節是它的守門人。
+_JUNK = [
+    ("體重是字串", {"weight_kg": "65"}),
+    ("體重是亂碼", {"weight_kg": "abc"}),
+    ("體重是 True", {"weight_kg": True}),
+    ("體重是 list", {"weight_kg": [65]}),
+    ("體重是負數", {"weight_kg": -50}),
+    ("單次水量是字串", {"weight_kg": 65, "ml_per_drink_estimate": "200"}),
+    ("單次水量是 0", {"weight_kg": 65, "ml_per_drink_estimate": 0}),
+    ("單次水量是亂碼", {"weight_kg": 65, "ml_per_drink_estimate": "x"}),
+    ("手動目標是字串", {"target_manual": True, "daily_target_drinks": "8"}),
+    ("手動目標是亂碼", {"target_manual": True, "daily_target_drinks": "x"}),
+    ("手動目標超出上限", {"target_manual": True, "daily_target_drinks": 999}),
+]
+_junk_bad = None
+for _label, _cfg in _JUNK:
+    try:
+        _r = ap.effective_target(_cfg)
+    except Exception as _e:                                   # noqa: BLE001
+        _junk_bad = f"{_label} 讓程式當掉：{type(_e).__name__}"
+        break
+    if not isinstance(_r, int) or not ap.TARGET_MIN <= _r <= ap.TARGET_MAX:
+        _junk_bad = f"{_label} 回傳了 {_r!r}"
+        break
+check(f"{len(_JUNK)} 種怪值都不當機、都回合法次數", _junk_bad, None)
+# 看得懂的字串要接住，不要當成沒填——使用者寫 "65" 的意思就是 65。
+check("\"65\" 當成 65", ap.effective_target({"weight_kg": "65"}), 7)
+check("\"8\" 當成手動指定 8 次",
+      ap.effective_target({"target_manual": True, "daily_target_drinks": "8"}), 8)
+
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)
