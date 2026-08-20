@@ -42,6 +42,7 @@ import pixelface                              # 像素杯與表情
 import settings                               # 路徑、設定、推導、開機自啟
 import sound                                  # 升級時的提示音
 import typeface                               # 隨程式散布的字體
+import updates                                # 背景查有沒有新版（只查，不裝）
 from motion import Spring, clamp, lerp        # 彈簧與紀錄視窗共用同一套物理
 from paintkit import draw_soft_shadow, shadow_alphas
 
@@ -1786,6 +1787,15 @@ def main():
         QTimer.singleShot(800, island.greet)
         cfg["greeted_version"] = settings.VERSION
         settings.save_config(cfg)
+
+    # 背景查一次有沒有新版。攜帶版沒有安裝程式，不查的話使用者永遠不會知道
+    # 修正發布了——那正是 0.10.1 修完之後遇到的困境。
+    #
+    # 延遲 30 秒是為了不跟啟動搶資源；丟到背景執行緒是因為沒網路時 urlopen
+    # 會一路等到逾時，放在主執行緒會把畫面凍住。查不到就安靜放棄，
+    # 下次啟動再問（見 updates.fetch）。
+    if cfg.get("check_updates", True):
+        QTimer.singleShot(30_000, updates.checker.start)
     return app.exec()
 
 

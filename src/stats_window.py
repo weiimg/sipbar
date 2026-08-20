@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
 import dashboard
 import pixelface                             # 島上那顆像素杯，紀錄頁共用同一個容器
 import settings as appsettings               # 設定的讀寫與推導
+import updates                                # 有沒有新版（齒輪上那顆點）
 import sound                                  # 音效開關的當場試聽
 import theme                                  # 深色／淺色調色盤
 import typeface                               # 隨程式散布的字體
@@ -2156,6 +2157,12 @@ class SettingsPage(QWidget):
         # 說明只標示這個開關控制什麼。關掉之後怎麼手動開啟，是使用者的常識，
         # 不是這一列的職責——介面把它寫出來就變成在教學。
         card.add(setting_row("開機時啟動", self.autostart))
+        card.add(Divider())
+
+        self.check_updates = Toggle(self.cfg.get("check_updates", True))
+        self.check_updates.toggled.connect(self._on_check_updates)
+        card.add(setting_row("檢查更新", self.check_updates,
+                             "啟動時向 GitHub 查詢新版本"))
         return card
 
     def _about_card(self):
@@ -2171,7 +2178,20 @@ class SettingsPage(QWidget):
         open_lbl.clicked.connect(self._open_data_dir)
         card.add(info_row("資料位置", appsettings.DATA_DIR, open_lbl))
         card.add(Divider())
-        card.add(info_row("版本", appsettings.VERSION))
+        # 齒輪上那顆點只說「有東西要看」，這一列說「是什麼、怎麼拿」。
+        # 不另外開一列——這一列本來就是講版本的，有新版正是版本的一部分。
+        _newer = updates.checker.newer_release()
+        if _newer:
+            _tag, _url = _newer
+            _get = TapLabel("開啟", C_ACCENT.name())
+            _get.clicked.connect(lambda: self._open_url(_url))
+            # tag 帶 v 前綴（v0.11.0），顯示時拿掉：畫面上的版本一律不帶 v，
+            # 同一列出現兩種寫法會讓人以為是兩個不同的東西。
+            card.add(info_row("版本",
+                              f"{appsettings.VERSION}（有新版 {_tag.lstrip('vV')}）",
+                              _get))
+        else:
+            card.add(info_row("版本", appsettings.VERSION))
         card.add(Divider())
 
         # 回報的路要在程式裡，不能只寫在 README——出問題的人正在用程式，
@@ -2396,6 +2416,17 @@ class SettingsPage(QWidget):
         self.cfg["sound_enabled"] = on
         self._emit()
 
+    def _on_check_updates(self, on):
+        """下次啟動才生效。**不當場去查。**
+
+        使用者剛扳開它，畫面上不會有任何反應（查詢在背景、要幾秒、而且多半
+        查完發現已經是最新版），於是那個開關看起來像壞的。要嘛就得為它做
+        「查詢中／已是最新」的即時回饋，那是為了一個一年按一次的開關長出
+        一整套狀態顯示。下次啟動再查就好。
+        """
+        self.cfg["check_updates"] = on
+        self._emit()
+
     def _on_autostart(self, on):
         if not appsettings.set_autostart(on):
             # 寫不進去就把開關扳回去。一個顯示「開」但其實沒開的開關
@@ -2409,7 +2440,8 @@ class SettingsPage(QWidget):
         except (OSError, AttributeError):
             subprocess.Popen(["explorer", appsettings.DATA_DIR])
 
-    def _open_issues(self):
+    @staticmethod
+    def _open_url(url):
         """用 QDesktopServices 而不是 webbrowser.open()。
 
         `dashboard.py` 開頭記過那個坑：這台機器的 `.html` 關聯到已經退場的
@@ -2418,7 +2450,10 @@ class SettingsPage(QWidget):
         """
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        QDesktopServices.openUrl(QUrl(appsettings.ISSUES_URL))
+        QDesktopServices.openUrl(QUrl(url))
+
+    def _open_issues(self):
+        self._open_url(appsettings.ISSUES_URL)
 
     def diagnostics(self):
         """回報時要附的那段。**只有機器的規格與程式的狀態，沒有喝水紀錄。**
@@ -2459,6 +2494,9 @@ class SettingsPage(QWidget):
             f"（{'依體重推導' if not self.cfg.get('target_manual') else '手動指定'}）",
             f"提醒間隔 {self.cfg.get('interval_min')} 分鐘",
             f"崩潰紀錄 {crashlog.summary()}",
+            # 檢查更新失敗時是安靜的（沒網路、被限流、GitHub 改了回傳格式都
+            # 一律安靜放棄）。沒有這一行的話，它哪天靜靜停止運作不會有人發現。
+            f"檢查更新 {updates.checker.status()}",
             # 寫入健康狀態。這一行是給「紀錄怎麼少了一段」那種回報用的：
             # 寫檔失敗會被安靜吞掉（不吞的話程式會崩潰，那更糟），所以
             # 畫面上一切正常、資料卻沒存進去。沒有這一行就查不出來。
@@ -2990,6 +3028,24 @@ class StatsWindow(QWidget):
             p.drawLine(QPoint(gx - 6, cy), QPoint(gx - 1, cy + 5))
         else:
             self._draw_gear(p, gx, cy)
+            # 有新版就在齒輪右上角點一顆。這是慣例（VS Code 的設定齒輪、
+            # 瀏覽器的選單按鈕都是這樣做的）：有事就點一個點，沒事什麼都沒有。
+            #
+            # 畫在視窗外框上而不是塞一張卡進某一頁，所以它**不綁分頁**——
+            # 今天／紀錄／成就切來切去它都在，而且不佔任何版面。
+            #
+            # 設定頁不畫：那時齒輪已經換成返回箭頭，而且使用者正看著底下
+            # 那一列版本資訊，點在那裡沒有作用。
+            if updates.checker.newer_release():
+                dot = QPointF(gx + 6.5, cy - 6.5)
+                # 先畫一圈底色再畫點。不墊的話點會跟齒輪的線條黏成一塊，
+                # 看起來像齒輪長歪了而不是一個獨立的記號——徽章要讀成
+                # 「疊在上面」，那一圈底色就是做這件事的。
+                p.setPen(Qt.NoPen)
+                p.setBrush(C_BG_TOP)
+                p.drawEllipse(dot, 5.0, 5.0)
+                p.setBrush(C_ACCENT)
+                p.drawEllipse(dot, 3.4, 3.4)
 
     @staticmethod
     def _draw_gear(p, cx, cy):
