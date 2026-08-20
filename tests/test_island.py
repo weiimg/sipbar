@@ -30,8 +30,9 @@ w = isl.Island(cfg)
 w.tick_timer.stop()
 w.frame.stop()
 w.hold_timer.stop()
-# 心跳也要停。它每 20 秒把 state.json 覆寫一次，留著跑的話會在測試中途蓋掉
-# 第 17～19 節刻意擺好的存檔，那幾節就會時好時壞——而那種失敗最難查。
+# 定期落檔也要停。它每 PERSIST_SECONDS（60）秒把 state.json 覆寫一次，留著跑
+# 的話會在測試中途蓋掉第 17～19 節刻意擺好的存檔，那幾節就會時好時壞——
+# 而那種失敗最難查。
 w.beat_timer.stop()
 
 fails = []
@@ -675,7 +676,7 @@ def fresh(**over):
     c.update(over)
     x = isl.Island(c)
     x.tick_timer.stop(); x.frame.stop(); x.hold_timer.stop(); x.peek_timer.stop()
-    x.beat_timer.stop()          # 理由同檔案開頭：心跳會蓋掉測試擺好的存檔
+    x.beat_timer.stop()          # 理由同檔案開頭：定期落檔會蓋掉測試擺好的存檔
     x.drinks = 0
     x.active_s = 0.0
     x.state = isl.NORMAL
@@ -814,9 +815,10 @@ check("也有講沒反應時怎麼辦", "工作管理員" in _msg[0], True)
 
 _lock_w = fresh()                # 之後手動控制落檔，免得計時器在測試中途自己跳
 
-# 定期落檔必須有自己的計時器。**不能放回 tick()**——tick 有三道 early return
-# （暫停中、今天已達標、離開電腦），任何一道都會讓落檔停下來，於是暫停一整個
-# 下午之後意外關掉，那個下午的累積就回不來了。
+# 定期落檔必須有自己的計時器，**不能放回 tick()**——那裡有三道 early return
+# （暫停中、今天已達標、離開電腦），落檔在它們後面，所以那三種狀態下不會落檔。
+# 那三段期間本來就沒有新的累積可以丟，所以不是資料遺失的問題；理由是落檔不該
+# 依賴那三個判斷，否則之後任何人動了它們，落檔就跟著被改到而沒有人發現。
 # 要驗「島一建出來就在跑」就不能用 fresh()，它為了測試穩定會把它停掉。
 _beat_probe = isl.Island(dict(cfg))
 check("落檔有自己的計時器且在跑", _beat_probe.beat_timer.isActive(), True)
@@ -837,7 +839,7 @@ for _ in range(30):
     _lock_w.tick()
 check("暫停中 tick 完全不落檔", isl.load_state()["saved_ts"], _before)
 _lock_w._persist()
-check("而心跳照樣落得了檔", isl.load_state()["saved_ts"] != _before, True)
+check("而定期落檔照樣落得了檔", isl.load_state()["saved_ts"] != _before, True)
 _lock_w.paused_until = None
 
 print("\n30. 記帳失敗不能把功能一起帶走")
