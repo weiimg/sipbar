@@ -954,6 +954,47 @@ check("恢復之後兩條都不再示警",
        "紀錄存不進去" in _w31._reminding_sub()), (False, False))
 _w31.paused_until = None
 
+print("\n32. 夜間模式要在早上結束，不能拖到宣告的起床時間")
+# 使用者的情境：起床設 10 點，早上 7 點坐在電腦前，間隔仍然是 86 分
+# （75 × 1.45），而畫面刻意不解釋（見 _status_sub），只看得到一個沒有原因的
+# 長倒數。舊寫法把夜間的結束綁在「習慣起床時間」這個**宣告值**上；
+# 放慢的理由是「睡前灌水會半夜起來上廁所」，那個理由早上完全不成立。
+_saved_hours = (w.cfg["late_night_start_hour"], w.cfg["day_rollover_hour"])
+w.cfg["late_night_start_hour"] = 21
+w.cfg["day_rollover_hour"] = 10                 # 宣告「我 10 點起床」
+check("夜間是 21:00 到清晨換日（5 點）",
+      [h for h in range(24) if w._is_late(h)], [0, 1, 2, 3, 4, 21, 22, 23])
+check("起床宣告 10 點，早上 7 點不再是夜間", w._is_late(7), False)
+check("凌晨 4 點仍然是夜間", w._is_late(4), True)
+w.cfg["day_rollover_hour"] = 3
+check("起床宣告改成 3 點，範圍一樣不受影響",
+      [h for h in range(24) if w._is_late(h)], [0, 1, 2, 3, 4, 21, 22, 23])
+
+# 極端設定不能變成「整天都是夜間」。早上 6 點才睡的人，起點被推導成 3 點，
+# 舊寫法的 `hour >= 3 or hour < 5` 涵蓋全部 24 小時，提醒從此永遠放慢。
+w.cfg["late_night_start_hour"] = 3
+check("起點落在換日之後：只有 3 點到 5 點是夜間",
+      [h for h in range(24) if w._is_late(h)], [3, 4])
+w.cfg["late_night_start_hour"] = 5
+check("起點正好等於換日：沒有夜間", [h for h in range(24) if w._is_late(h)], [])
+w.cfg["late_night_start_hour"], w.cfg["day_rollover_hour"] = _saved_hours
+
+# 範圍對了還不夠：昨晚 23:00 擲出的那一段間隔本身還是夜間長度，不重擲的話
+# 它會一路跟到早上。這件事不必另外寫程式——夜間的結束與換日是同一個時刻，
+# 而 tick() 的換日分支本來就會重擲。這一條守的是那個巧合不被改掉。
+w._is_late = lambda hour=None: True
+w.interval_s = w._roll_interval()
+_night_min = w.interval_s / 60
+w._is_late = lambda hour=None: False
+w.day = "2000-01-01"                            # 假裝跨過清晨那個換日
+w.tick()
+_morning_min = w.interval_s / 60
+del w._is_late
+# 抖動 ±15%：白天最長 86.25 分，夜間最短 92.4 分，中間那條線劃在 90。
+check(f"夜間擲出 {_night_min:.0f} 分，比白天長", _night_min > 90, True)
+check(f"換日之後重擲成 {_morning_min:.0f} 分，回到白天的長度",
+      _morning_min < 90, True)
+
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，

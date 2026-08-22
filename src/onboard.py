@@ -937,7 +937,10 @@ class OnboardWindow(QWidget):
             spacing=sw.S2)
         return self._page("作息", [
             sw.Label("習慣幾點起床、幾點就寢？", "headline", sw.INK),
-            sw.para("提醒只在起床後發送，就寢前三小時自動放慢。"),
+            # 先前寫的是「提醒只在起床後發送」。那句話不成立：提醒發不發只看
+            # 人在不在電腦前（閒置就不計時），跟起床時間無關——起床時間管的是
+            # 作息推導。夜間的結束後來也跟它脫鉤了（見 island._is_late）。
+            sw.para("起床時間用來推算作息，就寢前三小時起自動放慢提醒。"),
             picks,
         ], [self._back_button(), nxt])
 

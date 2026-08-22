@@ -785,7 +785,10 @@ check("同步步進器不能把旗標又設回手動", _p.cfg["wake_manual"], Fa
 # （settings.DAY_ROLLOVER_HOUR），這一列跟次數重置沒有關係了。
 check("起床那一列不再宣稱自己管重置",
       "重置" in _p._wake_text(), False)
-check("而且講得出它現在管什麼", "夜間" in _p._wake_text(), True)
+# 夜間的結束改綁清晨換日之後，這一列跟夜間模式沒有關係了。留著舊句子的話，
+# 起床設 10 點的人會以為早上 9 點還在夜間模式裡。
+check("不再宣稱夜間模式在這裡結束", "夜間" in _p._wake_text(), False)
+check("而且講得出它現在管什麼", "就寢" in _p._wake_text(), True)
 
 print("\n19. 公式的性質（窮舉，不是抽樣）")
 # 第 1 節只驗了 6 個點，而那 6 個期望值是人自己寫上去的——公式的假設要是錯的，
