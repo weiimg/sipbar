@@ -1029,7 +1029,13 @@ def build_trail_card(d):
 
 def build_achievements_card(d):
     card = Card("成就")
-    card.box.setSpacing(S2)
+    # 列距用 S3，跟這個視窗其他地方一樣。原本是 S2（8px），六列擠成一團，
+    # 每一列有名字與說明兩行，行距 4px——列與列之間只差 8px，掃過去分不出
+    # 哪兩行是同一個成就。
+    #
+    # 這一頁現在剛好等於最高的那一頁（479px），視窗高度不變。**再加第七個
+    # 成就就會把整個視窗撐高**，那時要嘛回頭縮這個值，要嘛接受視窗變高。
+    card.box.setSpacing(S3)
     for name, desc, cur, goal in dashboard.achievements(d):
         done = cur >= goal
         card.add(row(
