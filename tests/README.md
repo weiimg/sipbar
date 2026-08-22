@@ -47,6 +47,7 @@ python tests/test_island.py
 | `render_both.py` | 紀錄視窗「剛開始（稀疏）」與「用了一陣子（豐富）」兩種狀態 × 三頁 |
 | `render_anim.py` | 視窗進場動畫逐幀 |
 | `render_ring.py` | 今日環在各種數值下的排版 |
+| `render_achievements_gap.py` | 成就那一頁的列間距對照（8px vs 16px）。決定已經下在 build_achievements_card 的註解裡，這支留著是為了下次想再調時不必重寫 |
 | `gen_dashboard.py` | 產 38 天擬真假資料，供上面幾支使用 |
 
 **跑渲染前先跑 `gen_dashboard.py`**，它會在同目錄產生 `wp_dash/events.jsonl`。
