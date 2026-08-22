@@ -856,6 +856,133 @@ check("\"65\" 當成 65", ap.effective_target({"weight_kg": "65"}), 7)
 check("\"8\" 當成手動指定 8 次",
       ap.effective_target({"target_manual": True, "daily_target_drinks": "8"}), 8)
 
+print("\n21. 設定檔的每一個數字欄位都改得到，不是只有體重那三個")
+# 第 20 節守的是 effective_target() 那三個入口，因為 0.10.x 那次炸的位置在那裡。
+# 但同一份 config.json 裡有十六個數字欄位一樣改得到，而且後果分兩種：
+#
+#   interval_min / late_night_ratio / tick_seconds 加引號 -> 程式開不起來。
+#   idle_threshold_min / escalate_weak_min 加引號       -> 島活著、畫面正常、
+#       倒數照走，但 tick 每一輪都在 `idle_seconds() >= "30" * 60` 拋例外，
+#       **永遠不再提醒**，而且完全看不出來。
+#
+# 第二種是這個專案一直被咬的形狀，所以這一節不驗「有沒有修」，
+# 驗的是「島每一輪真的會算的那幾條算式，餵什麼進去都不會拋例外」。
+
+
+def _load_text(text):
+    """把 text 當成真的 config.json 寫進沙箱，再走 load_config() 讀回來。"""
+    with open(ap.CONFIG_PATH, "w", encoding="utf-8") as f:
+        f.write(text)
+    return ap.load_config()
+
+
+def _load(obj):
+    return _load_text(json.dumps(obj, ensure_ascii=False))
+
+
+def _tick_math(cfg):
+    """島每一輪 tick 都會算的東西，原封不動搬過來。
+
+    這些式子的原址：island.py 的 tick()（閒置門檻、active_s）、
+    _roll_interval()（間隔與抖動）、_is_late()（深夜判斷）、
+    main()（建島之前的目標推導）與 Island.__init__（計時器毫秒數）。
+    型別不對的話，第一條就是 `float >= str`。
+    """
+    _ = 12.5 >= cfg["idle_threshold_min"] * 60
+    _ = 0 + cfg["tick_seconds"]
+    _ = int(cfg["tick_seconds"] * 1000)
+    _ = cfg["interval_min"] * cfg["interval_jitter_pct"] / 100.0
+    _ = 9 >= cfg["late_night_start_hour"] or 9 < cfg["day_rollover_hour"]
+    _ = 60 + cfg["escalate_weak_min"] * 60 + cfg["escalate_collapsed_min"] * 60
+    _ = ap.late_night_interval(cfg)
+    _ = ap.effective_target(cfg)
+
+
+def _not_a_number(cfg):
+    """回傳還不是數字的欄位。weight_kg 的 None 是合法的（＝沒填）。"""
+    return sorted(k for k in ap.NUMERIC_KEYS
+                  if not (isinstance(cfg[k], (int, float))
+                          and not isinstance(cfg[k], bool))
+                  and not (k == "weight_kg" and cfg[k] is None))
+
+
+# 保護清單是從 DEFAULTS 推導的。這一條守的是「以後有人把它改成手抄的清單」——
+# 手抄就會漏，而漏掉的那一個沒有徵兆。
+check("DEFAULTS 裡每個數字欄位都在保護清單裡",
+      [k for k, v in ap.DEFAULTS.items()
+       if isinstance(v, (int, float)) and not isinstance(v, bool)
+       and k not in ap.NUMERIC_KEYS], [])
+
+# 最常見的手改失誤：整份都多了引號。
+_quoted = {k: (str(ap.DEFAULTS[k]) if ap.DEFAULTS[k] is not None else "65")
+           for k in ap.NUMERIC_KEYS}
+_cfg = _load(_quoted)
+check(f"{len(_quoted)} 個欄位全部加引號，讀回來全都是數字", _not_a_number(_cfg), [])
+check("看得懂的字串保留原意（\"75\" 還是 75 分）",
+      _cfg["interval_min"], ap.DEFAULTS["interval_min"])
+# 順序的證據：sanitize 要跑在 _upgrade_keys 前面，否則 "7" != 7 會把預設目標
+# 誤判成「使用者手動指定過」，體重從此再也覆蓋不了它。
+check("而且不會因為引號就被誤判成手動指定目標", _cfg["target_manual"], False)
+check("讀得懂的值不算被退回預設", ap.repaired_keys(), [])
+
+# 十種讀不出數字的值，每一種都把十六個欄位一次全部灌壞。
+_JUNK = ("abc", "", " ", [1], {"a": 1}, True, False, None,
+         float("inf"), float("nan"))
+_junk_bad = _math_bad = None
+for _v in _JUNK:
+    _cfg = _load({k: _v for k in ap.NUMERIC_KEYS})
+    if _junk_bad is None and _not_a_number(_cfg):
+        _junk_bad = f"{_v!r} -> {_not_a_number(_cfg)}"
+    try:
+        _tick_math(_cfg)
+    except Exception as _e:                                   # noqa: BLE001
+        _math_bad = f"{_v!r} 讓 tick 拋 {type(_e).__name__}"
+        break
+check(f"{len(_JUNK)} 種怪值灌滿整份設定，每個欄位仍然是數字", _junk_bad, None)
+check("島每一輪要算的那幾條算式都不會拋例外", _math_bad, None)
+
+# 0 不是型別問題，是「值本身讓程式停擺」。tick_seconds 直接餵給 QTimer：
+# 0 毫秒的計時器會把一顆核心跑滿，而 active_s 每次加 0，倒數永遠走不完。
+check("tick_seconds 是 0 要退回預設", _load({"tick_seconds": 0})["tick_seconds"],
+      ap.DEFAULTS["tick_seconds"])
+# 其餘欄位的 0 都有意義，不能順手一起擋掉。
+check("抖動 0 是「不抖」，要留著", _load({"interval_jitter_pct": 0})["interval_jitter_pct"], 0)
+check("就寢 0 點是午夜，要留著", _load({"bedtime_hour": 0})["bedtime_hour"], 0)
+
+# 診斷資訊要講得出是哪幾項被換掉的——使用者只會說「我改了卻沒有用」。
+_cfg = _load({"interval_min": "45", "idle_threshold_min": "abc", "tick_seconds": 0})
+check("被退回預設的欄位進得了診斷清單",
+      ap.repaired_keys(), ["idle_threshold_min", "tick_seconds"])
+check("而讀得懂的那個照使用者的意思走", _cfg["interval_min"], 45)
+# 清單要真的走到使用者手上。他能說的只有「我改了卻沒有用」，而那句話沒有
+# 其他出口——回報時附的那段講不出來的話，就沒有人查得到。
+check("診斷資訊點得出是哪一項被退回",
+      "idle_threshold_min" in _sw.SettingsPage(dict(_cfg)).diagnostics(), True)
+_load({"interval_min": 45})
+check("沒有東西被退回時不多這一行",
+      "退回預設" in _sw.SettingsPage(dict(cfg)).diagnostics(), False)
+
+# 整份不是 JSON 物件。_upgrade_keys() 會對它呼叫 .setdefault()，那是
+# AttributeError，不在 load_config() 接住的兩種例外裡。
+_shape_bad = None
+for _text in ("null", "[1, 2, 3]", "42", '"hello"', "{", ""):
+    try:
+        _cfg = _load_text(_text)
+    except Exception as _e:                                   # noqa: BLE001
+        _shape_bad = f"{_text!r} 讓 load_config() 拋 {type(_e).__name__}"
+        break
+    if _cfg["interval_min"] != ap.DEFAULTS["interval_min"]:
+        _shape_bad = f"{_text!r} 讀出了 {_cfg['interval_min']!r}"
+        break
+check("設定檔整份被改成 null／陣列／半個括號，都用預設值頂著", _shape_bad, None)
+
+# 舊鍵不在 DEFAULTS 裡，掃不到，所以它們自己要過一次 _as_number()。
+_cfg = _load({"interval_min": "60", "interval_jitter_min": "abc",
+              "late_night_interval_min": [9]})
+check("舊鍵改壞了不連累還在用的新鍵", _cfg["interval_min"], 60)
+check("舊鍵換算不出來就維持預設比例",
+      _cfg["late_night_ratio"], ap.DEFAULTS["late_night_ratio"])
+
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

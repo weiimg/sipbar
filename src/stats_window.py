@@ -2510,6 +2510,12 @@ class SettingsPage(QWidget):
             # 而那兩件事從畫面上長得一模一樣。
             self._data_file_line(),
         ]
+        # 設定檔手改壞掉的欄位。讀不出數字的值會被退回預設，而退回之後畫面上
+        # 一切正常——值是合法的，島照跑——使用者只會覺得「我明明改了卻沒有
+        # 用」。沒有這一行，那個疑惑在回報裡查不出來。
+        if appsettings.repaired_keys():
+            lines.append("設定值退回預設 "
+                         + "、".join(appsettings.repaired_keys()))
         return "\n".join(lines)
 
     def _data_file_line(self):

@@ -28,6 +28,7 @@
 """
 
 import json
+import math
 import os
 import shutil
 import sys
@@ -292,6 +293,18 @@ DEFAULTS = {
 TARGET_MIN, TARGET_MAX = 4, 12
 INTERVAL_CHOICES = (30, 45, 60, 75, 90)
 
+# 值一定得是數字的那些鍵。
+#
+# 從 DEFAULTS 自己推導，不另外手抄一份清單：抄的話，以後新增數字設定的人得
+# 記得回來補一行，而漏掉的那一個不會有任何徵兆——它正是這條防線要擋的東西。
+# bool 要排除（它是 int 的子類別，理由見 `_as_number()`）；weight_kg 要手動
+# 補（預設是 None＝沒填，從型別看不出它是數字），它也是唯一一個「讀不出來
+# 就當作沒填」而不是退回預設值的欄位。
+NUMERIC_KEYS = frozenset(
+    {k for k, v in DEFAULTS.items()
+     if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    | {"weight_kg"})
+
 
 # ---------------------------------------------------------------- 讀寫
 
@@ -347,16 +360,89 @@ def _migrate_legacy():
         return False
 
 
+# 這一輪被退回預設的欄位。診斷資訊會報出來——設定值被換掉之後畫面上一切正常
+# （值是合法的），使用者只會覺得「我明明改了卻沒有用」，而那個疑惑沒有出口。
+_repaired = []
+
+
+def repaired_keys():
+    """最近一次讀設定時，有哪些欄位讀不出數字而被退回預設。"""
+    return list(_repaired)
+
+
+def sanitize_numbers(cfg):
+    """把設定檔裡每一個數字欄位變回真的數字。就地改，回傳同一個 dict。
+
+    `_as_number()` 原本只套在體重推導那三個入口，因為 0.10.x 修的是「一個引號
+    讓程式開不起來」，而當時炸的位置就在那三個。但同一份 `config.json` 裡還有
+    十幾個數字欄位一樣改得到——`DESIGN.md` 甚至正在教使用者去改那批沒有上面板
+    的值——而後果分成兩種，第二種更難發現：
+
+      - `interval_min`、`late_night_ratio`、`tick_seconds` 加了引號：
+        程式開不起來，跟體重那次同一個形狀。
+      - `idle_threshold_min`、`escalate_weak_min` 加了引號：
+        島活著、畫面正常、倒數照走，但 tick 每一輪都在
+        `idle_seconds() >= "30" * 60` 撞上 `float >= str` 而拋例外，
+        於是**永遠不再提醒**，而且完全看不出來。
+
+    第二種正是這個專案一直被咬的形狀。
+
+    在這一個地方一次套完，不是在每個讀取點各補一次：讀取點有六十幾個，補到
+    第五十個就會漏，而漏掉的那個沒有徵兆。這裡是所有設定值的唯一入口。
+
+    **修好的值不寫回檔案。** 使用者打錯的那個字元留在原地，他下次打開設定檔
+    才看得出自己改了什麼；每次啟動重修一次，代價只是幾十次型別轉換。
+    """
+    global _repaired
+    repaired = []
+    for key in sorted(NUMERIC_KEYS):
+        if key not in cfg:
+            continue
+        fallback = DEFAULTS[key]
+        n = _as_number(cfg[key])
+        # tick_seconds 是唯一一個「0 也不行」的：它直接餵給 QTimer，0 毫秒的
+        # 計時器會把一顆核心跑滿，而 active_s 每次加 0，倒數永遠走不完——
+        # 又是一次「島活著但不再提醒」。其餘欄位的 0 都有意義（抖動 0＝不抖、
+        # 就寢 0 點＝午夜是預設值），不要順手一起擋掉。
+        if n is None or (key == "tick_seconds" and n <= 0):
+            value = fallback              # weight_kg 的 fallback 就是 None＝沒填
+            # 只有「讀不出來」才記一筆。`"45"` 讀得出 45，使用者要的就是 45，
+            # 行為跟他預期的一致，沒有需要解釋的東西——把它一起報出去，
+            # 只會讓真正被換掉的那幾項淹在雜訊裡。
+            if value != cfg[key]:
+                repaired.append(key)
+        elif isinstance(fallback, float):
+            value = float(n)
+        else:
+            # 預設是整數的欄位收成整數：小時步進器與間隔分段控制項直接拿它去
+            # 顯示，8.0 會被印成「8.0 點」。weight_kg 沒有預設值可以參照，
+            # 跟著輸入框的驗證器（QIntValidator）走整數。
+            value = int(round(n))
+        cfg[key] = value
+    _repaired = repaired
+    return cfg
+
+
 def _upgrade_keys(raw):
-    """舊版的鍵名換成新的。使用者調過的值不能因為改版就被丟掉。"""
+    """舊版的鍵名換成新的。使用者調過的值不能因為改版就被丟掉。
+
+    跑在 `sanitize_numbers()` 後面，所以這裡的值已經是數字了。順序不能反過來：
+    底下三條都在對設定值做算術或比較，`"75"` 會讓第一條 TypeError，
+    也會讓第三條把 `"7"` 判成「跟預設的 7 不一樣」而誤標成手動指定。
+    """
+    # 兩個舊鍵不在 DEFAULTS 裡，sanitize_numbers() 掃不到它們，所以這裡自己
+    # 過一次 _as_number()——被丟掉的舊鍵改壞了，不該連累還在用的新鍵。
+    base = _as_number(raw.get("interval_min")) or DEFAULTS["interval_min"]
     # interval_jitter_min（固定分鐘）-> interval_jitter_pct（比例）
     if "interval_jitter_min" in raw and "interval_jitter_pct" not in raw:
-        base = raw.get("interval_min") or DEFAULTS["interval_min"]
-        raw["interval_jitter_pct"] = int(round(raw["interval_jitter_min"] / base * 100))
+        old = _as_number(raw["interval_jitter_min"])
+        if old is not None:
+            raw["interval_jitter_pct"] = int(round(old / base * 100))
     # late_night_interval_min（絕對值）-> late_night_ratio（倍數）
     if "late_night_interval_min" in raw and "late_night_ratio" not in raw:
-        base = raw.get("interval_min") or DEFAULTS["interval_min"]
-        raw["late_night_ratio"] = round(raw["late_night_interval_min"] / base, 2)
+        old = _as_number(raw["late_night_interval_min"])
+        if old is not None:
+            raw["late_night_ratio"] = round(old / base, 2)
     # 使用者自己調過目標，升級後不能被體重推導蓋掉
     if "daily_target_drinks" in raw and "target_manual" not in raw:
         raw["target_manual"] = raw["daily_target_drinks"] != DEFAULTS["daily_target_drinks"]
@@ -377,14 +463,20 @@ def load_config():
     # 「config.json 放在程式旁邊」那一版。兩個都只在還沒搬過時做一次。
     _migrate_data_dir()
     _migrate_legacy()
+    raw = None
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg.update(_upgrade_keys(json.load(f)))
+                raw = json.load(f)
         except (OSError, ValueError):
             pass          # 壞掉的設定檔用預設值頂著，不要讓程式起不來
     else:
         save_config(cfg)
+    # 整份不是 JSON 物件時（被改成 null、一個陣列、或只剩一個數字）也一樣頂著。
+    # 這個判斷不能省：`_upgrade_keys()` 會對它呼叫 `.setdefault()`，而那是
+    # AttributeError，不在上面接住的兩種例外裡——照樣開不起來。
+    if isinstance(raw, dict):
+        cfg.update(_upgrade_keys(sanitize_numbers(raw)))
     return cfg
 
 
@@ -495,13 +587,20 @@ def _as_number(v):
 
     bool 特別擋掉：Python 的 `True` 是 `int` 的子類別，會被 `float()` 收成 1.0，
     於是「體重 True」變成 1 公斤。那不是使用者的意思，當作沒填才對。
+
+    無限大與 NaN 也擋掉。它們讀得出來（JSON 的 `1e400` 就是 inf，而 Python 的
+    json 預設收 `NaN` 這個字面值），但下游全是算術：`int(round(inf))` 是
+    OverflowError、`int(round(nan))` 是 ValueError，而 NaN 的每一種比較都回
+    False，會讓「離開電腦不計時」那條判斷永遠不成立。讀得出來但算不動的東西
+    等於沒填。
     """
     if v is None or isinstance(v, bool):
         return None
     try:
-        return float(v)
+        n = float(v)
     except (TypeError, ValueError):
         return None
+    return n if math.isfinite(n) else None
 
 
 def target_from_weight(kg, ml_per_drink=None):
