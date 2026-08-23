@@ -18,7 +18,7 @@
     run.bat            日常用這個（無 console）
     python island.py   第一次跑或出錯時用這個，才看得到錯誤訊息
 
-隱藏時所有操作都在系統匣圖示：左鍵＝補水一次，右鍵＝選單。
+隱藏時所有操作都在系統匣圖示：左鍵＝開喝水紀錄，右鍵＝選單（記錄補水在第一項）。
 """
 
 import ctypes
@@ -1066,7 +1066,8 @@ class Island(QWidget):
         # 使用者回報：「可以重置計算嗎，不小心一次點了兩次之類的」。他要的是
         # 撤銷，但該修的是別讓它記到兩次——喝完之後島還會亮
         # satisfied_flash_seconds 的確認訊息、繼續掛在畫面上、繼續可以點，
-        # 手滑的窗口是敞開的。系統匣圖示的左鍵也是同一條路。
+        # 手滑的窗口是敞開的。（系統匣圖示的左鍵以前也走這條路，現在它改成
+        # 開喝水紀錄了，見 _tray_clicked()。）
         #
         # 用「距離上次補水多久」判，不要用「島現在是不是 SATISFIED」。
         # 後者看起來更省（狀態本來就在），但它把輸入處理綁在動畫狀態機上：
@@ -1710,8 +1711,22 @@ class Island(QWidget):
         self.tray.setToolTip(f"{APP_TITLE}　{self._status_sub()}")
 
     def _tray_clicked(self, reason):
+        """左鍵開喝水紀錄，右鍵彈選單。
+
+        左鍵原本是「記錄補水」。改掉的理由是預期落差：**一般人對系統匣圖示的
+        預期是「點了會打開什麼」**，而先前點下去什麼都沒開，卻在背後記了一次
+        水。第一次用的人好奇點一下，資料就髒了，而且他不會知道——島那時是
+        隱藏的，畫面上沒有任何回饋。
+
+        代價要講清楚：島隱藏的時候想主動記一筆，從一下變成兩下
+        （右鍵 → 記錄補水）。換到的是「不會在不知情的狀況下被記一次」，
+        而髒掉的資料修不回來，多一下點擊只是麻煩。
+
+        這是 1.0 之前刻意要做完的行為變更。發布之後再改就是把使用者已經
+        練成肌肉記憶的東西換掉。
+        """
         if reason == QSystemTrayIcon.Trigger:
-            self.drink()
+            self.show_stats()
         elif reason == QSystemTrayIcon.Context:
             # 系統匣的右鍵選單由我們自己畫（見 menu.py）。
             # QSystemTrayIcon.setContextMenu() 只吃 QMenu，而 QMenu 在 Windows 上

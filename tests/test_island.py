@@ -663,9 +663,15 @@ w26._last_drink_at -= cfg["satisfied_flash_seconds"] + 1
 w26.drink()
 check("過了確認訊息的時間就正常記", w26.drinks, 2)
 
-# 系統匣的左鍵走同一條路，所以同一個閘門也要蓋到它
+# 系統匣的左鍵不再記水。一般人對系統匣圖示的預期是「點了會打開什麼」，
+# 而先前點下去什麼都沒開、背後卻記了一次——第一次用的人好奇點一下，
+# 資料就髒了，而且他不會知道（島那時是隱藏的，沒有任何回饋）。
+_opened = []
+w26.show_stats = lambda: _opened.append(1)
+_before26 = w26.drinks
 w26._tray_clicked(isl.QSystemTrayIcon.Trigger)
-check("系統匣左鍵也擋得住連點", w26.drinks, 2)
+check("系統匣左鍵不再記水", w26.drinks, _before26)
+check("而是打開喝水紀錄", len(_opened), 1)
 
 print("\n27. 提示音只在升級的那一刻響")
 # 聲音是升級階梯的最後一階（換色 -> 變大 -> 不消失 -> 出聲）。
