@@ -30,6 +30,8 @@ test_settings 驗設定的讀寫與推導、test_sound 驗音效。每一支都�
 
 用法：python tests/test_flow.py
 """
+import io
+import json
 import os
 import shutil
 import sys
@@ -215,6 +217,12 @@ while w.drinks < target:
     w.drink()
 check("達到目標", w.drinks, target)
 check("訊息是達標", w.message, "今天達標了")
+# 這一支從第一次啟動走到這裡，所以這是這個使用者的第一次達標——
+# 紀錄視窗做得比島完整，而唯一的入口是右鍵，不講就沒有人會發現。
+# 接縫在這裡：drink() 要讀設定、寫設定、再把那句話交給島顯示。
+check("第一次達標告訴他紀錄在哪", w.sub_message, "右鍵可以看紀錄")
+check("而且真的寫回設定檔",
+      json.load(io.open(aps.CONFIG_PATH, encoding="utf-8"))["records_hinted"], True)
 w._settle()
 ticks(w, 600)
 check("跑 600 分鐘仍然不出現", w.sp_reveal.target, 0.0)

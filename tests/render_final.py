@@ -36,6 +36,7 @@ rows = [
     ("倒地 · 全展開", isl.COLLAPSED, 1.00, 2),
     ("喝了", isl.SATISFIED, 1.00, 3),
     ("達標", isl.SATISFIED, 1.00, 6),
+    ("第一次達標（多一句指示）", isl.SATISFIED, 1.00, 6),
     ("啟動打招呼", isl.NORMAL, 1.00, 0),
 ]
 
@@ -53,8 +54,11 @@ for label, state, t, drinks in rows:
         w.message, w.sub_message = "我在這裡", "滑鼠移到螢幕上緣中間就能叫我"
     elif label == "喝了":
         w._refresh_message("喝了，還剩 3 次")
+    elif label == "第一次達標（多一句指示）":
+        # 一輩子只出現一次：紀錄視窗唯一的入口是右鍵，不講沒有人會發現。
+        w._refresh_message("今天達標了", "右鍵可以看紀錄")
     elif label == "達標":
-        w._refresh_message("今天達標了，收工")
+        w._refresh_message("今天達標了", f"連續 {12} 天")
     else:
         w._refresh_message()
     w.sp_expand.value = w.sp_expand.target = t

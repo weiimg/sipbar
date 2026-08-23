@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """驗證正式版動態島：計時、閒置暫停、升級、達標、換日、暫停、統計、顯示與隱藏。"""
+import io
+import json
 import os
 import shutil
 import sys
@@ -9,12 +11,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 import island as isl  # noqa: E402
+import settings as ap  # noqa: E402
 
 TEST_DIR = os.path.join(SCRATCH, "wp_island")
 shutil.rmtree(TEST_DIR, ignore_errors=True)
 isl.DATA_DIR = TEST_DIR
 isl.STATE_PATH = os.path.join(TEST_DIR, "state.json")
 isl.EVENTS_PATH = os.path.join(TEST_DIR, "events.jsonl")
+# settings 那一側也要指進沙箱。drink() 第一次達標時會 save_config() 把
+# records_hinted 寫回去，而它走的是 settings.CONFIG_PATH，不是上面那三個。
+# 沒有這兩行，跑一次測試就會動到使用者真實的設定檔（第 99 節會抓到）。
+ap.DATA_DIR = TEST_DIR
+ap.CONFIG_PATH = os.path.join(TEST_DIR, "config.json")
 
 IDLE = [0.0]
 isl.idle_seconds = lambda: IDLE[0]
@@ -26,6 +34,10 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 app = QApplication(sys.argv)
 cfg = dict(isl.DEFAULT_CONFIG)
 cfg["tick_seconds"] = 60          # 一 tick 當一分鐘，快轉用
+# 「右鍵可以看紀錄」一輩子只出現一次，而它會蓋掉達標時的「連續 N 天」。
+# 底下絕大多數的節驗的是常態行為，所以預設當成「已經提示過」。
+# 第一次達標的那條路由第 33 節自己把旗標關掉來驗。
+cfg["records_hinted"] = True
 w = isl.Island(cfg)
 w.tick_timer.stop()
 w.frame.stop()
@@ -321,6 +333,8 @@ for label, text, font in (
     ("倒數（連續破百·深夜）", _sub_late, w2._f_sub),
     ("提醒中（連續破百）", w2._reminding_sub(), w2._f_sub),
     ("打招呼副標", "游標移至螢幕上緣中央可呼叫", w2._f_sub),
+    # 第一次達標那句提示也走小標，而且它是一次性的：被截掉就永遠沒有第二次。
+    ("第一次達標的提示", "右鍵可以看紀錄", w2._f_sub),
     ("最長標題", "今天達標了", w2._f_title),
 ):
     need = QFontMetrics(font).horizontalAdvance(text)
@@ -994,6 +1008,46 @@ del w._is_late
 check(f"夜間擲出 {_night_min:.0f} 分，比白天長", _night_min > 90, True)
 check(f"換日之後重擲成 {_morning_min:.0f} 分，回到白天的長度",
       _morning_min < 90, True)
+
+print("\n33. 第一次達標要講一次「紀錄在哪裡」")
+# 紀錄視窗（連續天數、熱圖、成就）做得比島本身完整，而唯一的入口是右鍵——
+# 一個沒有任何視覺提示的動作。第一次達標是這句話最該出現的時刻：使用者第一次
+# 真的有東西可看，而且他正盯著島。
+_cfg33 = dict(cfg)
+_cfg33["records_hinted"] = False
+w33 = isl.Island(_cfg33)
+w33.tick_timer.stop(); w33.frame.stop(); w33.hold_timer.stop()
+w33.peek_timer.stop(); w33.beat_timer.stop()
+w33.drinks = _cfg33["daily_target_drinks"] - 1
+sip(w33)                                        # 喝下達標的那一口
+check("主字仍然是達標", w33.message, "今天達標了")
+check("小標換成指示", w33.sub_message, "右鍵可以看紀錄")
+check("提示過就記下來", w33.cfg["records_hinted"], True)
+check("而且寫回設定檔",
+      json.load(io.open(ap.CONFIG_PATH, encoding="utf-8"))["records_hinted"], True)
+# 1.8 秒是為「喝了，還剩 N 次」調的，那句話使用者早就知道，掃一眼就夠。
+# 一句他沒看過的指示要讀完才有用。
+check("停留拉長到口渴那一階的長度",
+      w33.hold_timer.interval(), int(_cfg33["thirsty_hold_seconds"] * 1000))
+
+# 第二次達標不能再講。講第二次就變成他每天都要略過一次的東西，
+# 而那正是這個工具最不想變成的樣子。
+w33.drinks = _cfg33["daily_target_drinks"] - 1
+sip(w33)
+check("第二次達標不再提示", w33.sub_message != "右鍵可以看紀錄", True)
+check("停留回到原本的閃一下",
+      w33.hold_timer.interval(), int(_cfg33["satisfied_flash_seconds"] * 1000))
+
+# 沒達標的那些補水完全不受影響：提示只掛在達標那一刻。
+_cfg33b = dict(cfg)
+_cfg33b["records_hinted"] = False
+w33b = isl.Island(_cfg33b)
+w33b.tick_timer.stop(); w33b.frame.stop(); w33b.hold_timer.stop()
+w33b.peek_timer.stop(); w33b.beat_timer.stop()
+w33b.drinks = 0
+sip(w33b)
+check("還沒達標時不提示", w33b.sub_message != "右鍵可以看紀錄", True)
+check("也不會把旗標用掉", w33b.cfg["records_hinted"], False)
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。

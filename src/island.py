@@ -407,6 +407,9 @@ class Island(QWidget):
         # 見 practice()。
         self._practicing = False
         self._practice_cb = None
+        # 這一次的 SATISFIED 帶著「右鍵可以看紀錄」那句話嗎。只在 drink() 的
+        # 第一次達標那條路上是 True，_hold_for() 靠它決定停留多久。
+        self._hinting = False
         self._restored_state = None      # 上次關掉時停在哪個提醒狀態
 
         now = datetime.now()
@@ -761,6 +764,10 @@ class Island(QWidget):
     def _refresh_message(self, override=None, sub=None):
         # 小標只放狀態，不放操作說明。「點一下就算喝了」學會之後就只是噪音，
         # 常駐的介面文字要能一直被讀，不能是一次性的教學。
+        #
+        # 例外由呼叫端傳 sub 進來：第一次達標的「右鍵可以看紀錄」一輩子只出現
+        # 一次（見 drink()）。這條規則管的是常駐文字，一次性的教學正好相反，
+        # 它就該待在一個只出現一次的地方。
         if sub:
             self.sub_message = sub
         elif self.state == NORMAL:
@@ -776,6 +783,13 @@ class Island(QWidget):
             self.message = random.choice(MESSAGES.get(self.state, MESSAGES[NORMAL]))
 
     def _hold_for(self, state):
+        # 第一次達標多帶一句使用者沒看過的指示（見 drink()），那一次要停久
+        # 一點。satisfied_flash_seconds（1.8 秒）是為「喝了，還剩 N 次」調的，
+        # 而那句話他早就知道，掃一眼就夠；一句沒看過的指示要讀完才有用。
+        # 借用口渴那一階的停留長度，不另外開一個設定值——設定值會被看到、
+        # 被問「這是什麼」，而它只影響一輩子一次的那 6 秒。
+        if state == SATISFIED and self._hinting:
+            return self.cfg["thirsty_hold_seconds"]
         return {
             THIRSTY: self.cfg["thirsty_hold_seconds"],
             WEAK: self.cfg["weak_hold_seconds"],
@@ -1106,7 +1120,21 @@ class Island(QWidget):
             # 達標的瞬間連續會 +1，這裡是唯一的回饋時機，數字要當場更新
             self._refresh_streak()
             sub = f"連續 {self.streak} 天" if self.streak else None
+            # 第一次達標多講一句「紀錄在哪裡」。紀錄視窗做得比島完整，而唯一的
+            # 入口是右鍵，那是一個沒有任何視覺提示的動作——不講就沒有人會發現。
+            #
+            # 蓋掉「連續 N 天」不可惜：第一次達標的連續本來就是 1，那個數字
+            # 沒什麼好看的，而這句話一輩子只出現一次。
+            #
+            # 存不進去的話下次達標會再提示一次。那不是災難（多講一次而已），
+            # 而寫入失敗本來就會被計數、在診斷資訊裡看得到。
+            self._hinting = not self.cfg.get("records_hinted")
+            if self._hinting:
+                sub = "右鍵可以看紀錄"
+                self.cfg["records_hinted"] = True
+                settings.save_config(self.cfg)
             self._enter(SATISFIED, message="今天達標了", sub=sub)
+            self._hinting = False
         else:
             self._enter(SATISFIED, message=f"喝了，還剩 {target - self.drinks} 次")
         self._refresh_stats_window()
