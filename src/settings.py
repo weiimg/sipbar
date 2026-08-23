@@ -324,6 +324,31 @@ NUMERIC_KEYS = frozenset(
      if isinstance(v, (int, float)) and not isinstance(v, bool)}
     | {"weight_kg"})
 
+# 值只能是真假的那些鍵。JSON 有真正的 true / false，但手改的人很容易寫成
+# 字串，而 **Python 的 `bool("false")` 是 True**——「關掉」被讀成「打開」，
+# 而且完全看不出來。音效那一個最糟：它平常本來就安靜，只在提醒被忽略 15 分鐘
+# 之後才響，所以「以為關掉了但其實開著」要等到某天開會時才會發現。
+BOOL_KEYS = frozenset(k for k, v in DEFAULTS.items() if isinstance(v, bool))
+
+# 認得的寫法。大小寫與前後空白都吃，因為手改的人不會照 JSON 的規矩寫。
+_BOOL_WORDS = {"true": True, "yes": True, "on": True, "1": True,
+               "false": False, "no": False, "off": False, "0": False}
+
+# 值只能是清單裡那幾個字串的鍵。
+#
+# theme 特別要擋：`theme.resolve()` 拿它去查一個 dict，餵 list 進去是
+# TypeError（unhashable），而 `theme.apply()` 在 island.main() 裡、**建島之前、
+# 沒有任何 try**——又是一次「點了圖示什麼都沒發生」。
+# 認不得的字串本來就會退回系統配色，那條路沒問題，要擋的是型別。
+ENUM_KEYS = {"theme": ("auto", "light", "dark"),
+             "face_style": ("pixel", "geometry")}
+
+# 自由字串：螢幕名稱、音效檔名、打過招呼的版本。內容不管（那是使用者的機器上
+# 的事實），型別要管——不是字串就退回預設，別讓它流到 os.path.basename()
+# 或版本比較那裡。
+TEXT_KEYS = frozenset(("screen_name", "sound_name_weak",
+                       "sound_name_collapsed", "greeted_version"))
+
 
 # ---------------------------------------------------------------- 讀寫
 
@@ -389,7 +414,23 @@ def repaired_keys():
     return list(_repaired)
 
 
-def sanitize_numbers(cfg):
+def _as_bool(v):
+    """設定檔裡的值當成真假讀。讀不出來就回 None（＝當作沒填）。
+
+    真正的 bool 直接收；字串查表（`"false"` / `"no"` / `"0"` 都是假）；
+    0 與 1 也收，那是很多人寫開關的習慣。其餘一律讀不出來——
+    **特別是 `"maybe"` 這種認不得的字串，不能因為它非空就當成真。**
+    """
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return _BOOL_WORDS.get(v.strip().lower())
+    if isinstance(v, (int, float)) and v in (0, 1):
+        return bool(v)
+    return None
+
+
+def sanitize_config(cfg):
     """把設定檔裡每一個數字欄位變回真的數字。就地改，回傳同一個 dict。
 
     `_as_number()` 原本只套在體重推導那三個入口，因為 0.10.x 修的是「一個引號
@@ -408,6 +449,10 @@ def sanitize_numbers(cfg):
 
     在這一個地方一次套完，不是在每個讀取點各補一次：讀取點有六十幾個，補到
     第五十個就會漏，而漏掉的那個沒有徵兆。這裡是所有設定值的唯一入口。
+
+    數字之外，布林、列舉（theme / face_style）與自由字串也一起收。三種的失敗
+    形狀不同：數字型別不對會拋例外，布林型別不對會**安靜地做相反的事**
+    （`bool("false")` 是 True），列舉型別不對又回到拋例外（見 ENUM_KEYS）。
 
     **修好的值不寫回檔案。** 使用者打錯的那個字元留在原地，他下次打開設定檔
     才看得出自己改了什麼；每次啟動重修一次，代價只是幾十次型別轉換。
@@ -438,18 +483,46 @@ def sanitize_numbers(cfg):
             # 跟著輸入框的驗證器（QIntValidator）走整數。
             value = int(round(n))
         cfg[key] = value
-    _repaired = repaired
+
+    for key in sorted(BOOL_KEYS):
+        if key not in cfg:
+            continue
+        b = _as_bool(cfg[key])
+        if b is None:
+            repaired.append(key)
+            cfg[key] = DEFAULTS[key]
+        else:
+            cfg[key] = b            # 讀得懂就照他的意思，"false" 就是關
+
+    for key, allowed in sorted(ENUM_KEYS.items()):
+        if key not in cfg:
+            continue
+        if cfg[key] not in allowed:
+            repaired.append(key)
+            cfg[key] = DEFAULTS[key]
+
+    for key in sorted(TEXT_KEYS):
+        if key not in cfg:
+            continue
+        # None 是合法的（＝沒設過），其餘只收字串。
+        if cfg[key] is not None and not isinstance(cfg[key], str):
+            repaired.append(key)
+            cfg[key] = DEFAULTS[key]
+
+    # 排序過再交出去：三組（數字、布林、列舉／字串）是分開掃的，不排的話
+    # 診斷資訊裡的順序取決於掃描順序，看起來像亂的。
+    _repaired = sorted(repaired)
     return cfg
 
 
 def _upgrade_keys(raw):
     """舊版的鍵名換成新的。使用者調過的值不能因為改版就被丟掉。
 
-    跑在 `sanitize_numbers()` 後面，所以這裡的值已經是數字了。順序不能反過來：
+    跑在 `sanitize_config()` 後面，所以這裡的值已經是數字了。順序不能反過來：
     底下三條都在對設定值做算術或比較，`"75"` 會讓第一條 TypeError，
     也會讓第三條把 `"7"` 判成「跟預設的 7 不一樣」而誤標成手動指定。
     """
-    # 兩個舊鍵不在 DEFAULTS 裡，sanitize_numbers() 掃不到它們，所以這裡自己
+    # 兩個舊鍵不在 DEFAULTS 裡，sanitize_config() 掃不到它們，所以這裡自己
     # 過一次 _as_number()——被丟掉的舊鍵改壞了，不該連累還在用的新鍵。
     base = _as_number(raw.get("interval_min")) or DEFAULTS["interval_min"]
     # interval_jitter_min（固定分鐘）-> interval_jitter_pct（比例）
@@ -498,7 +571,7 @@ def load_config():
     # 這個判斷不能省：`_upgrade_keys()` 會對它呼叫 `.setdefault()`，而那是
     # AttributeError，不在上面接住的兩種例外裡——照樣開不起來。
     if isinstance(raw, dict):
-        cfg.update(_upgrade_keys(sanitize_numbers(raw)))
+        cfg.update(_upgrade_keys(sanitize_config(raw)))
     return cfg
 
 

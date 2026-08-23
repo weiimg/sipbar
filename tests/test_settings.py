@@ -988,6 +988,36 @@ for _text in ("null", "[1, 2, 3]", "42", '"hello"', "{", ""):
         break
 check("設定檔整份被改成 null／陣列／半個括號，都用預設值頂著", _shape_bad, None)
 
+# 數字之外還有兩種欄位，失敗的形狀完全不同。
+#
+# 布林：`bool("false")` 是 True，所以手改成字串的「關掉」會被讀成「打開」，
+# 而且完全看不出來。音效那一個最糟——它平常本來就安靜，只在提醒被忽略
+# 15 分鐘後才響，「以為關掉了但其實開著」要等到某天開會時才會發現。
+check("字串 false 讀成關", _load({"sound_enabled": "false"})["sound_enabled"], False)
+check("大寫 FALSE 也是關", _load({"sound_enabled": "FALSE"})["sound_enabled"], False)
+check("字串 no 也是關", _load({"check_updates": "no"})["check_updates"], False)
+check("數字 0 也是關", _load({"sound_enabled": 0})["sound_enabled"], False)
+check("字串 true 是開", _load({"sound_enabled": "true"})["sound_enabled"], True)
+# 認不得的字串不能因為非空就當成真——那正是 bool() 會做的事。
+check("認不得的字串退回預設", _load({"sound_enabled": "maybe"})["sound_enabled"],
+      ap.DEFAULTS["sound_enabled"])
+check("list 也退回預設", _load({"onboarded": ["yes"]})["onboarded"],
+      ap.DEFAULTS["onboarded"])
+
+# theme：theme.resolve() 拿它去查 dict，list 是 unhashable -> TypeError，
+# 而 theme.apply() 在 island.main() 裡、建島之前、沒有 try。
+check("theme 是 list 會退回預設", _load({"theme": ["dark"]})["theme"], "auto")
+check("theme 是認不得的字串也退回", _load({"theme": "neon"})["theme"], "auto")
+check("theme 認得的值不動", _load({"theme": "light"})["theme"], "light")
+check("face_style 同一條路", _load({"face_style": 3})["face_style"], "pixel")
+# 自由字串只管型別，不管內容：螢幕名稱是使用者機器上的事實。
+check("螢幕名稱不是字串就退回", _load({"screen_name": 5})["screen_name"], None)
+check("螢幕名稱是字串就留著", _load({"screen_name": "DELL U2720Q"})["screen_name"],
+      "DELL U2720Q")
+_cfg = _load({"theme": ["dark"], "sound_enabled": "maybe", "screen_name": 5})
+check("三種都進得了診斷清單",
+      ap.repaired_keys(), ["screen_name", "sound_enabled", "theme"])
+
 # 舊鍵不在 DEFAULTS 裡，掃不到，所以它們自己要過一次 _as_number()。
 _cfg = _load({"interval_min": "60", "interval_jitter_min": "abc",
               "late_night_interval_min": [9]})
