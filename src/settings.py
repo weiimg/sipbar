@@ -217,8 +217,12 @@ DEFAULTS = {
     #
     # 鍵名沿用 day_rollover_hour 是因為改名要處理遷移，而它已經存在使用者的
     # config.json 裡。名字現在對不上職責，這是已知的債。
+    #
+    # **它不在設定面板上，也不在引導裡問。** 面板的篩選標準是「不改就會讓工具
+    # 對這個人失效」，而它現在唯一的下游（就寢時間）自己就是一個可以直接設的
+    # 值——問兩個值去推一個值，而那個值本來就問得到，是多餘的一題。
+    # 所以它一律由活動紀錄推導，沒有手動旗標。
     "day_rollover_hour": 8,
-    "wake_manual": False,           # 使用者調過就不再被推導覆蓋
 
     # 預計就寢時間。問這個而不是問「深夜幾點開始放慢」，理由跟上面問起床
     # 而不問換日完全相同：後者是系統概念，使用者得自己反推（「我三點睡，
@@ -467,7 +471,10 @@ def _upgrade_keys(raw):
     raw.setdefault("onboarded", True)
     # 換算完就把舊鍵刪掉。留著沒有壞處（沒有人讀），但使用者打開設定檔會看到
     # 兩組互相矛盾的值，不知道哪個才算數——發布出去的東西不該讓人猜。
-    for dead in ("interval_jitter_min", "late_night_interval_min"):
+    # wake_manual 在起床時間退出設定面板時一起拿掉了。留著的話它會凍住一個
+    # 使用者再也看不到、也改不掉的值：旗標是 True 就永遠不再推導，而畫面上
+    # 沒有任何地方能把它關掉。刪掉等於交還給推導，那是現在唯一的來源。
+    for dead in ("interval_jitter_min", "late_night_interval_min", "wake_manual"):
         raw.pop(dead, None)
     return raw
 
@@ -864,17 +871,17 @@ def infer_schedule(events_path):
 def apply_auto_schedule(cfg, events_path):
     """把推導出來的作息寫進 cfg。回傳有沒有變動。
 
-    起床時間使用者調過（wake_manual）就不再覆蓋，但深夜模式照樣重算——
-    它是從使用者給的起床時間往下推的，起床時間變了它就該跟著變。
+    起床時間一律重推：它不在面板上，使用者沒有別的方式表態，推導是唯一的來源。
+    就寢時間相反，使用者說過就聽他的（bedtime_manual），推導只給初始值。
+    深夜起點則永遠重算——它是就寢時間的導出值，來源變了它就該跟著變。
     """
     if not cfg.get("auto_schedule", True):
         return False
     before = (cfg.get("day_rollover_hour"), cfg.get("late_night_start_hour"))
 
-    if not cfg.get("wake_manual"):
-        wake = infer_wake_hour(events_path)
-        if wake is not None:
-            cfg["day_rollover_hour"] = wake
+    wake = infer_wake_hour(events_path)
+    if wake is not None:
+        cfg["day_rollover_hour"] = wake
     wake = cfg.get("day_rollover_hour", DEFAULTS["day_rollover_hour"])
 
     # 就寢時間跟起床時間一樣：使用者說過就聽他的，推導只負責給初始值。

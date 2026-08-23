@@ -108,7 +108,10 @@ cfg = aps.load_config()
 check("設定檔被建出來", os.path.exists(aps.CONFIG_PATH), True)
 check("還沒看過引導", cfg["onboarded"], False)
 check("音效預設開著", cfg["sound_enabled"], True)
-check("作息預設是自動", (cfg["wake_manual"], cfg["bedtime_manual"]), (False, False))
+check("就寢預設是自動", cfg["bedtime_manual"], False)
+# 起床時間沒有手動旗標了（2026-08-22 連同設定面板那一列一起拿掉），
+# 它一律由活動紀錄推導。
+check("起床沒有手動旗標可以設", "wake_manual" in cfg, False)
 
 cfg["tick_seconds"] = 60          # 一 tick 當一分鐘，快轉用
 w = isl.Island(cfg)
@@ -117,20 +120,18 @@ for t in (w.tick_timer, w.frame, w.hold_timer, w.peek_timer):
 
 # ================================================================ 2
 print("\n2. 引導按下「開始」：選擇要被存下來")
-# 模擬使用者：調了起床（10 點）、沒碰就寢、關掉音效、留著開機自啟
+# 模擬使用者：調了就寢（2 點）、關掉音效、留著開機自啟
 win = onboard.OnboardWindow(
-    wake=cfg["day_rollover_hour"], bedtime=cfg["bedtime_hour"],
-    sound_on=cfg["sound_enabled"], autostart=True,
-    wake_manual=cfg["wake_manual"], bedtime_manual=cfg["bedtime_manual"])
+    bedtime=cfg["bedtime_hour"], sound_on=cfg["sound_enabled"],
+    autostart=True, bedtime_manual=cfg["bedtime_manual"])
 win.frame.stop()
-win.wake_pick.set_hour(10)
+win.bed_pick.set_hour(2)
 win.sound_on.set_on(False)
 win.finished.connect(lambda r: w._onboarding_done(r, first_run=True))
 win._emit_finish()
 
-check("起床存進去了", w.cfg["day_rollover_hour"], 10)
-check("動過的那一項標記為手動", w.cfg["wake_manual"], True)
-check("沒動過的那一項維持自動", w.cfg["bedtime_manual"], False)
+check("就寢存進去了", w.cfg["bedtime_hour"], 2)
+check("動過就標記為手動", w.cfg["bedtime_manual"], True)
 check("音效的選擇存下來了", w.cfg["sound_enabled"], False)
 check("開機自啟傳下去了", AUTOSTART, [True])
 check("標記為看過引導", w.cfg["onboarded"], True)
@@ -139,7 +140,7 @@ check("深夜起點跟著重算",
       w.cfg["late_night_start_hour"],
       aps.late_start_from_bedtime(w.cfg["bedtime_hour"]))
 saved = aps.load_config()
-check("而且真的寫進設定檔", saved["day_rollover_hour"], 10)
+check("而且真的寫進設定檔", saved["bedtime_hour"], 2)
 
 # ================================================================ 3
 print("\n3. 一天的循環：提醒 -> 升級 -> 出聲")
@@ -247,24 +248,22 @@ check("新的間隔有生效", w.cfg["interval_min"], 45)
 # ================================================================ 9
 print("\n9. 重看導覽：不會改掉現有的設定")
 w.cfg["sound_enabled"] = False
-w.cfg["wake_manual"] = True
-w.cfg["day_rollover_hour"] = 10
+w.cfg["bedtime_manual"] = True
+w.cfg["bedtime_hour"] = 2
 AUTOSTART.clear()
 AUTOSTART.append(False)                       # 假裝使用者把自啟關了
 w2 = onboard.OnboardWindow(
-    wake=w.cfg["day_rollover_hour"], bedtime=w.cfg["bedtime_hour"],
-    sound_on=w.cfg["sound_enabled"],
+    bedtime=w.cfg["bedtime_hour"], sound_on=w.cfg["sound_enabled"],
     autostart=aps.autostart_enabled(),
-    wake_manual=w.cfg["wake_manual"], bedtime_manual=w.cfg["bedtime_manual"])
+    bedtime_manual=w.cfg["bedtime_manual"])
 w2.frame.stop()
 got = {}
 w2.finished.connect(got.update)
 w2._emit_finish()                             # 一路按下一步，什麼都沒碰
 check("音效維持關著", got["sound_enabled"], False)
 check("自啟維持關著", got["autostart"], False)
-check("起床維持手動", got["wake_manual"], True)
-check("起床的值沒被動過", got["day_rollover_hour"], 10)
-check("就寢維持自動", got["bedtime_manual"], False)
+check("就寢維持手動", got["bedtime_manual"], True)
+check("就寢的值沒被動過", got["bedtime_hour"], 2)
 w2.close()
 
 # ================================================================ 99

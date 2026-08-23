@@ -1979,28 +1979,22 @@ class SettingsPage(QWidget):
         # hint 傳 Label 而不是字串：間隔改了、就寢改了，這行都要跟著重算。
         self.late_lbl = Label(self._late_text(), "caption", INK3, elide=True)
         self.bed_auto = TapLabel("改為自動", C_ACCENT.name())
-        self.bed_auto.clicked.connect(lambda: self._back_to_auto("bedtime"))
+        self.bed_auto.clicked.connect(self._back_to_auto)
         card.add(setting_row("預計就寢時間",
                              row(self.bed_auto, self.bedtime, spacing=S3),
                              self.late_lbl))
         card.add(Divider())
 
-        # 問「起床時間」而不是「換日時間」：後者是系統概念，使用者得反推該填什麼；
-        # 起床時間是他本來就知道的事實。而且語意上更對——你還在電腦前就代表還沒睡，
-        # 那就還是同一天，不會在你工作到一半時把當天次數歸零。
-        self.wake = HourStepper(self.cfg.get("day_rollover_hour", 8))
-        self.wake.changed.connect(self._on_wake)
-        # 說明不能再寫「次數將於每日重置」。換日已經訂死在早上 5 點
-        # （settings.DAY_ROLLOVER_HOUR），這一列跟次數重置**沒有關係了**——
-        # 它現在只有一個職責：告訴夜間模式幾點該結束。
-        # 留著舊句子等於介面在說謊，而且是那種沒有人會發現的謊。
-        self.wake_lbl = Label(self._wake_text(), "caption", INK3, elide=True)
-        self.wake_auto = TapLabel("改為自動", C_ACCENT.name())
-        self.wake_auto.clicked.connect(lambda: self._back_to_auto("wake"))
-        card.add(setting_row("習慣起床時間",
-                             row(self.wake_auto, self.wake, spacing=S3),
-                             self.wake_lbl))
-        card.add(Divider())
+        # 「習慣起床時間」原本在這裡，2026-08-22 拿掉了。
+        #
+        # 它一路在掉職責：先是不再決定換日（訂死在早上 5 點），再來是不再決定
+        # 夜間模式什麼時候結束（改綁換日那個常數，見 island._is_late）。最後
+        # 只剩「推算就寢時間」，而就寢時間就在上面那一列、可以直接設——
+        # **問兩個值去推一個值，而那個值本來就問得到。**
+        #
+        # 面板的篩選標準是「不改就會讓工具對這個人失效」。推錯了也只影響
+        # 就寢時間的初始建議，而那個建議使用者當場就能改掉，所以它過不了那條線。
+        # 值本身還在（由活動紀錄推導），只是不再要人回答。
 
         # 放在「提醒」而不是「顯示」：它管的是提醒怎麼傳到人身上，
         # 不是介面長什麼樣子。放進顯示卡會讀成一個外觀偏好。
@@ -2304,26 +2298,7 @@ class SettingsPage(QWidget):
         self._refresh_late_label()      # 深夜間隔是主間隔的倍數，會跟著變
         self._emit()
 
-    def _on_wake(self, hour):
-        """改了起床時間。深夜模式是從它往下推的，所以要一起重算。"""
-        self.cfg["day_rollover_hour"] = hour
-        # 動過就不再被推導覆蓋。推導只負責給初始值，使用者一旦表態就聽他的。
-        self.cfg["wake_manual"] = True
-        # 就寢時間也是從起床時間推的，所以要一起重算；深夜起點再從就寢導出。
-        # 不要在這裡直接算深夜起點——那會繞過就寢時間，變成第二條推導路徑，
-        # 於是畫面上寫的就寢時間跟程式實際用的深夜起點對不起來。
-        if not self.cfg.get("bedtime_manual"):
-            self.cfg["bedtime_hour"] = appsettings.infer_bedtime(
-                appsettings.EVENTS_PATH, hour)
-        self.cfg["late_night_start_hour"] = appsettings.late_start_from_bedtime(
-            self.cfg.get("bedtime_hour", appsettings.DEFAULTS["bedtime_hour"]))
-        # 就寢的值可能被上面重算過，步進器要跟著走，否則畫面上還停在舊值。
-        # emit=False：這是同步顯示，不是使用者的操作，發訊號會被當成他手動設過。
-        self.bedtime.set_hour(self.cfg["bedtime_hour"], emit=False)
-        self._refresh_late_label()
-        self._emit()
-
-    def _back_to_auto(self, which):
+    def _back_to_auto(self):
         """把某一項作息交還給推導。
 
         使用者的話：「我都設定 02:00/10:00，但最近比較早起，可是看到設定不一樣
@@ -2334,46 +2309,19 @@ class SettingsPage(QWidget):
         清掉旗標之後立刻重推一次並更新畫面。不重推的話使用者按完什麼都沒發生，
         要等到下次啟動才看得到——而那時候他已經認定這顆按鈕壞了。
         """
-        self.cfg[f"{'wake' if which == 'wake' else 'bedtime'}_manual"] = False
+        self.cfg["bedtime_manual"] = False
         appsettings.apply_auto_schedule(self.cfg, appsettings.EVENTS_PATH)
-        # 兩個步進器都要同步：起床改了，就寢是從它推的，也會跟著動。
-        # emit=False 是關鍵——發訊號會被 _on_wake 當成使用者手動設定，
+        # emit=False 是關鍵——發訊號會被 _on_bedtime 當成使用者手動設定，
         # 於是「改為自動」這個動作自己把旗標又設回 True。
-        self.wake.set_hour(self.cfg["day_rollover_hour"], emit=False)
         self.bedtime.set_hour(self.cfg["bedtime_hour"], emit=False)
         self._refresh_schedule_labels()
         self._emit()
 
     def _refresh_schedule_labels(self):
-        """兩列的說明與「改為自動」的顯示與否，一起重算。"""
+        """就寢那一列的說明與「改為自動」的顯示與否。"""
         self.late_lbl.setText(self._late_text())
-        self.wake_lbl.setText(self._wake_text())
         # 已經是自動的就不放「改為自動」——按下去不會有事的東西不該出現。
         self.bed_auto.setVisible(bool(self.cfg.get("bedtime_manual")))
-        self.wake_auto.setVisible(bool(self.cfg.get("wake_manual")))
-
-    def _wake_text(self):
-        """起床那一列的說明：它現在管什麼，以及這個值是誰決定的。
-
-        **不能寫「次數將於每日重置」。** 換日訂死在早上 5 點
-        （settings.DAY_ROLLOVER_HOUR），這一列早就跟次數重置無關了。
-
-        **也不能再寫「夜間模式於此結束」。** 夜間的結束改綁換日那個常數了
-        （理由見 island._is_late），跟這一列沒有關係。留著舊句子的話，起床設
-        10 點的人會以為早上 9 點還在夜間模式裡，而那正是這次要修掉的誤解。
-
-        剩下的職責是作息推導的基準：就寢時間沒有手動指定時由它推出來。
-        手動指定過的時候它連這件事也不做，但那是暫時的狀態（按「改為自動」
-        就回來），所以說明講的是這個值在系統裡的角色，不是它此刻有沒有在動。
-        """
-        # 不要寫成「就寢時間的推算基準」：這一行的前半段本身就是「依活動紀錄
-        # 推算」，同一個詞在一句話裡出現兩次，讀的人會回頭找哪個推算是哪個。
-        tail = "就寢時間的依據"
-        if self.cfg.get("wake_manual"):
-            return f"手動指定，{tail}"
-        if appsettings.infer_wake_hour(appsettings.EVENTS_PATH) is None:
-            return f"預設值，累積足夠紀錄後自動校準，{tail}"
-        return f"依活動紀錄推算，{tail}"
 
     def _late_text(self):
         """深夜放慢這列顯示什麼。

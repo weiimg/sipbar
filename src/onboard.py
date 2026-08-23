@@ -728,8 +728,8 @@ class OnboardWindow(QWidget):
     # 引導多問一題就要改一次簽章的話，呼叫端一定會有人漏掉。
     finished = Signal(dict)
 
-    def __init__(self, on_practice=None, wake=8, bedtime=0, sound_on=True,
-                 autostart=True, wake_manual=False, bedtime_manual=False):
+    def __init__(self, on_practice=None, bedtime=0, sound_on=True,
+                 autostart=True, bedtime_manual=False):
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -753,13 +753,14 @@ class OnboardWindow(QWidget):
         self.sound_on.toggled.connect(
             lambda on: sound.play(sound.WEAK) if on else None)
         # 就寢用 24:00 而不是 00:00：就寢是一天的結束，00:00 會被讀成「今天開始」。
-        # 起床沒有這個問題，00:00 就是 00:00。
-        self.wake_pick = sw.HourStepper(wake)
+        #
+        # 起床時間原本也在這一頁問，2026-08-22 拿掉了（理由見設定頁那段註解與
+        # DESIGN）。它現在一律由活動紀錄推導，不要人回答。
         self.bed_pick = sw.HourStepper(bedtime, midnight_as_24=True)
         # 進來時是什麼樣子，記下來。按下「開始」時要靠它判斷使用者到底有沒有
-        # 動過那兩個步進器——見 _emit_finish()。
-        self._wake0, self._bed0 = wake, bedtime
-        self._wake_manual0, self._bed_manual0 = wake_manual, bedtime_manual
+        # 動過那個步進器——見 _emit_finish()。
+        self._bed0 = bedtime
+        self._bed_manual0 = bedtime_manual
 
         # 視窗自己排幾何，不掛 layout。掛了的話 Deck 的高度變化會回頭去改視窗的
         # 最小／最大高度，跟這裡逐格設定的高度打架，動畫會抖。
@@ -923,26 +924,25 @@ class OnboardWindow(QWidget):
                           portrait=CupPortrait(cell=6))
 
     def _page_schedule(self):
-        """問起床與就寢。兩個放同一頁，因為它們合起來才是一件事：
-        這一天有多長。拆成兩頁會讓它們讀起來像兩個無關的設定。
+        """問就寢時間。
 
-        問的是他知道的事實，不是系統概念——深夜幾點開始放慢由就寢往前推 3 小時
-        算出來，不拿出來問。理由跟設定頁那一列相同。
+        問的是他知道的事實，不是系統概念——深夜幾點開始放慢由就寢往前推
+        3 小時算出來，不拿出來問。理由跟設定頁那一列相同。
+
+        起床時間原本也在這一頁（兩個步進器並排）。拿掉的理由是它的下游只有
+        就寢時間，而就寢時間就在這一頁直接問得到——**問兩個值去推一個值，
+        而那個值本來就問得到**。少問一題，第一次啟動就少一個要回答的東西。
+
+        先前這一頁的說明寫「提醒只在起床後發送」，那句話從來不成立：
+        提醒發不發只看人在不在電腦前（閒置就不計時）。
         """
         nxt = Button("下一步")
         nxt.clicked.connect(lambda: self._go(self.page_index["howto"]))
-        picks = sw.col(
-            sw.row(sw.Label("起床", "headline", sw.INK), "stretch",
-                   self.wake_pick, spacing=sw.S3),
-            sw.row(sw.Label("就寢", "headline", sw.INK), "stretch",
-                   self.bed_pick, spacing=sw.S3),
-            spacing=sw.S2)
+        picks = sw.row(sw.Label("就寢", "headline", sw.INK), "stretch",
+                       self.bed_pick, spacing=sw.S3)
         return self._page("作息", [
-            sw.Label("習慣幾點起床、幾點就寢？", "headline", sw.INK),
-            # 先前寫的是「提醒只在起床後發送」。那句話不成立：提醒發不發只看
-            # 人在不在電腦前（閒置就不計時），跟起床時間無關——起床時間管的是
-            # 作息推導。夜間的結束後來也跟它脫鉤了（見 island._is_late）。
-            sw.para("起床時間用來推算作息，就寢前三小時起自動放慢提醒。"),
+            sw.Label("習慣幾點就寢？", "headline", sw.INK),
+            sw.para("就寢前三小時起自動放慢提醒。"),
             picks,
         ], [self._back_button(), nxt])
 
@@ -1096,13 +1096,10 @@ class OnboardWindow(QWidget):
         #
         # 反過來也不能降級：本來就是手動的人一路按下去，不該被改回自動。
         # 所以是「動過 或 本來就是手動」。
-        wake_manual = (self.wake_pick.hour != self._wake0) or self._wake_manual0
         bed_manual = (self.bed_pick.hour != self._bed0) or self._bed_manual0
         self.finished.emit({
             "autostart": self.autostart.on,
             "sound_enabled": self.sound_on.on,
-            "day_rollover_hour": self.wake_pick.hour,
-            "wake_manual": wake_manual,
             "bedtime_hour": self.bed_pick.hour,
             "bedtime_manual": bed_manual,
         })
@@ -1167,8 +1164,8 @@ class OnboardWindow(QWidget):
         self._drag = None
 
 
-def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True,
-                autostart=True, wake_manual=False, bedtime_manual=False):
+def open_window(on_finished, on_practice=None, bedtime=0, sound_on=True,
+                autostart=True, bedtime_manual=False):
     """開引導視窗。回傳視窗物件，呼叫端要留參考否則會被回收。
 
     `on_practice(done_cb)` 由島提供：最後一頁會叫它，讓真的島出來讓人點一次。
@@ -1194,9 +1191,9 @@ def open_window(on_finished, on_practice=None, wake=8, bedtime=0, sound_on=True,
     那裡才有 `first_run` 可以分。這裡只負責照收。
     """
     typeface.ensure_loaded()
-    win = OnboardWindow(on_practice=on_practice, wake=wake, bedtime=bedtime,
+    win = OnboardWindow(on_practice=on_practice, bedtime=bedtime,
                         sound_on=sound_on, autostart=autostart,
-                        wake_manual=wake_manual, bedtime_manual=bedtime_manual)
+                        bedtime_manual=bedtime_manual)
     win.finished.connect(on_finished)
     screen = QApplication.primaryScreen().availableGeometry()
     # 對齊螢幕中心，不是對齊第一頁的中心：後面兩頁高度不同，鎖住中心線

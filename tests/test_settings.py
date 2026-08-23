@@ -113,22 +113,25 @@ for d in range(6):
     noise.append((base + timedelta(days=d, hours=4), "day_start"))
 check("day_start 不影響推導", ap.infer_wake_hour(write_events(noise)), 9)
 
-print("\n6b. 起床時間手動指定後，深夜模式跟著它重算")
-manual = dict(ap.DEFAULTS)
-manual["wake_manual"] = True
-manual["day_rollover_hour"] = 11
+print("\n6b. 起床時間一律由推導決定，舊設定檔裡的手動值不再被尊重")
+# 這一列 2026-08-22 從設定面板與引導裡拿掉了，wake_manual 也一起刪掉。
+# 舊設定檔裡可能還留著一個手動值，而使用者現在沒有任何地方看得到它、改得掉它
+# ——留著就是凍住一個看不見的值，所以推導有結果就蓋過去。
+stale = dict(ap.DEFAULTS)
+stale["day_rollover_hour"] = 11
 _ev = ap.EVENTS_PATH
 try:
     ap.EVENTS_PATH = p
-    ap.apply_auto_schedule(manual, p)
+    ap.apply_auto_schedule(stale, p)
 finally:
     ap.EVENTS_PATH = _ev
-check("手動的起床時間不被推導蓋掉", manual["day_rollover_hour"], 11)
-# 這份假資料是 09:00–23:00 活動，使用者卻說 11:00 才起床——起床時間落在
-# 自己的活動時段裡。以 11:00 切天，「當天最後一次活動」會變成隔天早上 10:00
-# （起床後 23 小時），往回推 3 小時得出 07:00，是垃圾。
-# 落在合理範圍外就退回「起床 − 11 小時」。
-check("起床時間與活動矛盾時退回推估值", manual["late_night_start_hour"], 0)
+check("推導有結果就蓋過舊值", stale["day_rollover_hour"], 9)
+
+# infer_late_hour 自己的防線還在，跟上面那件事無關：起床時間落在自己的活動
+# 時段裡的話，「當天最後一次活動」會被切到隔天早上，往回推 3 小時得出垃圾。
+# 這份假資料是 09:00–23:00 活動，餵 11:00 進去就是那個情況——
+# 清醒時段落在 8–20 小時之外，退回「起床 − 11 小時」。
+check("起床與活動矛盾時退回推估值", ap.infer_late_hour(p, 11), 0)
 
 print("\n6c. 深夜起點是就寢時間的導出值，不是獨立參數")
 # 使用者設的是「就寢時間」（他知道的事實），不是「深夜幾點開始」（系統概念）。
@@ -681,26 +684,28 @@ check("重看導覽帶現況：開著的就是開著", _passed["autostart"], Tru
 _ob.open_window = _ob_open
 ap.autostart_enabled = _real_enabled
 
-# 作息那兩個步進器：只有真的動過才算「手動」。
+# 就寢那個步進器：只有真的動過才算「手動」。
 #
 # 先前 _emit_finish() 無條件寫 True，理由是「他剛剛親口回答過」。但被問到跟
-# 回答了是兩件事——一路按「下一步」的人從頭到尾沒碰過那兩個數字，而他正是
+# 回答了是兩件事——一路按「下一步」的人從頭到尾沒碰過那個數字，而他正是
 # 最需要自動推導的那一種。重看導覽更明顯：本來自動的人走一遍就被改成手動。
-for _label, _kw, _move, _want_wake, _want_bed in (
-        ("第一次沒碰", dict(wake=8, bedtime=0), None, False, False),
-        ("第一次調了起床", dict(wake=8, bedtime=0), 10, True, False),
-        ("重看，本來手動", dict(wake=10, bedtime=2, wake_manual=True,
-                                bedtime_manual=True), None, True, True),
-        ("重看，本來自動", dict(wake=9, bedtime=1), None, False, False)):
+#
+# 起床時間那一題 2026-08-22 從引導裡拿掉了（它的下游只有就寢時間，而就寢
+# 時間就在同一頁直接問得到），所以這裡只剩一個旗標。
+for _label, _kw, _move, _want_bed in (
+        ("第一次沒碰", dict(bedtime=0), None, False),
+        ("第一次調了就寢", dict(bedtime=0), 2, True),
+        ("重看，本來手動", dict(bedtime=2, bedtime_manual=True), None, True),
+        ("重看，本來自動", dict(bedtime=1), None, False)):
     _w3 = _ob.OnboardWindow(**_kw)
     _w3.frame.stop()
     if _move is not None:
-        _w3.wake_pick.set_hour(_move)
+        _w3.bed_pick.set_hour(_move)
     _r3 = {}
     _w3.finished.connect(_r3.update)
     _w3._emit_finish()
-    check(f"{_label}：起床", _r3["wake_manual"], _want_wake)
     check(f"{_label}：就寢", _r3["bedtime_manual"], _want_bed)
+    check(f"{_label}：不再吐出起床", "day_rollover_hour" in _r3, False)
     _w3.close()
 
 print("\n17. 自繪的提示泡泡")
@@ -761,34 +766,38 @@ check("按下關閉時也會", bool(_hidden), True)
 _sw.Tip.hide_tip = _orig_hide
 _w2.deleteLater()
 
-print("\n18. 作息可以從手動改回自動")# 使用者的話：「我都設定 02:00/10:00，但最近比較早起，可是看到設定不一樣會有點煩」。
+print("\n18. 作息可以從手動改回自動")
+# 使用者的話：「我都設定 02:00/10:00，但最近比較早起，可是看到設定不一樣會有點煩」。
 # 手動設過的值不會跟著生活變，而先前沒有任何一條路可以改回自動——
 # `*_manual` 一旦是 True 就永遠是 True，只能去改 config.json。
 # 設定進得去出不來，那不是設定，是單向門。
 _c = dict(cfg)
-_c.update({"wake_manual": True, "bedtime_manual": True,
-           "day_rollover_hour": 10, "bedtime_hour": 2})
+_c.update({"bedtime_manual": True, "bedtime_hour": 2})
 _p = _sw.SettingsPage(_c)
-check("手動時說明要標出來", "手動指定" in _p._wake_text(), True)
-check("就寢那一列也標", "手動指定" in _p._late_text(), True)
-check("手動時才出現「改為自動」", _p.wake_auto.isVisibleTo(_p), True)
+check("手動時說明要標出來", "手動指定" in _p._late_text(), True)
+check("手動時才出現「改為自動」", _p.bed_auto.isVisibleTo(_p), True)
 
-_p._back_to_auto("wake")
-check("按下去就交還給推導", _p.cfg["wake_manual"], False)
-check("說明跟著改", "手動指定" in _p._wake_text(), False)
-check("連結跟著收起來", _p.wake_auto.isVisibleTo(_p), False)
-# 這一條是最容易寫錯的地方：同步步進器時若發訊號，_on_wake 會把旗標又設回
+_p._back_to_auto()
+check("按下去就交還給推導", _p.cfg["bedtime_manual"], False)
+check("說明跟著改", "手動指定" in _p._late_text(), False)
+check("連結跟著收起來", _p.bed_auto.isVisibleTo(_p), False)
+# 這是最容易寫錯的地方：同步步進器時若發訊號，_on_bedtime 會把旗標又設回
 # True，於是「改為自動」按下去等於沒按。
-check("同步步進器不能把旗標又設回手動", _p.cfg["wake_manual"], False)
+check("同步步進器不能把旗標又設回手動", _p.cfg["bedtime_manual"], False)
 
-# 起床那一列的說明不能再寫「次數將於每日重置」——換日已經訂死在早上 5 點
-# （settings.DAY_ROLLOVER_HOUR），這一列跟次數重置沒有關係了。
-check("起床那一列不再宣稱自己管重置",
-      "重置" in _p._wake_text(), False)
-# 夜間的結束改綁清晨換日之後，這一列跟夜間模式沒有關係了。留著舊句子的話，
-# 起床設 10 點的人會以為早上 9 點還在夜間模式裡。
-check("不再宣稱夜間模式在這裡結束", "夜間" in _p._wake_text(), False)
-check("而且講得出它現在管什麼", "就寢" in _p._wake_text(), True)
+# 起床那一列 2026-08-22 拿掉了。它一路在掉職責（先是不決定換日，再是不決定
+# 夜間何時結束），最後只剩「推算就寢時間」，而就寢時間就在它上面一列、
+# 可以直接設。值本身還在，由活動紀錄推導，只是不再要人回答。
+check("設定頁不再有起床那一列", hasattr(_p, "wake"), False)
+check("也沒有它的說明與「改為自動」",
+      hasattr(_p, "wake_lbl") or hasattr(_p, "wake_auto"), False)
+check("值仍然在，而且是數字",
+      isinstance(_p.cfg.get("day_rollover_hour"), (int, float)), True)
+# 手動旗標整個消失，不是留著沒人用：留著的話它會凍住一個使用者再也看不到、
+# 也改不掉的值（旗標是 True 就永遠不再推導）。
+check("wake_manual 不在預設值裡", "wake_manual" in ap.DEFAULTS, False)
+check("舊設定檔裡的 wake_manual 會被清掉",
+      "wake_manual" in ap._upgrade_keys({"wake_manual": True}), False)
 
 print("\n19. 公式的性質（窮舉，不是抽樣）")
 # 第 1 節只驗了 6 個點，而那 6 個期望值是人自己寫上去的——公式的假設要是錯的，

@@ -1259,8 +1259,6 @@ class Island(QWidget):
             on_practice=self.practice,
             # 帶現有設定進去當起始值。重看使用說明的人若看到一組跟自己無關的
             # 數字、按完「開始」就會把作息洗成別人的。
-            wake=self.cfg.get("day_rollover_hour",
-                              settings.DEFAULTS["day_rollover_hour"]),
             bedtime=self.cfg.get("bedtime_hour",
                                  settings.DEFAULTS["bedtime_hour"]),
             sound_on=self.cfg.get("sound_enabled", True),
@@ -1273,17 +1271,15 @@ class Island(QWidget):
             # 第一次不能照實帶：那時候登錄檔本來就沒那一筆，帶進去就是「關」。
             # 而這個工具平常完全隱藏，不開機自啟基本上等於不存在。
             autostart=True if first_run else settings.autostart_enabled(),
-            # 作息的手動旗標也要帶進去。引導只在使用者真的動過步進器時
+            # 就寢的手動旗標也要帶進去。引導只在使用者真的動過步進器時
             # 才標記手動，但本來就是手動的人不能被降級回自動——
             # 那兩件事都要知道現況才判斷得出來。
-            wake_manual=bool(self.cfg.get("wake_manual")),
             bedtime_manual=bool(self.cfg.get("bedtime_manual")))
 
     def _onboarding_done(self, result, first_run):
         """引導按下「開始」之後：存設定、標記已引導，然後安靜地結束。"""
         settings.set_autostart(result["autostart"])
-        for key in ("sound_enabled", "day_rollover_hour", "wake_manual",
-                    "bedtime_hour", "bedtime_manual"):
+        for key in ("sound_enabled", "bedtime_hour", "bedtime_manual"):
             self.cfg[key] = result[key]
         # 深夜起點是就寢時間的導出值，作息一改就要重算。不重算的話它會停在
         # 引導之前用回退值算出來的那個數字——而使用者剛剛才親口否定了它。
