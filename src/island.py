@@ -222,6 +222,88 @@ FIRST_CALL = ["今天還沒開張", "今天第一次", "從第一次開始"]   #
 
 
 
+# 提醒時偶爾出現的小提示，取代小標那一行。
+#
+# **這一批不是角色台詞，是資訊**，所以不在上面那個 copy-style: off 區塊裡——
+# 它要受介面文案的規則管（不用第二人稱、不用語助詞）。島可以有個性，
+# 一句健康資訊不行。
+#
+# 為什麼要有：使用者自己的回報是「容易忽略喝水提醒」。帶數字的主字解決了
+# 「每天同一句」，但那仍然是同一類話。提示是唯一一段**他沒看過的內容**。
+#
+# 長度上限 13 個中文字，那是量出來的：1366 的筆電、每日 12 次（進度點最多）
+# 時小標只放得下這麼多。測試第 35 節會把每一句都量過。
+#
+# 每一句都要有依據，分組標在下面。**不確定的不寫**——一句錯的健康資訊每天
+# 跳出來，比沒有這個功能糟得多。刻意避開幾個流傳很廣但站不住腳的說法：
+# 「一天八杯水」當普世標準、「口渴時已脫水 X%」那種精確宣稱、
+# 「多數人長期慢性脫水」、以及喝水排毒／減重那一類。
+TIPS = [
+    # 身體裡的水有多少（生理學教科書等級的數字）
+    "身體約有六成是水",
+    "血漿約九成是水",
+    "腦脊髓液幾乎都是水",
+    "骨頭裡也含有水分",
+    "肌肉的含水量高於脂肪",
+
+    # 身體怎麼處理水（生理學）
+    "腎臟一天過濾約 180 公升",
+    "消化液一天分泌約 7 公升",
+    "唾液一天約分泌 1 公升",
+    "口渴由下視丘偵測",
+    "血液變濃時會感到口渴",
+    "流汗靠蒸發帶走熱",
+    "呼吸也會帶走水分",
+    "關節靠滑液減少摩擦",
+    "身體無法預先儲存水分",
+
+    # 缺水的時候（Armstrong 2012 / Ganio 2011 / ACSM 2007）。
+    # 注意力那一條的效果量不大，所以寫「影響」不寫「大幅下降」。
+    "輕微缺水會影響注意力",
+    "缺水 2% 會影響運動表現",
+    "流汗帶走的不只是水",
+    "水分夠時尿液顏色偏淡",
+
+    # 怎麼喝（國健署；一小時 1000cc 與起床 300-500cc 兩條 DESIGN 已經引用過）
+    "一小時內不超過 1000cc",
+    "小口分次比一次喝完好",
+    "起床後建議 300-500cc",
+    "體重每公斤約需 30cc",
+    "一杯水約 240cc",
+    "白開水是最直接的選擇",
+    "冰涼的水通常喝得比較多",       # ACSM：15-21°C 的飲品自願攝取量較高
+
+    # 讓自己喝得到（習慣養成研究：環境提示比意志力可靠）
+    "水杯放在看得見的地方",
+    "固定時間喝比靠記憶可靠",
+    "餐前一杯水是好記的時機",
+
+    # 水從哪裡來（EFSA 2010 / IOM 2004）
+    "咖啡和茶也算水分來源",
+    "約兩成水分來自食物",
+    "湯和水果也提供水分",
+    "需要的水量因人而異",
+    "水分建議量男女不同",
+
+    # 什麼時候特別容易缺（環境與情境）
+    "冷氣房空氣乾，蒸散更快",
+    "天冷時口渴的感覺變弱",
+    "睡覺時身體持續流失水分",
+    "流汗多的日子需要多補",
+    "講話多時聲帶需要水分",
+]
+
+# 一天最多帶幾次提示。
+#
+# **少，是刻意的。** 小標平常顯示「連續 N 天」，而連續天數是這個工具最重要的
+# 動機裝置（見 DESIGN 的 Duolingo 那節）——每出現一次提示就少看一次連續。
+# 一天兩次的話，九次提醒裡有七次仍然看得到連續。
+#
+# 落在哪兩次是隨機的，不固定在第一次：固定下來它就又變成可預測的東西，
+# 而可預測正是這整件事要對抗的。
+TIPS_PER_DAY = 2
+
+
 # ---------------------------------------------------------------- Windows 閒置偵測
 
 
@@ -448,6 +530,13 @@ class Island(QWidget):
         self._restored_state = None      # 上次關掉時停在哪個提醒狀態
         # 抽到的那句主字，連同產生它的 (狀態, 次數, override)。見 _refresh_message()。
         self._msg_cache = None
+        # 今天要在第幾次提醒帶提示、這一輪提醒帶的是哪一句、還沒抽過的有哪些。
+        self._tip_slots = set()
+        self._tip = None
+        self._tip_deck = []
+        # 啟動時也要擲一次，不能只在換日擲——不然開機那一天一句提示都不會出現，
+        # 而多數人的 Sipbar 是開機自啟、跑一整天，換日發生在他睡著的時候。
+        self._roll_tip_slots()
 
         now = datetime.now()
         saved = load_state()
@@ -797,9 +886,17 @@ class Island(QWidget):
         # 倒地狀態更嚴重：它不會自己收合，那一行會一直掛在畫面上。
         if settings.write_trouble():
             return "紀錄存不進去"
-        target = self.cfg["daily_target_drinks"]
+        # 提示蓋過連續天數，但一天只有 TIPS_PER_DAY 次（見那個常數）。
+        # 蓋掉的是這個工具最重要的動機數字，所以份量要壓得很小。
+        if self._tip:
+            return self._tip
+        # 次數搬到主字之後，這裡就不再重複它——「還剩 3 次」配「今天 6/9 次」
+        # 是同一件事講兩遍，而連續天數才是這條線上最該被看到的東西
+        #（見 DESIGN 的 Duolingo 那節）。
         if self.streak:
-            return f"連續 {self.streak} 天 · 今天 {self.drinks}/{target} 次"
+            return f"連續 {self.streak} 天"
+        # 還沒有連續可講的第一天，次數仍然是這裡最有用的東西。
+        target = self.cfg["daily_target_drinks"]
         return f"今天補水 {self.drinks}/{target} 次"
 
     def _refresh_message(self, override=None, sub=None):
@@ -856,6 +953,41 @@ class Island(QWidget):
             pool += LAST_CALL if left == 1 else []
             pool += FIRST_CALL if self.drinks == 0 else []
         return pool
+
+    def _roll_tip_slots(self):
+        """決定今天在第幾次提醒帶提示。換日與啟動時各擲一次。
+
+        擲的是「第幾次」而不是「機率」：機率會讓某些天一次都沒有、某些天連著
+        三次，而這個東西的份量禁不起連著三次。
+
+        重開程式會重擲，所以當天最多可能多出幾次。那不值得為它把狀態寫進
+        state.json——多看一句提示不是災情，而每多一個要跨重啟保存的欄位，
+        就多一條會跟現實對不上的路。
+        """
+        target = int(self.cfg["daily_target_drinks"])
+        self._tip_slots = set(random.sample(range(max(1, target)),
+                                            min(TIPS_PER_DAY, max(1, target))))
+        self._tip = None
+
+    def _draw_tip(self):
+        """抽一句沒看過的提示。抽完一輪才重洗。
+
+        用抽牌不用隨機挑：隨機挑會在四十句裡連兩天抽到同一句，而使用者對
+        「又是這句」的敏感度遠高於對「這句我上個月看過」的。
+        """
+        if not TIPS:
+            return None
+        if not self._tip_deck:
+            self._tip_deck = random.sample(TIPS, len(TIPS))
+        return self._tip_deck.pop()
+
+    def _maybe_pick_tip(self):
+        """一輪提醒開始了，看這一次要不要帶提示。
+
+        在提醒開始的那一刻決定，之後整輪（含升級到虛弱、倒地）都是同一句：
+        升級時換一句話等於把使用者剛讀到一半的東西抽掉。
+        """
+        self._tip = self._draw_tip() if self.drinks in self._tip_slots else None
 
     def _pick_message(self):
         """抽一句主字。
@@ -1060,6 +1192,7 @@ class Island(QWidget):
             self.drinks = 0
             self.active_s = 0.0
             self.interval_s = self._roll_interval()
+            self._roll_tip_slots()
             log_event(self.day, "day_start", target=self.cfg["daily_target_drinks"])
             self._persist()
             self._refresh_streak()      # 昨天結算完，連續天數要跟著更新
@@ -1099,6 +1232,7 @@ class Island(QWidget):
         if self.state in (NORMAL, SATISFIED):
             if self.active_s >= self.interval_s:
                 log_event(self.day, "remind", drinks=self.drinks)
+                self._maybe_pick_tip()      # 要在 _enter 之前：它就會用到小標
                 self._enter(THIRSTY)
         elif self.state == THIRSTY and self.active_s >= weak_at:
             log_event(self.day, "weak")

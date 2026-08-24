@@ -281,8 +281,13 @@ check("倒數一致", w2._status_sub(),
       f"今天 2/{cfg['daily_target_drinks']} 次 · 下次約 30 分後")
 w2.streak = 5        # 有連續時，開頭換成連續天數（進度點已表達今天次數）
 check("有連續時顯示連續", w2._status_sub(), "連續 5 天 · 下次約 30 分後")
-check("提醒中的小標", w2._reminding_sub(),
-      f"連續 5 天 · 今天 2/{cfg['daily_target_drinks']} 次")
+# 次數搬到主字之後，這一行不再重複它——「還剩 3 次」配「今天 2/7 次」是
+# 同一件事講兩遍，而連續天數才是這條線上最該被看到的東西。
+check("提醒中的小標只講連續", w2._reminding_sub(), "連續 5 天")
+w2.streak = 0
+check("還沒有連續可講的第一天，次數仍然放這裡", w2._reminding_sub(),
+      f"今天補水 2/{cfg['daily_target_drinks']} 次")
+w2.streak = 5
 # 深夜不標示。先前寫「夜間約 N 分後」，但深夜的範圍一路延續到起床時間，
 # 於是起床設 9 點的人早上 8:40 會看到「夜間」——那一刻事實上沒錯（間隔確實
 # 還是放慢的），但讀起來是錯的，而讀起來是錯的標籤比沒有標籤糟。
@@ -1150,6 +1155,71 @@ w2._refresh_message()
 check("打招呼之後會回到抽到的那一句", w2.message == "嗨！", False)
 (w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
  w2.message, w2.sub_message) = _saved34
+
+print("\n35. 提醒時偶爾帶一句提示")
+# 使用者的觀察：「容易忽略喝水提醒」。帶數字的主字解決了「每天同一句」，
+# 但那仍然是同一類話。提示是唯一一段他沒看過的內容。
+#
+# 份量要壓得很小：小標平常顯示連續天數，而那是這個工具最重要的動機數字。
+_saved35 = (w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
+            w2.message, w2.sub_message, w2._tip)
+
+# 每一句都要放得下，而且是用最小的那台機器驗（1366 筆電、目標 12 次時，
+# 小標只放得下 13 個中文字）。被截掉的提示比沒有提示更糟：它看起來像壞掉。
+_real_max = w2._max_pill_w
+w2._max_pill_w = lambda: 1366 * isl.PILL_SCREEN_FRAC
+w2.cfg["daily_target_drinks"] = 12
+w2.state = isl.THIRSTY
+_too_long = None
+for _tip in isl.TIPS:
+    _av, _pw = _avail_for("口渴了", _tip)
+    _need = QFontMetrics(w2._f_sub).horizontalAdvance(_tip)
+    if _need > _av and _too_long is None:
+        _too_long = f"「{_tip}」需要 {_need:.0f}px / 可用 {_av:.0f}px"
+print(f"       量過 {len(isl.TIPS)} 句提示（目標 12 次、1366 筆電）")
+check("每一句提示都放得下", _too_long, None)
+w2._max_pill_w = _real_max
+
+# 一天最多兩次。每多一次就少看一次連續天數。
+w2.cfg["daily_target_drinks"] = 9
+_counts = []
+for _ in range(40):
+    w2._roll_tip_slots()
+    _n = 0
+    for _d in range(9):
+        w2.drinks = _d
+        w2._maybe_pick_tip()
+        _n += 1 if w2._tip else 0
+    _counts.append(_n)
+check("一天的次數固定是 TIPS_PER_DAY", set(_counts), {isl.TIPS_PER_DAY})
+
+# 落點要隨機。固定在第一次的話它自己就變成可預測的東西，
+# 而可預測正是這整件事要對抗的。
+_slots = set()
+for _ in range(60):
+    w2._roll_tip_slots()
+    _slots |= w2._tip_slots
+check("落點不是每天都同一次", len(_slots) > isl.TIPS_PER_DAY, True)
+
+# 抽完一輪才重洗：使用者對「又是這句」的敏感度遠高於「這句我上個月看過」。
+w2._tip_deck = []
+_drawn = [w2._draw_tip() for _ in range(len(isl.TIPS))]
+check("一輪之內不重複", len(set(_drawn)), len(isl.TIPS))
+
+# 探頭是「我要查狀態」，不是「我要看知識」。提示只在島自己跳出來時出現。
+w2.state, w2.drinks, w2._tip = isl.NORMAL, 2, isl.TIPS[0]
+check("探頭時不給提示", isl.TIPS[0] in w2._status_sub(), False)
+
+# 寫不進去要蓋過一切，包含提示——那是使用者唯一會知道自己在掉資料的地方。
+w2.state = isl.THIRSTY
+for _ in range(ap.WRITE_FAIL_THRESHOLD):
+    ap.note_write("events", False)
+check("紀錄存不進去時蓋過提示", w2._reminding_sub(), "紀錄存不進去")
+ap.note_write("events", True)
+check("恢復之後提示回來", w2._reminding_sub(), isl.TIPS[0])
+
+(w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
+ w2.message, w2.sub_message, w2._tip) = _saved35
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
