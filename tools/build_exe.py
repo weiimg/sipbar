@@ -22,6 +22,7 @@ Sipbar 是開機自啟的常駐程式，啟動時間會被使用者每天感覺�
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -82,9 +83,49 @@ def sha256(path):
     return h.hexdigest()
 
 
+# PyInstaller 在 Windows 上會以 PermissionError: [WinError 5] 失敗。
+# **同一個訊息有兩種完全不同的原因，而它們的解法相反。**
+#
+# 一、上一輪留下的資料夾帶著 ReadOnly 屬性（最常見的是 PyInstaller 自己建的
+#     localpycs）。`os.rmdir()` 對唯讀資料夾一律回 WinError 5，看起來跟「被別的
+#     程式佔著」一模一樣。這一種**重跑幾次都不會過**，因為每一輪都撞同一個殘留。
+#     解法是刪之前先把屬性清掉，也就是底下的 _force_rmtree()。
+#
+# 二、真的有東西抓著 handle——Sipbar 還在跑（含從原始碼跑的），或防毒剛好在掃。
+#     這一種等幾秒重試就過得去。
+#
+# 2026-08-24 花了四輪才分清楚：先照 RELEASE.md 的說法找有沒有 Sipbar 在跑
+# （沒有），再猜防毒（加了重試，還是每次卡在同一個 localpycs），最後才看到
+# 那個資料夾的屬性是 ReadOnly。**分辨方法**：PowerShell 的 `Remove-Item -Force`
+# 刪得掉就是第一種（它會先清屬性），刪不掉才是第二種。
+LOCK_ERROR = "WinError 5"
+BUILD_TRIES = 3
+LOCK_WAIT_S = 3.0
+
+
+def _force_rmtree(path):
+    """刪掉整棵目錄，包含帶 ReadOnly 屬性的。
+
+    `shutil.rmtree(ignore_errors=True)` 在這裡是陷阱：它把唯讀那一種**安靜地
+    跳過**，於是殘留留在原地，下一輪重試撞同一個地方，而畫面上看起來像
+    「清過了還是失敗」。
+    """
+    if not os.path.isdir(path):
+        return
+
+    def clear(func, target, exc):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except OSError:
+            pass        # 真的被佔著就留給 PyInstaller 去撞，它的訊息比較有用
+
+    shutil.rmtree(path, onexc=clear)
+
+
 def build(onefile, verfile):
     out = os.path.join(DIST, "onefile" if onefile else "onedir")
-    shutil.rmtree(out, ignore_errors=True)
+    work = os.path.join(BUILD, "onefile" if onefile else "onedir")
     args = [
         sys.executable, "-m", "PyInstaller",
         os.path.join(SRC, "island.py"),
@@ -101,19 +142,33 @@ def build(onefile, verfile):
         "--add-data", "%s;assets" % os.path.join(ROOT, "assets", "icon.ico"),
         "--version-file", verfile,
         "--distpath", out,
-        "--workpath", os.path.join(BUILD, "onefile" if onefile else "onedir"),
+        "--workpath", work,
         "--specpath", BUILD,
     ]
     args.append("--onefile" if onefile else "--onedir")
 
+    label = "onefile" if onefile else "onedir"
     t0 = time.perf_counter()
-    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
-                       errors="replace")
-    if r.returncode != 0:
+    for attempt in range(1, BUILD_TRIES + 1):
+        # 兩個目錄都先清掉再跑，連唯讀的一起（見 _force_rmtree）。
+        _force_rmtree(out)
+        _force_rmtree(work)
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace")
+        if r.returncode == 0:
+            return out, time.perf_counter() - t0
+        if LOCK_ERROR in (r.stdout + r.stderr) and attempt < BUILD_TRIES:
+            print("  %s 撞到 WinError 5（第 %d 次），清掉殘留等 %.0f 秒再試"
+                  % (label, attempt, LOCK_WAIT_S))
+            time.sleep(LOCK_WAIT_S)
+            continue
         print(r.stdout[-3000:])
         print(r.stderr[-3000:])
-        raise SystemExit("FAIL PyInstaller 失敗（%s）" % ("onefile" if onefile else "onedir"))
-    return out, time.perf_counter() - t0
+        if LOCK_ERROR in (r.stdout + r.stderr):
+            print("  試了 %d 次都是 WinError 5。清屬性已經試過了，所以是真的有東西"
+                  "抓著：先確認沒有 Sipbar 在跑（含從原始碼跑的），再看防毒。"
+                  % BUILD_TRIES)
+        raise SystemExit("FAIL PyInstaller 失敗（%s）" % label)
 
 
 READ_ME = """Sipbar {ver}
