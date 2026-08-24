@@ -187,6 +187,27 @@ MESSAGES = {
 
 DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
 
+# 帶數字的台詞。使用者的觀察：「我自己用下來容易忽略喝水提醒」——
+# 而習慣化的解藥是變化，這一批把「還剩幾次」直接說進主字裡。
+#
+# **不是每一句都帶數字。** 每次都報數字本身就是一種可預測，而且進度點一直
+# 都在，數字從來不是唯一的來源；主字帶數字是為了讓那句話今天跟昨天不一樣，
+# 不是為了傳遞資訊。所以這些跟上面那批不帶數字的混在同一個池子裡抽。
+#
+# {n} 是還差幾次，{k} 是這是今天第幾次。語氣跟著狀態走：口渴是提醒，
+# 虛弱是拜託，倒地的角色不會替你加油。
+COUNTED_MESSAGES = {
+    THIRSTY: ["還剩 {n} 次", "喝一口，剩 {n} 次", "今天還有 {n} 次",
+              "第 {k} 次，時間到", "剩 {n} 次達標"],
+    WEAK: ["還差 {n} 次", "剩 {n} 次，先喝一口", "等你第 {k} 次", "{n} 次，拜託"],
+    COLLAPSED: ["倒了，還剩 {n} 次", "剩 {n} 次…救我", "第 {k} 次，救命"],
+}
+
+# 兩個端點各自有話說。中間那一大段用上面那批就好——
+# 「還剩 5 次」跟「還剩 4 次」對使用者是同一件事，不值得各寫一句。
+LAST_CALL = ["最後一次了", "剩最後一次", "最後一口"]      # 只差一次就達標
+FIRST_CALL = ["今天還沒開張", "今天第一次", "從第一次開始"]   # 今天還沒喝過
+
 # 深夜文案（「小口就好」「淺嚐一下就好」）已移除，不是忘了寫。
 # 它有 50% 機率出現，但 drink() 一律記整整一次——文案叫你喝半口，
 # 帳上照樣記一份 ml_per_drink_estimate。以睡前三小時約 2.8 次估，
@@ -425,6 +446,8 @@ class Island(QWidget):
         # 第一次達標那條路上是 True，_hold_for() 靠它決定停留多久。
         self._hinting = False
         self._restored_state = None      # 上次關掉時停在哪個提醒狀態
+        # 抽到的那句主字，連同產生它的 (狀態, 次數, override)。見 _refresh_message()。
+        self._msg_cache = None
 
         now = datetime.now()
         saved = load_state()
@@ -793,14 +816,55 @@ class Island(QWidget):
         else:
             sub_text = self._reminding_sub()
 
+        # **同一個狀態、同一個次數，就維持同一句話。**
+        #
+        # 先前每次呼叫都重抽一次，而探頭時 tick() 每 5 秒就會呼叫一次——
+        # 你把游標移上去看倒數，主字每 5 秒換一句。原本不太明顯（寬度固定），
+        # 藥丸改成跟著文字走之後它會連寬度一起抖，變得很難忽視。
+        #
+        # 快取連同產生它的那把鑰匙一起存：打招呼會直接寫掉 self.message，
+        # 只比對鑰匙的話就會把「嗨！」當成抽到的結果留著。
+        key = (self.state, self.drinks, override)
         if override:
             msg = override
-        elif self.state == NORMAL and self.drinks >= self.cfg["daily_target_drinks"]:
-            msg = random.choice(DONE_MESSAGES)
+        elif self._msg_cache and self._msg_cache[0] == key:
+            msg = self._msg_cache[1]
         else:
-            msg = random.choice(MESSAGES.get(self.state, MESSAGES[NORMAL]))
+            msg = self._pick_message()
+            self._msg_cache = (key, msg)
 
         self._set_text(msg, sub_text)
+
+    def _message_pool(self):
+        """現在這個狀態與進度下，主字可能是哪些話。
+
+        獨立成一個函式是為了讓測試窮舉得到：帶數字的句型讓「最長的那一句」
+        變得難用眼睛掌握，而放不下的後果是被省略號截掉。
+        測試第 34 節會把整個矩陣掃過一遍。
+        """
+        target = self.cfg["daily_target_drinks"]
+        if self.state == NORMAL and self.drinks >= target:
+            return list(DONE_MESSAGES)
+
+        pool = list(MESSAGES.get(self.state, MESSAGES[NORMAL]))
+        if self.state in REMINDING:
+            left = max(1, target - self.drinks)
+            pool += [t.format(n=left, k=self.drinks + 1)
+                     for t in COUNTED_MESSAGES[self.state]]
+            # 兩個端點的份量不一樣，值得多一點被抽到的機會，所以是加進池子
+            # 而不是取代——取代的話「最後一次」每天都講同一句。
+            pool += LAST_CALL if left == 1 else []
+            pool += FIRST_CALL if self.drinks == 0 else []
+        return pool
+
+    def _pick_message(self):
+        """抽一句主字。
+
+        可預測性是習慣化的根源（見 MESSAGES 上面那段），而使用者回報的正是
+        「容易忽略提醒」。帶數字的句子跟不帶的混在同一個池子裡抽，
+        兩種都不會變成每天都一樣的那一句。
+        """
+        return random.choice(self._message_pool())
 
     def _set_text(self, message, sub):
         """換掉島上那兩行字，並把藥丸該有的寬度交給彈簧。

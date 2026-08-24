@@ -1100,6 +1100,57 @@ sip(w33b)
 check("還沒達標時不提示", w33b.sub_message != "右鍵可以看紀錄", True)
 check("也不會把旗標用掉", w33b.cfg["records_hinted"], False)
 
+print("\n34. 主字帶次數：每一句都放得下，而且不會每 5 秒換一句")
+# 使用者的觀察：「我自己用下來容易忽略喝水提醒」。習慣化的解藥是變化，
+# 所以主字會帶上還差幾次，句型也多了一批。變化有兩個代價，這一節守這兩個。
+#
+# 代價一：「最長的那一句」沒辦法再用眼睛掌握。放不下就被省略號截掉。
+# 上限要用**最小的那台機器**驗：1366 的筆電上藥丸最寬 478px，而跑測試這台是
+# 3440（上限 700px）。只驗這台等於沒驗。
+_real_max = w2._max_pill_w
+w2._max_pill_w = lambda: 1366 * isl.PILL_SCREEN_FRAC
+_saved34 = (w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
+            w2.message, w2.sub_message)
+w2.cfg["daily_target_drinks"] = 12          # 進度點最多，文字空間最小
+_cut, _seen = None, set()
+for _st in isl.REMINDING:
+    w2.state = _st
+    for _d in (0, 5, 11):                   # 今天還沒喝、中段、只差最後一次
+        w2.drinks = _d
+        for _line in w2._message_pool():
+            if _line in _seen:
+                continue
+            _seen.add(_line)
+            _av, _pw = _avail_for(_line, "連續 128 天")
+            _need = QFontMetrics(w2._f_title).horizontalAdvance(_line)
+            if _need > _av and _cut is None:
+                _cut = f"「{_line}」需要 {_need:.0f}px / 可用 {_av:.0f}px"
+print(f"       掃過 {len(_seen)} 句（3 個狀態 × 3 個進度，目標 12 次、1366 筆電）")
+check("每一句主字都放得下", _cut, None)
+w2._max_pill_w = _real_max
+
+# 代價二：抽籤如果每次呼叫都重抽，探頭時 tick() 每 5 秒就換一句話。
+# 先前寬度固定所以不太明顯，藥丸改成跟著文字走之後會連寬度一起抖。
+w2.cfg["daily_target_drinks"] = 9
+w2.state, w2.drinks, w2._msg_cache = isl.THIRSTY, 2, None
+w2._refresh_message()
+_first = w2.message
+_stable = True
+for _ in range(30):
+    w2._refresh_message()
+    _stable = _stable and w2.message == _first
+check("同一個狀態與次數，主字不會每次重抽", _stable, True)
+w2.drinks = 3
+w2._refresh_message()
+check("次數變了才重抽", w2._msg_cache[0][1], 3)
+# 打招呼會直接寫掉 message（不走抽籤）。只比對鑰匙的話，回到一般狀態時
+# 會把「嗨！」當成抽到的結果留著。
+w2._set_text("嗨！", "游標移至螢幕上緣中央可呼叫")
+w2._refresh_message()
+check("打招呼之後會回到抽到的那一句", w2.message == "嗨！", False)
+(w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
+ w2.message, w2.sub_message) = _saved34
+
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，
