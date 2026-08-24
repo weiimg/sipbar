@@ -51,7 +51,9 @@ for label, state, t, drinks in rows:
     w.state = state
     w.drinks = drinks
     if label == "啟動打招呼":
-        w.message, w.sub_message = "我在這裡", "滑鼠移到螢幕上緣中間就能叫我"
+        # 走 _set_text 而不是直接寫兩個屬性：藥丸的寬度跟著文字走，
+        # 繞過去的話這一格會用上一格的寬度畫出來。
+        w._set_text("我在這裡", "滑鼠移到螢幕上緣中間就能叫我")
     elif label == "喝了":
         w._refresh_message("喝了，還剩 3 次")
     elif label == "第一次達標（多一句指示）":
@@ -61,6 +63,8 @@ for label, state, t, drinks in rows:
         w._refresh_message("今天達標了", f"連續 {12} 天")
     else:
         w._refresh_message()
+    # 寬度彈簧也要推到定位，這裡要的是定格不是動畫過程。
+    w.sp_text_w.value = w.sp_text_w.target
     w.sp_expand.value = w.sp_expand.target = t
     w.sp_expand.velocity = 0.0
     # 這支直接設 w.state，繞過了 _enter，水位彈簧不會自己跟上——要手動同步，

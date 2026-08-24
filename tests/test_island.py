@@ -315,9 +315,6 @@ pips_left = w2._draw_pips(p, rect, lay)   # 回傳進度點的左緣
 face = w2._draw_face(p, rect, QColor(isl.VISUAL[w2.state][0]), lay)
 p.end()
 
-text_x = face.right() + rect.height() * 0.22
-avail = pips_left - 16 - text_x
-
 w2.streak = 128          # 三位數的連續天數是最長情況，要一起驗
 w2.interval_s = 100 * 60
 w2.active_s = 0.0
@@ -328,6 +325,35 @@ _sub_day = w2._status_sub()
 w2._is_late = lambda hour=None: True
 _sub_late = w2._status_sub()
 w2._is_late = lambda hour=None: False
+
+
+def _avail_for(title, sub):
+    """把這段文字真的放進島裡，量它剩下多少可用寬度。
+
+    **可用寬度不能在迴圈外面量一次就好。** 藥丸的寬度現在跟著內容走
+    （見 pill_rect），所以每一句話對應到的是一個不同寬度的藥丸——
+    在外面量一次等於拿「上一句話的藥丸」去驗這一句，量錯了還會是綠燈。
+    這一節先前就是那樣寫的，改成內容驅動寬度之後它會變成假通過。
+    """
+    w2._set_text(title, sub)
+    # 寬度是彈簧推過去的（見 _set_text）。這一節驗的是版面，不是動畫過程，
+    # 所以直接把彈簧推到定位——不推的話量到的是上一句話的寬度。
+    w2.sp_text_w.value, w2.sp_text_w.velocity = w2.sp_text_w.target, 0.0
+    r = w2.pill_rect()
+    pm_ = QPixmap(isl.WIN_W, isl.WIN_H)
+    p_ = QPainter(pm_)
+    lay_ = w2._layout(r, isl.clamp(w2.sp_content.value, 0.0, 1.0))
+    pips_l = w2._draw_pips(p_, r, lay_)
+    f_ = w2._draw_face(p_, r, QColor(isl.VISUAL[w2.state][0]), lay_)
+    p_.end()
+    return pips_l - 16 - (f_.right() + r.height() * 0.22), r.width()
+
+
+_msg0, _sub0 = w2.message, w2.sub_message
+# 文字沒走 _set_text 的話寬度不會更新，藥丸會拿上一句的寬度裝這一句。
+# 這一條守著那個入口：繞過去就會被抓到。
+w2._set_text("水呢", "口渴的時候身體已經流失百分之二的水分")
+check("換文字會同時改寬度目標", w2.sp_text_w.target > 0, True)
 for label, text, font in (
     ("倒數（連續破百）", _sub_day, w2._f_sub),
     ("倒數（連續破百·深夜）", _sub_late, w2._f_sub),
@@ -336,13 +362,32 @@ for label, text, font in (
     # 第一次達標那句提示也走小標，而且它是一次性的：被截掉就永遠沒有第二次。
     ("第一次達標的提示", "右鍵可以看紀錄", w2._f_sub),
     ("最長標題", "今天達標了", w2._f_title),
+    # 提示句會比現有文案長，而藥丸現在會自己長。上限由螢幕決定，
+    # 超過就該被夾住而不是把島撐成橫幅——夾住之後這條會 FAIL，那是對的。
+    ("二十字的提示句", "口渴的時候身體已經流失百分之二的水分", w2._f_sub),
 ):
+    is_title = font is w2._f_title
+    avail, pill_w = _avail_for(text if is_title else "水呢",
+                               text if not is_title else "今天 2/7 次")
     need = QFontMetrics(font).horizontalAdvance(text)
     fits = need <= avail
     print(("  ok  " if fits else "  FAIL") +
-          f"  {label}：需要 {need}px / 可用 {avail:.0f}px　「{text}」")
+          f"  {label}：需要 {need}px / 可用 {avail:.0f}px"
+          f" / 藥丸 {pill_w:.0f}px　「{text}」")
     if not fits:
         fails.append(f"文字被截：{label}")
+w2.message, w2.sub_message = _msg0, _sub0
+
+# 藥丸不能比螢幕還寬，也不能比內容還寬。前者是版面災難，後者是先前的樣子
+# （兩個字的「倒了」撐出一個 462px 的殼，中間空一大片）。
+_short_avail, _short_w = _avail_for("倒了", "今天 2/7 次")
+_long_avail, _long_w = _avail_for("水呢", "口渴的時候身體已經流失百分之二的水分")
+check("短句子的島比長句子窄", _short_w < _long_w, True)
+check("而且沒有超過螢幕能容許的上限",
+      _long_w <= w2._max_pill_w() + 0.5, True)
+check("視窗畫布容得下最寬的藥丸（不然圓角會被切掉）",
+      isl.PILL_MAX[0] + (isl.SQUASH_MAX + isl.PILL_SHADOW) * 2 <= isl.WIN_W, True)
+w2.message, w2.sub_message = _msg0, _sub0
 
 print("\n17c. 重啟不能重發提醒（多出來的事件會污染作息推導）")
 # 狀態沒跨重啟保存時，重開一律從 NORMAL 起算，而 active_s 已經超過間隔，

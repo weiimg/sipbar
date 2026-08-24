@@ -23,6 +23,7 @@
 
 import ctypes
 import json
+import math
 import os
 import random
 import sys
@@ -62,7 +63,20 @@ REMINDING = (THIRSTY, WEAK, COLLAPSED)
 
 PILL_TOP = 10
 PILL_MIN = (116, 36)
-PILL_MAX = (462, 100)   # 留餘裕給「連續 100 天 · 下次約 100 分後」這種最長情況
+# 藥丸的**上限**，不是它平常的樣子。展開後的實際寬度由內容算（見 pill_rect），
+# 這個值只負責兩件事：擋住異常長的字串，以及決定視窗畫布要多大。
+#
+# 462 -> 700 是因為文字不再被硬切在 462 那條線上。**但寬度不能只看這個常數**：
+# 700px 在 3440 的螢幕上是 20%，在 1366 的筆電上是 51%，那已經不是動態島而是
+# 橫幅。所以真正的上限還要再乘一次螢幕寬度的比例，見 PILL_SCREEN_FRAC。
+PILL_MAX = (700, 100)
+# 藥丸最寬佔螢幕的比例。0.35 是「一眼看得完、又不像通知橫幅」的界線：
+# 1366 的筆電上是 478px，3440 上是 700px（被上面那個絕對值先夾住）。
+PILL_SCREEN_FRAC = 0.35
+# 文字寬度量到多細。**不逐像素跟著字串走**，理由跟 _stable_h() 完全相同：
+# 探頭時倒數每分鐘會從「99 分」變成「100 分」，逐像素的話藥丸每分鐘抖一下。
+# 對齊到 24px 的格線之後，一兩個字的變化多半落在同一格裡，寬度就不動。
+PILL_W_STEP = 24
 
 # 視窗必須容得下：藥丸本體 + 擠壓拉伸的額外寬度 + 陰影 + 邊界餘裕。
 # 只改藥丸寬度而忘了視窗，圓角會被視窗邊界直接切掉——這正是踩過的坑。
@@ -430,6 +444,10 @@ class Island(QWidget):
         self.sp_reveal = Spring(0.0)
         self.sp_content = Spring(0.0)
         self.sp_pulse = Spring(1.0, 0.28, 0.55)   # 按下去的回彈，蘋果一定會回應觸碰
+        # 文字要多寬。**寬度跟著內容走，但不能瞬間跳**——訊息一換（喝完那一下、
+        # 探頭時倒數跨過一分鐘）藥丸就會當場改寬度，看起來像版面壞掉。
+        # 阻尼給滿：寬度過衝再彈回來，就是「跑版」本人。
+        self.sp_text_w = Spring(0.0, 0.34, 1.0)
         # 水位獨立一條彈簧：狀態一變就改目標，轉場自動平滑、可被打斷，
         # 跟島上其他東西同一套物理。阻尼給滿，水不該彈過頭再回來。
         self.sp_level = Spring(pixelface.LEVEL[NORMAL], 0.55, 1.0)
@@ -567,7 +585,7 @@ class Island(QWidget):
         dt, self._last = now - self._last, now
 
         for s in (self.sp_expand, self.sp_reveal, self.sp_content, self.sp_pulse,
-                  self.sp_level):
+                  self.sp_level, self.sp_text_w):
             s.step(dt)
 
         if self.sp_reveal.value > 0.005 and not self.isVisible():
@@ -582,7 +600,7 @@ class Island(QWidget):
         self.update()
 
         springs = (self.sp_expand, self.sp_reveal, self.sp_content, self.sp_pulse,
-                   self.sp_level)
+                   self.sp_level, self.sp_text_w)
         if all(s.settled for s in springs):
             for s in springs:
                 s.value, s.velocity = s.target, 0.0
@@ -769,18 +787,35 @@ class Island(QWidget):
         # 一次（見 drink()）。這條規則管的是常駐文字，一次性的教學正好相反，
         # 它就該待在一個只出現一次的地方。
         if sub:
-            self.sub_message = sub
+            sub_text = sub
         elif self.state == NORMAL:
-            self.sub_message = self._status_sub()
+            sub_text = self._status_sub()
         else:
-            self.sub_message = self._reminding_sub()
+            sub_text = self._reminding_sub()
 
         if override:
-            self.message = override
+            msg = override
         elif self.state == NORMAL and self.drinks >= self.cfg["daily_target_drinks"]:
-            self.message = random.choice(DONE_MESSAGES)
+            msg = random.choice(DONE_MESSAGES)
         else:
-            self.message = random.choice(MESSAGES.get(self.state, MESSAGES[NORMAL]))
+            msg = random.choice(MESSAGES.get(self.state, MESSAGES[NORMAL]))
+
+        self._set_text(msg, sub_text)
+
+    def _set_text(self, message, sub):
+        """換掉島上那兩行字，並把藥丸該有的寬度交給彈簧。
+
+        **文字一律走這裡。** 直接寫 `self.message` 的話寬度不會跟著更新，
+        藥丸就會拿上一句話的寬度去裝這一句——長的被切掉，短的留一片空白。
+
+        只在這裡量一次，不是每一幀量：量測不便宜，而且寬度該在文字換掉的
+        那一刻改變，不是在畫面重繪的時候。
+        """
+        self.message, self.sub_message = message, sub
+        want = self._text_w()
+        if want != self.sp_text_w.target:
+            self.sp_text_w.target = want
+            self._kick()
 
     def _hold_for(self, state):
         # 第一次達標多帶一句使用者沒看過的指示（見 drink()），那一次要停久
@@ -836,9 +871,9 @@ class Island(QWidget):
         # 主字是角色的聲音，副字是操作說明——兩者語域不同是刻意的：
         # 島可以有個性，但「怎麼叫出它」必須是清楚的指示。
         # copy-style: off
-        self.message = "嗨！"
+        _hi = "嗨！"
         # copy-style: on
-        self.sub_message = "游標移至螢幕上緣中央可呼叫"
+        self._set_text(_hi, "游標移至螢幕上緣中央可呼叫")
         self._target_reveal(1.0)
         self._target_expand(1.0)
         self._target_content(1.0, delay_ms=90)
@@ -1376,6 +1411,32 @@ class Island(QWidget):
 
     # ------------------------------------------------------------ 幾何
 
+    def _text_w(self):
+        """現在這段文字需要多寬。取大標與小標的較大者，對齊到 PILL_W_STEP。
+
+        量的是**現在真的要畫的字串**，不是某個假想的最長情況——藥丸的寬度
+        因此會跟著內容走：兩個字的「倒了」不再撐出一個 462px 的空殼。
+
+        格線對齊是刻意的，理由見 PILL_W_STEP。
+        """
+        if not (self.message or self.sub_message):
+            return 0.0
+        need = max(QFontMetrics(self._f_title).horizontalAdvance(self.message or ""),
+                   QFontMetrics(self._f_sub).horizontalAdvance(self.sub_message or ""))
+        return math.ceil(need / PILL_W_STEP) * PILL_W_STEP
+
+    def _max_pill_w(self):
+        """這台螢幕上藥丸最寬能到多少。
+
+        絕對值與螢幕比例取小的那一個。螢幕寬度每次都問 QScreen——多螢幕、
+        改解析度、拔螢幕都會變，而這個值錯了的後果是藥丸比螢幕還寬。
+        """
+        try:
+            scr_w = target_screen(self.cfg).geometry().width()
+        except (AttributeError, RuntimeError):
+            return PILL_MAX[0]
+        return min(PILL_MAX[0], scr_w * PILL_SCREEN_FRAC)
+
     def _stable_h(self):
         """沒有被擠壓、也不會過衝的藥丸高度。
 
@@ -1402,22 +1463,40 @@ class Island(QWidget):
         # 杯子是矩形，離圓角太近會看起來突出去；臉小得多，貼著 0.25 的內距就好。
         inset = max(stable_h * 0.25, 14.0 if cup_cell else 0.0)
         block_w = w + face_gap + gap * (target - 1) + pr * 2
+
+        # 藥丸的自然寬度：內容真的需要多少。
+        #
+        # 展開後的版面是 [inset][臉][間距][文字][16][進度點][margin]（見 _layout）。
+        # 這裡不重抄一份那個公式——block_w 已經含了臉、間距與進度點，只要再補
+        # 文字本身與它兩側的留白就好。抄第二份公式就是埋一份會漂開的東西。
+        #
+        # 文字那一段乘上 c：內容淡入的過程中它才逐漸佔位，c=0 時整條式子退化成
+        # 原本「只有臉與進度點」的寬度，收合與停留尺寸的行為完全不變。
+        text_w = self.sp_text_w.value * c
+        text_pad = (stable_h * 0.22 + 16.0) * c if text_w else 0.0
+        natural_w = block_w + inset * 2 + text_w + text_pad
         return {"w": w, "h": h, "cup_cell": cup_cell, "inset": inset,
-                "block_w": block_w, "pr": pr, "gap": gap}
+                "block_w": block_w, "natural_w": natural_w, "pr": pr, "gap": gap}
 
     def pill_rect(self):
         t = clamp(self.sp_expand.value, 0.0, 1.6)
         w = lerp(PILL_MIN[0], PILL_MAX[0], t)
         h = lerp(PILL_MIN[1], PILL_MAX[1], t)
 
-        # 沒有文字時，容器不該比內容寬。
-        # 停留尺寸原本是手調的比例（0.35、0.50），那個比例只對「當時的」內容成立：
-        # 杯子換小尺寸之後，同樣的 0.35 就在右邊留下一大片空白。
+        # 容器不該比內容寬——**文字也算內容**。
+        #
+        # 停留尺寸原本是手調的比例（0.35、0.50），那個比例只對「當時的」內容
+        # 成立：杯子換小尺寸之後，同樣的 0.35 就在右邊留下一大片空白。
         # 讓寬度直接跟著內容算，停留點改多少都不用再回來調這裡。
+        #
+        # 先前這一行是 `lerp(min(w, natural), w, c)`，也就是**文字一旦完全顯示
+        # 就放棄內容寬度、直接吃滿 PILL_MAX**。於是「倒了」兩個字也撐出一個
+        # 462px 的殼，中間空一大片。現在改成一律取內容需要的寬度，
+        # 而 natural_w 自己會隨著 c 把文字那一段算進去。
         c = clamp(self.sp_content.value, 0.0, 1.0)
         m = self._metrics(c)
-        natural = max(m["block_w"] + m["inset"] * 2, PILL_MIN[0])
-        w = lerp(min(w, natural), w, c)
+        natural = clamp(m["natural_w"], PILL_MIN[0], self._max_pill_w())
+        w = min(w, natural)
 
         # 擠壓與拉伸：速度快時橫向多撐、縱向補回，
         # 讓形變看起來像有質量的東西在動，而不是一個矩形在改數值。
