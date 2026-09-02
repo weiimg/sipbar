@@ -327,6 +327,10 @@ _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 _user32.ShowWindow.restype = wintypes.BOOL
 _user32.IsIconic.argtypes = [wintypes.HWND]
 _user32.IsIconic.restype = wintypes.BOOL
+_user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+_user32.GetWindowLongW.restype = wintypes.LONG
+_GWL_EXSTYLE = -20
+_WS_EX_TOPMOST = 0x0008
 _HWND_TOPMOST = -1
 _SWP_NOMOVE = 0x0002
 _SWP_NOSIZE = 0x0001
@@ -1134,16 +1138,18 @@ class Island(QWidget):
         所有普通視窗都能蓋住島，Win+D 也會把它收走。
 
         由 _peek_tick 每 120ms 呼叫一次（只在島可見時）。
-        SetWindowPos 在已經置頂的視窗上是近乎零成本的 no-op。
+        只在旗標真的不見時才呼叫 SetWindowPos，避免跟自己的彈窗搶 z-order。
         """
         hwnd = int(self.winId())
         if _user32.IsIconic(hwnd):
             _user32.ShowWindow(hwnd, _SW_SHOWNOACTIVATE)
             self._reposition()
-        _user32.SetWindowPos(
-            hwnd, _HWND_TOPMOST, 0, 0, 0, 0,
-            _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE,
-        )
+        ex = _user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+        if not (ex & _WS_EX_TOPMOST):
+            _user32.SetWindowPos(
+                hwnd, _HWND_TOPMOST, 0, 0, 0, 0,
+                _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE,
+            )
 
     def _peek_tick(self):
         """滑鼠碰到螢幕頂端中央就探頭出來，不必去翻系統匣。"""

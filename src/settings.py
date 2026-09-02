@@ -41,7 +41,7 @@ from motion import clamp
 #
 # 改這個字串會讓程式在下次啟動時打一次招呼（滑下來 4 秒），那是刻意的——
 # 版本換了就值得說一聲。見 island.main() 的 greeted_version。
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 APP_NAME = "Sipbar"
 APP_TITLE = "Sipbar"
