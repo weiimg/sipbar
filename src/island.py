@@ -317,6 +317,22 @@ _user32 = ctypes.WinDLL("user32", use_last_error=True)
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _kernel32.GetTickCount64.restype = ctypes.c_ulonglong
 
+_user32.SetWindowPos.argtypes = [
+    wintypes.HWND, wintypes.HWND,
+    ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+    wintypes.UINT,
+]
+_user32.SetWindowPos.restype = wintypes.BOOL
+_user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+_user32.ShowWindow.restype = wintypes.BOOL
+_user32.IsIconic.argtypes = [wintypes.HWND]
+_user32.IsIconic.restype = wintypes.BOOL
+_HWND_TOPMOST = -1
+_SWP_NOMOVE = 0x0002
+_SWP_NOSIZE = 0x0001
+_SWP_NOACTIVATE = 0x0010
+_SW_SHOWNOACTIVATE = 4
+
 
 def cursor_pos():
     """游標位置，**邏輯像素**，跟 QScreen.geometry() 同一個座標系。
@@ -1110,8 +1126,29 @@ class Island(QWidget):
         else:
             self._settle()
 
+    def _ensure_topmost(self):
+        """被動守衛：如果置頂旗標被外力拔掉或視窗被最小化，補回來。
+
+        已知觸發情境：DaVinci Resolve 等重度 GPU 應用切換焦點時，
+        偶爾會把其他視窗的 WS_EX_TOPMOST 降級。旗標一旦消失，
+        所有普通視窗都能蓋住島，Win+D 也會把它收走。
+
+        由 _peek_tick 每 120ms 呼叫一次（只在島可見時）。
+        SetWindowPos 在已經置頂的視窗上是近乎零成本的 no-op。
+        """
+        hwnd = int(self.winId())
+        if _user32.IsIconic(hwnd):
+            _user32.ShowWindow(hwnd, _SW_SHOWNOACTIVATE)
+            self._reposition()
+        _user32.SetWindowPos(
+            hwnd, _HWND_TOPMOST, 0, 0, 0, 0,
+            _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE,
+        )
+
     def _peek_tick(self):
         """滑鼠碰到螢幕頂端中央就探頭出來，不必去翻系統匣。"""
+        if self.sp_reveal.value > 0.005:
+            self._ensure_topmost()
         if self._greeting:
             return                       # 打招呼期間不受游標影響
         if self._menu_open():
