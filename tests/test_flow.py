@@ -97,6 +97,14 @@ def ticks(w, n):
         w.tick()
 
 
+def settle_through(widget):
+    """_settle() 到 NORMAL，消化途中的成就通知。"""
+    for _ in range(10):
+        widget._settle()
+        if widget.state != isl.SATISFIED:
+            break
+
+
 def to_reminder(w):
     """跑到剛好發出提醒。間隔有 ±15% 抖動，所以用算的不要寫死。"""
     ticks(w, int(w.interval_s / 60) + 1)
@@ -224,7 +232,7 @@ check("訊息是達標", w.message, "今天達標了")
 check("第一次達標告訴他紀錄在哪", w.sub_message, "右鍵可以看紀錄")
 check("而且真的寫回設定檔",
       json.load(io.open(aps.CONFIG_PATH, encoding="utf-8"))["records_hinted"], True)
-w._settle()
+settle_through(w)
 ticks(w, 600)
 check("跑 600 分鐘仍然不出現", w.sp_reveal.target, 0.0)
 

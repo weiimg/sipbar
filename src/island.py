@@ -61,6 +61,8 @@ DEFAULT_CONFIG = settings.DEFAULTS      # 預設值與說明都在 settings.py
 NORMAL, THIRSTY, WEAK, COLLAPSED, SATISFIED = "NORMAL", "THIRSTY", "WEAK", "COLLAPSED", "SATISFIED"
 REMINDING = (THIRSTY, WEAK, COLLAPSED)
 
+ACHIEVEMENT_HOLD_S = 3.0
+
 PILL_TOP = 10
 PILL_MIN = (116, 36)
 # 藥丸的**上限**，不是它平常的樣子。展開後的實際寬度由內容算（見 pill_rect），
@@ -547,6 +549,9 @@ class Island(QWidget):
         # 這一次的 SATISFIED 帶著「右鍵可以看紀錄」那句話嗎。只在 drink() 的
         # 第一次達標那條路上是 True，_hold_for() 靠它決定停留多久。
         self._hinting = False
+        self._unlocked = None            # 已解鎖的成就名稱；None = 還沒拍到基準
+        self._pending_achievement = None  # (name, desc)，等 _settle() 顯示
+        self._showing_achievement = False # 這一輪 SATISFIED 是成就通知
         self._restored_state = None      # 上次關掉時停在哪個提醒狀態
         # 抽到的那句主字，連同產生它的 (狀態, 次數, override)。見 _refresh_message()。
         self._msg_cache = None
@@ -571,6 +576,7 @@ class Island(QWidget):
         # 而且探頭看到的倒數會莫名其妙變多。
         self._restore_timing(saved, same_day, now)
         self._refresh_streak()
+        self._init_unlocked()
 
         self.sp_expand = Spring(0.0)
         self.sp_reveal = Spring(0.0)
@@ -846,6 +852,15 @@ class Island(QWidget):
         except Exception:
             self.streak = 0                       # 算不出來就不顯示，不影響提醒本身
 
+    def _init_unlocked(self):
+        """啟動時拍一份「已經解鎖的成就」，避免舊成就在第一次 drink 全部跳出來。"""
+        try:
+            import dashboard
+            data = dashboard.compute(self.cfg, EVENTS_PATH)
+            self._unlocked = dashboard.unlocked_names(data)
+        except Exception:
+            self._unlocked = None
+
     def _status_sub(self):
         """探頭時你想知道的是「下次什麼時候」，不是重複告訴你今天喝幾次。
 
@@ -1039,6 +1054,8 @@ class Island(QWidget):
         # 而那句話他早就知道，掃一眼就夠；一句沒看過的指示要讀完才有用。
         # 借用口渴那一階的停留長度，不另外開一個設定值——設定值會被看到、
         # 被問「這是什麼」，而它只影響一輩子一次的那 6 秒。
+        if state == SATISFIED and self._showing_achievement:
+            return ACHIEVEMENT_HOLD_S
         if state == SATISFIED and self._hinting:
             return self.cfg["thirsty_hold_seconds"]
         return {
@@ -1192,7 +1209,14 @@ class Island(QWidget):
         if self._menu_open():
             return                       # 選單關掉時 _menu_dismissed() 會補做
         if self.state == SATISFIED:
-            self._peek_locked = True     # 剛喝完，滑鼠還停在島上，別馬上又探頭
+            ach = self._pending_achievement
+            self._pending_achievement = None
+            if ach:
+                self._showing_achievement = True
+                self._enter(SATISFIED, message=ach[0], sub=ach[1])
+                return
+            self._showing_achievement = False
+            self._peek_locked = True
             self._enter(NORMAL)
             return
         if self._hover:
@@ -1325,6 +1349,9 @@ class Island(QWidget):
 
     def drink(self):
         """點一下＝「我剛補了水」，不管喝了幾口。不宣稱喝滿一杯，就沒有虛報的壓力。"""
+        self._pending_achievement = None
+        self._showing_achievement = False
+
         if self._practicing:
             # 練習不留任何痕跡：不加次數、不重擲間隔、不寫 events、不存檔。
             # 這條路徑必須放在最前面——底下每一行都有副作用。
@@ -1392,6 +1419,20 @@ class Island(QWidget):
         )
         self._persist()
 
+        try:
+            import dashboard
+            data = dashboard.compute(self.cfg, EVENTS_PATH)
+            after = dashboard.unlocked_names(data)
+            new = after - self._unlocked if self._unlocked is not None else frozenset()
+            self._unlocked = after
+            if new:
+                for name, desc, _, _ in reversed(dashboard.achievements(data)):
+                    if name in new:
+                        self._pending_achievement = (name, desc)
+                        break
+        except Exception:
+            pass
+
         target = self.cfg["daily_target_drinks"]
         if self.drinks >= target:
             # 達標的瞬間連續會 +1，這裡是唯一的回饋時機，數字要當場更新
@@ -1452,6 +1493,8 @@ class Island(QWidget):
         """
         if self.drinks <= 0:
             return
+        self._pending_achievement = None
+        self._showing_achievement = False
         snap, self._undo = self._undo, None      # 一份只能用一次
         log_event(
             self.day, "undo",
@@ -1471,6 +1514,12 @@ class Island(QWidget):
         self._last_drink_at = -1e9
         self._persist()
         self._refresh_streak()          # 退回可能讓今天從達標變成未達標
+        try:
+            import dashboard
+            self._unlocked = dashboard.unlocked_names(
+                dashboard.compute(self.cfg, EVENTS_PATH))
+        except Exception:
+            pass
         if snap:
             self._enter(snap["state"])
         else:

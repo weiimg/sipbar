@@ -68,6 +68,14 @@ def settle_springs():
         s.value, s.velocity = s.target, 0.0
 
 
+def settle_through(widget):
+    """_settle() 到 NORMAL，消化途中的成就通知。"""
+    for _ in range(10):
+        widget._settle()
+        if widget.state != isl.SATISFIED:
+            break
+
+
 def sip(widget, times=1):
     """模擬補水，代表「兩次之間有時間經過」。
 
@@ -138,7 +146,7 @@ check("狀態", w.state, isl.SATISFIED)
 check("次數", w.drinks, 1)
 check("active_s 歸零", w.active_s, 0.0)
 check("訊息", w.message, f"喝了，還剩 {cfg['daily_target_drinks'] - 1} 次")
-w._settle()                      # 模擬閃爍時間結束
+settle_through(w)                # 閃爍結束（途中可能有成就通知）
 check("狀態", w.state, isl.NORMAL)
 check("reveal 目標（消失）", w.sp_reveal.target, 0.0)
 
@@ -147,7 +155,7 @@ sip(w, cfg["daily_target_drinks"] - 1)
 check("次數", w.drinks, cfg["daily_target_drinks"])
 check("訊息", w.message, "今天達標了")
 check("達標時小標顯示連續", w.sub_message.startswith("連續 ") or w.streak == 0, True)
-w._settle()
+settle_through(w)
 ticks(600)
 check("跑 600 分鐘仍隱藏", w.sp_reveal.target, 0.0)
 check("狀態", w.state, isl.NORMAL)
@@ -250,7 +258,7 @@ check("不會被收掉", w.sp_reveal.target, 1.0)
 print("\n16. 喝完後滑鼠還停在島上，不該立刻又探頭")
 CURSOR[:] = [scr.center().x(), scr.top() + 2]
 sip(w)
-w._settle()                                    # 閃爍結束
+settle_through(w)                              # 閃爍結束（途中可能有成就通知）
 check("已上鎖", w._peek_locked, True)
 w._peek_tick()
 check("鎖住時不探頭", w._peeking, False)
@@ -1220,6 +1228,85 @@ check("恢復之後提示回來", w2._reminding_sub(), isl.TIPS[0])
 
 (w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
  w2.message, w2.sub_message, w2._tip) = _saved35
+
+print("\n36. 成就達成時用動態島顯示")
+_dir36 = os.path.join(SCRATCH, "wp_ach")
+shutil.rmtree(_dir36, ignore_errors=True)
+_saved_paths36 = (isl.DATA_DIR, isl.STATE_PATH, isl.EVENTS_PATH)
+isl.DATA_DIR = _dir36
+isl.STATE_PATH = os.path.join(_dir36, "state.json")
+isl.EVENTS_PATH = os.path.join(_dir36, "events.jsonl")
+_cfg36 = dict(cfg)
+_cfg36["records_hinted"] = True
+w36 = isl.Island(_cfg36)
+w36.tick_timer.stop(); w36.frame.stop(); w36.hold_timer.stop()
+w36.peek_timer.stop(); w36.beat_timer.stop()
+sip(w36)
+check("第一次補水狀態", w36.state, isl.SATISFIED)
+check("有成就等著顯示", w36._pending_achievement is not None, True)
+check("成就名稱", w36._pending_achievement[0], "水啦！")
+w36._settle()
+check("成就通知中狀態仍是 SATISFIED", w36.state, isl.SATISFIED)
+check("島上顯示成就名稱", w36.message, "水啦！")
+check("島上顯示成就說明", w36.sub_message, "完成一次補水")
+check("成就停留 3 秒", w36.hold_timer.interval(), int(isl.ACHIEVEMENT_HOLD_S * 1000))
+w36._settle()
+check("成就結束後回到隱藏", w36.state, isl.NORMAL)
+
+sip(w36)
+check("第二次補水沒有新成就", w36._pending_achievement, None)
+w36._settle()
+check("直接回到隱藏", w36.state, isl.NORMAL)
+isl.DATA_DIR, isl.STATE_PATH, isl.EVENTS_PATH = _saved_paths36
+shutil.rmtree(_dir36, ignore_errors=True)
+
+print("\n37. 啟動時 dashboard 炸掉不會讓舊成就重新跳出來")
+_dir37 = os.path.join(SCRATCH, "wp_ach_init")
+shutil.rmtree(_dir37, ignore_errors=True)
+_saved_paths37 = (isl.DATA_DIR, isl.STATE_PATH, isl.EVENTS_PATH)
+isl.DATA_DIR = _dir37
+isl.STATE_PATH = os.path.join(_dir37, "state.json")
+isl.EVENTS_PATH = os.path.join(_dir37, "events.jsonl")
+os.makedirs(_dir37, exist_ok=True)
+_cfg37 = dict(cfg)
+_cfg37["records_hinted"] = True
+_cfg37["daily_target_drinks"] = 200
+_w37a = isl.Island(_cfg37)
+for _t in (_w37a.tick_timer, _w37a.frame, _w37a.hold_timer, _w37a.peek_timer):
+    _t.stop()
+_w37a._last_drink_at = -1e9
+_w37a.drink()
+settle_through(_w37a)
+check("第一次有成就", _w37a._unlocked is not None and len(_w37a._unlocked) > 0, True)
+import dashboard as _dash37
+_orig_compute = _dash37.compute
+_dash37.compute = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+_w37b = isl.Island(_cfg37)
+for _t in (_w37b.tick_timer, _w37b.frame, _w37b.hold_timer, _w37b.peek_timer):
+    _t.stop()
+check("init 炸掉後 _unlocked 是 None", _w37b._unlocked, None)
+_w37b._last_drink_at = -1e9
+_dash37.compute = _orig_compute
+_w37b.drink()
+check("第一次 drink 不觸發舊成就", _w37b._pending_achievement, None)
+check("但 _unlocked 被補上了", _w37b._unlocked is not None, True)
+isl.DATA_DIR, isl.STATE_PATH, isl.EVENTS_PATH = _saved_paths37
+shutil.rmtree(_dir37, ignore_errors=True)
+
+print("\n38. 成就名稱都放得下（一氧化二氫成癮者最長）")
+import dashboard
+_real_max37 = w2._max_pill_w
+w2._max_pill_w = lambda: 1366 * isl.PILL_SCREEN_FRAC
+_dummy_data = {"total_drinks": 999, "longest": 999, "target": 7,
+               "days": {"2025-01-01": {"drinks": 99}}}
+_too_long37 = None
+for _name, _desc, _, _ in dashboard.achievements(_dummy_data):
+    _av, _pw = _avail_for(_name, _desc)
+    _need = QFontMetrics(w2._f_title).horizontalAdvance(_name)
+    if _need > _av and _too_long37 is None:
+        _too_long37 = f"「{_name}」需要 {_need:.0f}px / 可用 {_av:.0f}px"
+check("每一個成就名稱都放得下", _too_long37, None)
+w2._max_pill_w = _real_max37
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。

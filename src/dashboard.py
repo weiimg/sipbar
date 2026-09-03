@@ -349,6 +349,11 @@ def achievements(data):
     ]
 
 
+def unlocked_names(data):
+    """目前已解鎖的成就名稱集合。"""
+    return frozenset(name for name, _, cur, goal in achievements(data) if cur >= goal)
+
+
 def week_days(data):
     """本週七天（一到日）的狀態，給週曆用。"""
     today = datetime.strptime(data["today_key"], "%Y-%m-%d")
