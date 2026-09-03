@@ -857,32 +857,110 @@ class Bar(Graphic):
             p.drawRoundedRect(QRectF(0, 0, max(8, self.width() * v), self.height()), 4, 4)
 
 
+_BADGE_ICONS = [
+    # 0: 水啦 — smiling water drop
+    (["........",
+      "...BB...",
+      "..BBBB..",
+      ".BBBBBB.",
+      ".MWMMWM.",
+      ".DDWWDD.",
+      "..DDDD..",
+      "........"], 3),
+    # 1: 今天很水哦 — smiling cup
+    (["KBBBBBBK",
+      "KBBBBBBK",
+      "KBWBBWBK",
+      "KBBBBBBK",
+      "KMWMMWMK",
+      "KDDWWDDK",
+      "KDDDDDDK",
+      ".KKKKKK."], 3),
+    # 2: One, two, 水！ — cup
+    (["........",
+      ".DBBBBD.",
+      ".DWBBWD.",
+      ".DBWWBD.",
+      ".DBBBBD.",
+      "..DBBD..",
+      "...BD...",
+      "..DDDD.."], 3),
+    # 3: 需要你 — crying cup
+    (["KBBBBBBK",
+      "KBBBBBBK",
+      "KBWBBWBK",
+      "KBBBBBBK",
+      "KMWWWWMK",
+      "KWDDDDWK",
+      "KDDDDDDK",
+      ".KKKKKK."], 3),
+    # 4: 我是一隻魚 — fish
+    (["........",
+      "..DDL...",
+      ".BBBBL.D",
+      "BWBBWDLD",
+      "LBWWDBDD",
+      ".LLLLD.D",
+      "...LD...",
+      "........"], 3),
+    # 5: 一氧化二氫成癮者 — H₂O
+    (["LD....LD",
+      "DD....DD",
+      "..L..L..",
+      "...BM...",
+      "..BBMD..",
+      ".MWMMWD.",
+      "..DWWD..",
+      "...DD..."], 3),
+]
+
+
+def _badge_shades(done):
+    if done:
+        b = C_ACCENT
+        return {
+            'B': b,
+            'L': b.lighter(108),
+            'M': b.darker(115),
+            'D': b.darker(135),
+            'K': b.darker(165),
+            'W': QColor(255, 255, 255),
+        }
+    g = QColor(140, 140, 140)
+    return {
+        'B': _alpha(g, 77),
+        'L': _alpha(g, 65),
+        'M': _alpha(g, 90),
+        'D': _alpha(g, 110),
+        'K': _alpha(g, 128),
+        'W': _alpha(QColor(200, 200, 200), 50),
+    }
+
+
 class Badge(Graphic):
-    def __init__(self, done, remain, size=44):
+    def __init__(self, done, remain, icon=0, size=44):
         super().__init__(size, size)
         self.done = done
         self.remain = remain
+        self.icon = icon
 
     def paintEvent(self, event):
+        e = ease(self.reveal)
+        if e < 0.01:
+            return
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, True)
-        p.setRenderHint(QPainter.TextAntialiasing, True)
-        r = self.width() / 2 * lerp(0.82, 1.0, ease(self.reveal))
-        cx = cy = self.width() / 2
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(_alpha(C_ACCENT, 66) if self.done else PAL.veil(18)))
-        p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-        if self.done:
-            p.setPen(QPen(C_ACCENT, 3.4, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPoint(int(cx - 8), int(cy + 1)), QPoint(int(cx - 2), int(cy + 7)))
-            p.drawLine(QPoint(int(cx - 2), int(cy + 7)), QPoint(int(cx + 9), int(cy - 7)))
-        else:
-            f = font("headline")
-            fm = QFontMetrics(f)
-            t = str(self.remain)
-            p.setFont(f)
-            p.setPen(PAL.ink_a(168))
-            p.drawText(int(cx - fm.horizontalAdvance(t) / 2), int(cy + fm.capHeight() / 2), t)
+        p.setRenderHint(QPainter.Antialiasing, False)
+        p.setOpacity(e)
+        grid, cell = _BADGE_ICONS[self.icon]
+        gw, gh = len(grid[0]), len(grid)
+        ox = (self.width() - gw * cell) // 2
+        oy = (self.height() - gh * cell) // 2
+        colors = _badge_shades(self.done)
+        for gy, row_str in enumerate(grid):
+            for gx, ch in enumerate(row_str):
+                if ch != '.' and ch in colors:
+                    p.fillRect(ox + gx * cell, oy + gy * cell,
+                               cell, cell, colors[ch])
 
 
 def stat_block(value, label):
@@ -1036,10 +1114,10 @@ def build_achievements_card(d):
     # 這一頁現在剛好等於最高的那一頁（479px），視窗高度不變。**再加第七個
     # 成就就會把整個視窗撐高**，那時要嘛回頭縮這個值，要嘛接受視窗變高。
     card.box.setSpacing(S3)
-    for name, desc, cur, goal in dashboard.achievements(d):
+    for i, (name, desc, cur, goal) in enumerate(dashboard.achievements(d)):
         done = cur >= goal
         card.add(row(
-            Badge(done, goal - cur),
+            Badge(done, goal - cur, icon=i),
             (col(Label(name, "headline", INK if done else INK2),
                  Label(desc, "caption", INK3, elide=True),
                  spacing=S1), 1),          # 文字欄位吃掉剩餘空間
