@@ -68,11 +68,8 @@ check("沒填", ap.target_from_weight(None), None)
 check("30kg 夾在下限", ap.target_from_weight(30), ap.TARGET_MIN)
 check("200kg 夾在上限", ap.target_from_weight(200), ap.TARGET_MAX)
 
-print("\n2. 有效目標：手動覆寫 > 體重推導 > 預設")
+print("\n2. 有效目標：體重推導 > 預設")
 check("只有體重", ap.effective_target({"weight_kg": 90}), 9)
-check("手動覆寫贏過體重",
-      ap.effective_target({"weight_kg": 90, "target_manual": True,
-                           "daily_target_drinks": 5}), 5)
 check("兩者皆無用預設", ap.effective_target({}), ap.DEFAULTS["daily_target_drinks"])
 
 print("\n3. 深夜間隔是主間隔的倍數，不是獨立參數")
@@ -160,12 +157,13 @@ raw = {"interval_min": 60, "interval_jitter_min": 12,
 up = ap._upgrade_keys(dict(raw))
 check("固定分鐘的抖動 -> 比例", up["interval_jitter_pct"], 20)
 check("深夜絕對值 -> 倍數", up["late_night_ratio"], 1.5)
-check("調過目標就標記為手動", up["target_manual"], True)
 # 換算完舊鍵要清掉，否則設定檔裡會並存兩組互相矛盾的值
-check("舊鍵已移除", [k for k in ("interval_jitter_min", "late_night_interval_min")
-                     if k in up], [])
-untouched = ap._upgrade_keys({"daily_target_drinks": ap.DEFAULTS["daily_target_drinks"]})
-check("沒調過目標就不標記", untouched["target_manual"], False)
+check("舊鍵已移除", [k for k in ("interval_jitter_min", "late_night_interval_min",
+                                  "target_manual") if k in up], [])
+# target_manual 也要被清：它沒有任何 UI 能寫 True（BACKLOG #5），留著只會
+# 讓看到 config.json 的人以為它是活的。
+check("target_manual 被清掉",
+      "target_manual" in ap._upgrade_keys({"target_manual": True}), False)
 
 print("\n7b. 引導只給第一次啟動的人看")
 # 舊版寫的設定檔沒有這個鍵。對已經用了兩週的人跳出「桌上現在有水嗎」是搞錯對象。
@@ -855,9 +853,8 @@ _JUNK = [
     ("單次水量是字串", {"weight_kg": 65, "ml_per_drink_estimate": "200"}),
     ("單次水量是 0", {"weight_kg": 65, "ml_per_drink_estimate": 0}),
     ("單次水量是亂碼", {"weight_kg": 65, "ml_per_drink_estimate": "x"}),
-    ("手動目標是字串", {"target_manual": True, "daily_target_drinks": "8"}),
-    ("手動目標是亂碼", {"target_manual": True, "daily_target_drinks": "x"}),
-    ("手動目標超出上限", {"target_manual": True, "daily_target_drinks": 999}),
+    ("目標是字串", {"weight_kg": None, "daily_target_drinks": "8"}),
+    ("目標是亂碼", {"weight_kg": None, "daily_target_drinks": "x"}),
 ]
 _junk_bad = None
 for _label, _cfg in _JUNK:
@@ -872,8 +869,6 @@ for _label, _cfg in _JUNK:
 check(f"{len(_JUNK)} 種怪值都不當機、都回合法次數", _junk_bad, None)
 # 看得懂的字串要接住，不要當成沒填——使用者寫 "65" 的意思就是 65。
 check("\"65\" 當成 65", ap.effective_target({"weight_kg": "65"}), 7)
-check("\"8\" 當成手動指定 8 次",
-      ap.effective_target({"target_manual": True, "daily_target_drinks": "8"}), 8)
 
 print("\n21. 設定檔的每一個數字欄位都改得到，不是只有體重那三個")
 # 第 20 節守的是 effective_target() 那三個入口，因為 0.10.x 那次炸的位置在那裡。
@@ -939,9 +934,8 @@ _cfg = _load(_quoted)
 check(f"{len(_quoted)} 個欄位全部加引號，讀回來全都是數字", _not_a_number(_cfg), [])
 check("看得懂的字串保留原意（\"75\" 還是 75 分）",
       _cfg["interval_min"], ap.DEFAULTS["interval_min"])
-# 順序的證據：sanitize 要跑在 _upgrade_keys 前面，否則 "7" != 7 會把預設目標
-# 誤判成「使用者手動指定過」，體重從此再也覆蓋不了它。
-check("而且不會因為引號就被誤判成手動指定目標", _cfg["target_manual"], False)
+# target_manual 已移除，確認升級時會被清掉
+check("target_manual 被升級清掉", "target_manual" not in _cfg, True)
 check("讀得懂的值不算被退回預設", ap.repaired_keys(), [])
 
 # 十種讀不出數字的值，每一種都把十六個欄位一次全部灌壞。

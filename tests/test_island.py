@@ -1060,10 +1060,10 @@ w.day = "2000-01-01"                            # 假裝跨過清晨那個換日
 w.tick()
 _morning_min = w.interval_s / 60
 del w._is_late
-# 抖動 ±15%：白天最長 86.25 分，夜間最短 92.4 分，中間那條線劃在 90。
-check(f"夜間擲出 {_night_min:.0f} 分，比白天長", _night_min > 90, True)
+# 抖動 ±15%：白天最長 69 分，夜間最短 74 分，中間那條線劃在 72。
+check(f"夜間擲出 {_night_min:.0f} 分，比白天長", _night_min > 72, True)
 check(f"換日之後重擲成 {_morning_min:.0f} 分，回到白天的長度",
-      _morning_min < 90, True)
+      _morning_min < 72, True)
 
 print("\n33. 第一次達標要講一次「紀錄在哪裡」")
 # 紀錄視窗（連續天數、熱圖、成就）做得比島本身完整，而唯一的入口是右鍵——

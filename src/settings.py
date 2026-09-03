@@ -197,8 +197,7 @@ def guard_real_write(path):
 DEFAULTS = {
     # --- 面板上的四項 ---
     "weight_kg": None,              # 留空就用 daily_target_drinks 的預設
-    "daily_target_drinks": 7,       # 有效值；由體重推導或手動覆寫，其餘程式一律讀這個
-    "target_manual": False,         # True = 使用者手動指定過，體重不再覆蓋它
+    "daily_target_drinks": 7,       # 有效值；由體重推導，其餘程式一律讀這個
     # 7 次 × 60 分 = 7 小時。比一整天的電腦時間短，所以多數人會提早達標。
     # 原本是 75 分（鋪滿 8.75 小時），但 75 和 90 在高目標時會讓提醒次數
     # 不夠用（target 9 × 75 = 11.25 小時，超出合理的一天），所以選項收為
@@ -535,9 +534,8 @@ def _upgrade_keys(raw):
         old = _as_number(raw["late_night_interval_min"])
         if old is not None:
             raw["late_night_ratio"] = round(old / base, 2)
-    # 使用者自己調過目標，升級後不能被體重推導蓋掉
-    if "daily_target_drinks" in raw and "target_manual" not in raw:
-        raw["target_manual"] = raw["daily_target_drinks"] != DEFAULTS["daily_target_drinks"]
+    # target_manual 已移除（沒有任何 UI 能寫 True，見 BACKLOG #5）。
+    # 舊設定檔裡如果有就清掉，否則使用者打開 config.json 會看到一個沒用的鍵。
     # 有設定檔就代表這個人已經在用了。引導是給第一次啟動的人看的，
     # 對已經用了兩週的人跳出「桌上現在有水嗎」是搞錯對象。
     # 要重看走設定的「關於」，不要靠升級時彈出來。
@@ -552,7 +550,8 @@ def _upgrade_keys(raw):
     # 降完再改 interval_min 不影響那些比例。
     if raw.get("interval_min") in (75, 90):
         raw["interval_min"] = 60
-    for dead in ("interval_jitter_min", "late_night_interval_min", "wake_manual"):
+    for dead in ("interval_jitter_min", "late_night_interval_min", "wake_manual",
+                 "target_manual"):
         raw.pop(dead, None)
     return raw
 
@@ -730,15 +729,7 @@ def target_from_weight(kg, ml_per_drink=None):
 
 
 def effective_target(cfg):
-    """實際要用的每日次數：手動覆寫 > 體重推導 > 預設。
-
-    三個入口值都經過 `_as_number()`。它們全部來自 `config.json`，而這個函式
-    在建立動態島之前就會被呼叫，任何一個型別不對都會讓程式開不起來。
-    """
-    if cfg.get("target_manual"):
-        manual = _as_number(cfg.get("daily_target_drinks"))
-        return int(clamp(manual or DEFAULTS["daily_target_drinks"],
-                         TARGET_MIN, TARGET_MAX))
+    """實際要用的每日次數：體重推導，沒填體重就用預設。"""
     return target_from_weight(cfg.get("weight_kg"),
                               cfg.get("ml_per_drink_estimate")) \
         or DEFAULTS["daily_target_drinks"]

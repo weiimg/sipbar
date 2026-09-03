@@ -2352,9 +2352,6 @@ class SettingsPage(QWidget):
         if kg == self.cfg.get("weight_kg"):
             return
         self.cfg["weight_kg"] = kg
-        # 填了體重就回到自動推導。使用者填體重的意思就是「幫我算」，
-        # 若還沿用之前手動指定的次數，這個欄位看起來就是壞的。
-        self.cfg["target_manual"] = False
         self.cfg["daily_target_drinks"] = appsettings.effective_target(self.cfg)
         self._refresh_target_label()
         self._emit()
@@ -2533,7 +2530,7 @@ class SettingsPage(QWidget):
             # 已經是它算出來的結果，對修 bug 沒有額外資訊——這一段會被貼進
             # 公開的 issue 裡。
             f"每日目標 {appsettings.effective_target(self.cfg)} 次"
-            f"（{'依體重推導' if not self.cfg.get('target_manual') else '手動指定'}）",
+            f"（{'依體重推導' if self.cfg.get('weight_kg') else '預設'}）",
             f"提醒間隔 {self.cfg.get('interval_min')} 分鐘",
             f"崩潰紀錄 {crashlog.summary()}",
             # 檢查更新失敗時是安靜的（沒網路、被限流、GitHub 改了回傳格式都
