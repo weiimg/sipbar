@@ -308,7 +308,11 @@ DEFAULTS = {
     "greeted_version": None,
 }
 
-TARGET_MIN, TARGET_MAX = 4, 12
+TARGET_MIN = 4
+# 一天追蹤飲品的安全上限（ml）。超過 3500ml 對久坐成人沒有額外好處，
+# 還有稀釋性低血鈉的風險（EFSA / IOM）。次數上限由這個值除以單次水量動態算出，
+# 不再是固定的 12 次——固定次數在單次水量不是 200ml 時會截掉大體重使用者的水量。
+ML_CAP = 3500
 INTERVAL_CHOICES = (30, 45, 60)
 
 # 值一定得是數字的那些鍵。
@@ -725,7 +729,7 @@ def target_from_weight(kg, ml_per_drink=None):
     if not kg:
         return None
     ml = _as_number(ml_per_drink) or DEFAULTS["ml_per_drink_estimate"]
-    return int(clamp(round(kg * 30 * 0.7 / ml), TARGET_MIN, TARGET_MAX))
+    return int(clamp(math.ceil(kg * 30 * 0.7 / ml), TARGET_MIN, ML_CAP // ml))
 
 
 def effective_target(cfg):

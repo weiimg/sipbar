@@ -61,15 +61,15 @@ def write_events(rows):
 
 print("1. 體重換算每日次數")
 check("65kg（規劃文件手算出來的 7）", ap.target_from_weight(65), 7)
-check("50kg", ap.target_from_weight(50), 5)
-check("90kg", ap.target_from_weight(90), 9)
+check("50kg", ap.target_from_weight(50), 6)
+check("90kg", ap.target_from_weight(90), 10)
 check("沒填", ap.target_from_weight(None), None)
 # 夾住上下限：極端體重不該推出一天 2 次或 20 次這種沒有意義的目標
 check("30kg 夾在下限", ap.target_from_weight(30), ap.TARGET_MIN)
-check("200kg 夾在上限", ap.target_from_weight(200), ap.TARGET_MAX)
+check("200kg 夾在上限", ap.target_from_weight(200), ap.ML_CAP // 200)
 
 print("\n2. 有效目標：體重推導 > 預設")
-check("只有體重", ap.effective_target({"weight_kg": 90}), 9)
+check("只有體重", ap.effective_target({"weight_kg": 90}), 10)
 check("兩者皆無用預設", ap.effective_target({}), ap.DEFAULTS["daily_target_drinks"])
 
 print("\n3. 深夜間隔是主間隔的倍數，不是獨立參數")
@@ -817,9 +817,10 @@ for _ml in _MLS:
     _prev = None
     for _kg in _WEIGHTS:
         _t = ap.target_from_weight(_kg, _ml)
+        _cap = ap.ML_CAP // _ml
         if _bad_range is None and (not isinstance(_t, int)
-                                   or not ap.TARGET_MIN <= _t <= ap.TARGET_MAX):
-            _bad_range = f"kg={_kg} ml={_ml} -> {_t!r}"
+                                   or not ap.TARGET_MIN <= _t <= _cap):
+            _bad_range = f"kg={_kg} ml={_ml} -> {_t!r} (cap={_cap})"
         if _bad_up is None and _prev is not None and _t < _prev:
             _bad_up = f"ml={_ml} kg={_kg}: {_prev} -> {_t}"
         _prev = _t
@@ -831,7 +832,7 @@ for _kg in _WEIGHTS:
             _bad_down = f"kg={_kg} ml={_ml}: {_prev} -> {_t}"
         _prev = _t
 print(f"       掃過 {len(_WEIGHTS) * len(_MLS)} 組（{len(_WEIGHTS)} 種體重 × {len(_MLS)} 種單次水量）")
-check("一律是 4~12 的整數", _bad_range, None)
+check("一律是整數且在 [TARGET_MIN, ML_CAP//ml] 內", _bad_range, None)
 # 「越重反而喝越少」是實際收到的使用者回報。公式本身不會這樣，但改壞了會。
 check("體重越重，次數不會變少", _bad_up, None)
 check("單次喝越多，次數不會變多", _bad_down, None)
@@ -863,7 +864,8 @@ for _label, _cfg in _JUNK:
     except Exception as _e:                                   # noqa: BLE001
         _junk_bad = f"{_label} 讓程式當掉：{type(_e).__name__}"
         break
-    if not isinstance(_r, int) or not ap.TARGET_MIN <= _r <= ap.TARGET_MAX:
+    _max = ap.ML_CAP // ap.DEFAULTS["ml_per_drink_estimate"]
+    if not isinstance(_r, int) or not ap.TARGET_MIN <= _r <= _max:
         _junk_bad = f"{_label} 回傳了 {_r!r}"
         break
 check(f"{len(_JUNK)} 種怪值都不當機、都回合法次數", _junk_bad, None)
