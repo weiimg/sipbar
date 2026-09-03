@@ -199,11 +199,11 @@ DEFAULTS = {
     "weight_kg": None,              # 留空就用 daily_target_drinks 的預設
     "daily_target_drinks": 7,       # 有效值；由體重推導或手動覆寫，其餘程式一律讀這個
     "target_manual": False,         # True = 使用者手動指定過，體重不再覆蓋它
-    # 75 而不是規劃文件算出來的 70：面板上的選項是 30/45/60/75/90，
-    # 預設值必須是其中之一，否則分段控制項一打開就顯示「最接近的那個」，
-    # 使用者什麼都沒改，設定卻已經跟實際值不一樣。
-    # 7 次 × 75 分 = 8.75 小時，一樣鋪得滿一個工作日的電腦時間。
-    "interval_min": 75,
+    # 7 次 × 60 分 = 7 小時。比一整天的電腦時間短，所以多數人會提早達標。
+    # 原本是 75 分（鋪滿 8.75 小時），但 75 和 90 在高目標時會讓提醒次數
+    # 不夠用（target 9 × 75 = 11.25 小時，超出合理的一天），所以選項收為
+    # 30/45/60，預設跟著改。提早喝完比整天喝不夠好。
+    "interval_min": 60,
     "screen_name": None,            # QScreen.name()，找不到就退回主螢幕
     # 開機自啟不存在這裡：登錄檔才是唯一事實來源，存兩份一定會不同步
 
@@ -310,7 +310,7 @@ DEFAULTS = {
 }
 
 TARGET_MIN, TARGET_MAX = 4, 12
-INTERVAL_CHOICES = (30, 45, 60, 75, 90)
+INTERVAL_CHOICES = (30, 45, 60)
 
 # 值一定得是數字的那些鍵。
 #
@@ -547,6 +547,11 @@ def _upgrade_keys(raw):
     # wake_manual 在起床時間退出設定面板時一起拿掉了。留著的話它會凍住一個
     # 使用者再也看不到、也改不掉的值：旗標是 True 就永遠不再推導，而畫面上
     # 沒有任何地方能把它關掉。刪掉等於交還給推導，那是現在唯一的來源。
+    # v1.0.2: 選項收為 30/45/60，舊的 75 和 90 降到 60。
+    # 放在舊鍵換算之後：上面的 jitter / late_night 換算要用原本的 base，
+    # 降完再改 interval_min 不影響那些比例。
+    if raw.get("interval_min") in (75, 90):
+        raw["interval_min"] = 60
     for dead in ("interval_jitter_min", "late_night_interval_min", "wake_manual"):
         raw.pop(dead, None)
     return raw

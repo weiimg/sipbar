@@ -76,7 +76,7 @@ check("手動覆寫贏過體重",
 check("兩者皆無用預設", ap.effective_target({}), ap.DEFAULTS["daily_target_drinks"])
 
 print("\n3. 深夜間隔是主間隔的倍數，不是獨立參數")
-check("75 分 × 1.45", ap.late_night_interval({"interval_min": 75, "late_night_ratio": 1.45}), 109)
+check("60 分 × 1.45", ap.late_night_interval({"interval_min": 60, "late_night_ratio": 1.45}), 87)
 check("深夜一定比白天長",
       ap.late_night_interval({"interval_min": 30, "late_night_ratio": 1.45}) > 30, True)
 
@@ -176,6 +176,13 @@ check("新安裝寫的 False 不會被蓋成 True",
       ap._upgrade_keys({"onboarded": False})["onboarded"], False)
 check("跑完引導的 True 保持不變",
       ap._upgrade_keys({"onboarded": True})["onboarded"], True)
+
+print("\n7c. 間隔 75/90 降為 60")
+check("75 -> 60", ap._upgrade_keys({"interval_min": 75})["interval_min"], 60)
+check("90 -> 60", ap._upgrade_keys({"interval_min": 90})["interval_min"], 60)
+check("60 不動", ap._upgrade_keys({"interval_min": 60})["interval_min"], 60)
+check("30 不動", ap._upgrade_keys({"interval_min": 30})["interval_min"], 30)
+check("45 不動", ap._upgrade_keys({"interval_min": 45})["interval_min"], 45)
 
 print("\n8. 設定檔從程式旁邊搬到資料夾")
 _dir, _cfg, _legacy = ap.DATA_DIR, ap.CONFIG_PATH, ap.LEGACY_CONFIG_PATH
