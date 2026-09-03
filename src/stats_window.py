@@ -1885,7 +1885,7 @@ def build_empty_card(d):
     card = Card()
     card.add(
         Label("還沒有紀錄", "title", INK),
-        Label("點擊動態島或系統匣圖示即可記錄補水", "body", INK2, elide=True),
+        Label("點擊動態島即可記錄補水", "body", INK2, elide=True),
         Label("首次記錄後開始累積", "body", INK3, elide=True),
     )
     return card
