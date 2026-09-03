@@ -571,9 +571,78 @@ class CupGauge(Graphic):
 
 
 class Flame(Graphic):
+    """連續天數的火焰。
+
+    進場時彈簧驅動竄起動畫，點亮的火焰竄完後持續搖曳。
+    動畫由自己的 Spring + QTimer 驅動，不走卡片的共用計時器。
+    """
+
     def __init__(self, lit, w=76, h=112):
         super().__init__(w, h)
         self.lit = lit
+        self._armed = False
+        self._burst_sp = None
+        self._burst_timer = None
+        self._burst_t = 1.0
+        self._idle = False
+        self._t0 = 0.0
+
+    def set_reveal(self, t):
+        self.reveal = t
+        if t < 0.01:
+            self._armed = True
+            self._idle = False
+            self._burst_t = 0.0
+            if self._burst_timer and self._burst_timer.isActive():
+                self._burst_timer.stop()
+            self._burst_sp = None
+        elif self._armed and t >= 0.7:
+            self._armed = False
+            self._ignite()
+        self.update()
+
+    def _ignite(self):
+        self._burst_sp = Spring(0.0, 0.32, 0.55)
+        self._burst_sp.target = 1.0
+        self._burst_last = time.perf_counter()
+        if self._burst_timer is None:
+            self._burst_timer = QTimer(self)
+            self._burst_timer.setInterval(16)
+            self._burst_timer.timeout.connect(self._burst_tick)
+        else:
+            self._burst_timer.setInterval(16)
+        self._burst_timer.start()
+
+    _IDLE_DUR = 1.5
+
+    def _burst_tick(self):
+        now = time.perf_counter()
+        if self._idle:
+            t = now - self._t0
+            if t >= self._IDLE_DUR:
+                self._idle = False
+                self._burst_t = 1.0
+                self._burst_timer.stop()
+                self.update()
+                return
+            fade = 1.0 - t / self._IDLE_DUR
+            self._burst_t = 1.0 + fade * (0.04 * math.sin(t * 2.8)
+                                           + 0.025 * math.sin(t * 4.3))
+            self.update()
+            return
+        dt = now - self._burst_last
+        self._burst_last = now
+        self._burst_sp.step(dt)
+        self._burst_t = self._burst_sp.value
+        if self._burst_sp.settled:
+            self._burst_t = 1.0
+            if self.lit:
+                self._idle = True
+                self._t0 = now
+                self._burst_timer.setInterval(33)
+            else:
+                self._burst_timer.stop()
+        self.update()
 
     @staticmethod
     def _path(cx, bottom, h):
@@ -596,13 +665,25 @@ class Flame(Graphic):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        h = (self.height() - 6) * lerp(0.74, 1.0, ease(self.reveal))
+        if self._burst_sp is not None:
+            h = (self.height() - 6) * max(0.0, self._burst_t)
+        elif self._armed:
+            h = 0
+        else:
+            h = (self.height() - 6) * lerp(0.74, 1.0, ease(self.reveal))
+        if h < 1:
+            return
         cx, bottom = self.width() / 2, self.height() - 3
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(C_FLAME if self.lit else C_SLOT))
         p.drawPath(self._path(cx, bottom, h))
+        inner_dy = 0
+        if self._idle:
+            t = time.perf_counter() - self._t0
+            fade = max(0.0, 1.0 - t / self._IDLE_DUR)
+            inner_dy = fade * 1.5 * math.sin(t * 3.5)
         p.setBrush(QBrush(C_FLAME2 if self.lit else PAL.veil(16)))
-        p.drawPath(self._path(cx, bottom - h * 0.06, h * 0.56))
+        p.drawPath(self._path(cx, bottom - h * 0.06 + inner_dy, h * 0.56))
 
 
 class Shields(Graphic):
