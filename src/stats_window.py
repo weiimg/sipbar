@@ -36,7 +36,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QIntValidator, QLinearGradient,
-    QPainter, QPainterPath, QPen,
+    QPainter, QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
@@ -1095,10 +1095,9 @@ def _highest_badge(d):
 
 def render_share_card(d):
     """產生 1080×1080 的連勝分享卡，回傳 QPixmap。純繪製，不碰剪貼簿。"""
-    from PySide6.QtGui import QImage, QPixmap
     SIZE = 1080
     pix = QPixmap(SIZE, SIZE)
-    pix.fill(QColor(0, 0, 0, 0))
+    pix.fill(QColor("#1e2028"))
     p = QPainter(pix)
 
     # --- 背景：圓角暗色卡片 ---
@@ -1121,6 +1120,10 @@ def render_share_card(d):
     streak = d["streak"]["streak"]
     margin = 96
 
+    # 分享卡用固定深色配色，不跟主題走——收到卡片的人看到的是同一張圖。
+    card_flame = QColor("#f59e42")
+    card_accent = QColor("#5ba8d4")
+
     # --- 火焰 icon（像素格，非動畫） ---
     p.setRenderHint(QPainter.Antialiasing, False)
     flame_grid = [
@@ -1139,9 +1142,9 @@ def render_share_card(d):
     flame_x = (SIZE - flame_w) // 2
     flame_y = margin + 40
     if streak > 0:
-        fc = C_FLAME
         flame_colors = {
-            'B': fc, 'L': fc.lighter(130), 'W': QColor(255, 230, 140),
+            'B': card_flame, 'L': card_flame.lighter(130),
+            'W': QColor(255, 230, 140),
         }
     else:
         gc = QColor(100, 100, 100)
@@ -1154,33 +1157,45 @@ def render_share_card(d):
                 p.fillRect(flame_x + gx * flame_cell, flame_y + gy * flame_cell,
                            flame_cell, flame_cell, flame_colors[ch])
 
-    # --- 連勝數字 ---
+    # --- 連勝數字 + 「天」（同一基線） ---
     p.setRenderHint(QPainter.Antialiasing, True)
     p.setRenderHint(QPainter.TextAntialiasing, True)
     num_y = flame_y + len(flame_grid) * flame_cell + 56
-    big_font = typeface.make(200, QFont.Bold, -3.0, family=FONT)
-    p.setFont(big_font)
-    p.setPen(QColor(255, 255, 255) if streak else QColor(120, 120, 120))
+    big_font = typeface.make(200, QFont.Bold, -3.0)
+    day_font = typeface.make(56, QFont.Bold, 0.0)
     num_str = str(streak)
     fm_big = QFontMetrics(big_font)
+    fm_day = QFontMetrics(day_font)
     num_w = fm_big.horizontalAdvance(num_str)
-    p.drawText(int((SIZE - num_w) / 2), num_y + fm_big.ascent(), num_str)
+    day_str = i18n.t("share.streak_days")
+    day_w = fm_day.horizontalAdvance(day_str)
+    gap = 12
+    total_w = num_w + gap + day_w
+    left_x = (SIZE - total_w) / 2
+    baseline = num_y + fm_big.ascent()
+    ink = QColor(255, 255, 255) if streak else QColor(120, 120, 120)
+    p.setFont(big_font)
+    p.setPen(ink)
+    p.drawText(int(left_x), baseline, num_str)
+    p.setFont(day_font)
+    p.setPen(QColor(200, 200, 200))
+    p.drawText(int(left_x + num_w + gap), baseline, day_str)
 
-    # --- 「連續達標」+ 「天」標籤 ---
-    label_y = num_y + fm_big.ascent() + 32
-    sub_font = typeface.make(42, QFont.Bold, 0.0, family=FONT)
+    # --- 「連續達標」標籤 ---
+    label_y = baseline + 32
+    sub_font = typeface.make(42, QFont.Bold, 0.0)
     p.setFont(sub_font)
     p.setPen(QColor(200, 200, 200))
-    label = f"{i18n.t('share.streak_label')}　{i18n.t('share.streak_days')}"
+    label = i18n.t("share.streak_label")
     fm_sub = QFontMetrics(sub_font)
     p.drawText(int((SIZE - fm_sub.horizontalAdvance(label)) / 2),
                label_y + fm_sub.ascent(), label)
 
     # --- 稱號 ---
     title_y = label_y + fm_sub.ascent() + 48
-    title_font = typeface.make(36, QFont.Medium, 0.0, family=FONT)
+    title_font = typeface.make(36, QFont.Medium, 0.0)
     p.setFont(title_font)
-    p.setPen(C_ACCENT)
+    p.setPen(card_accent)
     title_text = _share_title(d)
     fm_title = QFontMetrics(title_font)
     p.drawText(int((SIZE - fm_title.horizontalAdvance(title_text)) / 2),
@@ -1193,16 +1208,19 @@ def render_share_card(d):
         badge_cell = 10
         grid, _ = _BADGE_ICONS[badge_idx]
         bw = len(grid[0]) * badge_cell
-        bh = len(grid) * badge_cell
         badge_x = (SIZE - bw) // 2
         badge_y = title_y + fm_title.ascent() + 48
-        draw_badge_grid(p, badge_idx, badge_x, badge_y, badge_cell,
-                        _badge_shades(True))
+        badge_colors = {
+            'B': card_accent, 'L': card_accent.lighter(108),
+            'M': card_accent.darker(115), 'D': card_accent.darker(135),
+            'K': card_accent.darker(165), 'W': QColor(255, 255, 255),
+        }
+        draw_badge_grid(p, badge_idx, badge_x, badge_y, badge_cell, badge_colors)
         p.setRenderHint(QPainter.Antialiasing, True)
 
     # --- Sipbar 品牌 ---
     p.setRenderHint(QPainter.TextAntialiasing, True)
-    brand_font = typeface.make(30, QFont.Medium, 1.0, family=FONT)
+    brand_font = typeface.make(30, QFont.Medium, 1.0)
     p.setFont(brand_font)
     p.setPen(QColor(255, 255, 255, 80))
     brand = "Sipbar"
@@ -1223,7 +1241,7 @@ class ShareButton(Graphic):
     def __init__(self):
         super().__init__(self.SIZE, self.SIZE)
         self.setCursor(Qt.PointingHandCursor)
-        self._tip = i18n.t("share.tooltip")
+        self.set_tip(i18n.t("share.tooltip"))
 
     def paintEvent(self, event):
         e = ease(self.reveal)
@@ -1270,13 +1288,6 @@ class ShareButton(Graphic):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit()
-
-    def enterEvent(self, event):
-        if self._tip:
-            Tip.show_for(self, self._tip)
-
-    def leaveEvent(self, event):
-        Tip.hide_tip()
 
 
 # ---------------------------------------------------------------- 卡片
@@ -1363,15 +1374,17 @@ def build_streak_card(d):
 
     share_btn = ShareButton()
     share_feedback = Label("", "caption", INK3)
-    share_feedback.setFixedWidth(0)
 
     def _on_share():
         pix = render_share_card(d)
-        QApplication.clipboard().setImage(pix.toImage())
-        share_feedback.setFixedWidth(share_feedback.sizeHint().width() + 60)
-        share_feedback.setText(i18n.t("share.copied"))
+        path, _ = QFileDialog.getSaveFileName(
+            None, i18n.t("share.save_title"), i18n.t("share.save_default"),
+            "PNG (*.png)")
+        if not path:
+            return
+        pix.save(path)
+        share_feedback.setText(i18n.t("share.saved"))
         QTimer.singleShot(1600, lambda: share_feedback.setText(""))
-        QTimer.singleShot(1600, lambda: share_feedback.setFixedWidth(0))
 
     share_btn.clicked.connect(_on_share)
 

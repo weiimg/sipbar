@@ -260,8 +260,10 @@ _ZH = {
 
     # --- 分享卡片 ---
     # copy-style: off
-    "share.tooltip": "複製連勝分享卡到剪貼簿",
-    "share.copied": "已複製到剪貼簿",
+    "share.tooltip": "儲存連勝分享卡",
+    "share.save_title": "儲存分享卡",
+    "share.save_default": "Sipbar 連勝分享卡",
+    "share.saved": "已儲存",
     "share.streak_label": "連續達標",
     "share.streak_days": "天",
     "share.title.0": "剛起步",
@@ -653,8 +655,10 @@ _EN = {
 
     # --- Share card ---
     # copy-style: off
-    "share.tooltip": "Copy streak card to clipboard",
-    "share.copied": "Copied to clipboard",
+    "share.tooltip": "Save streak card",
+    "share.save_title": "Save share card",
+    "share.save_default": "Sipbar Streak Card",
+    "share.saved": "Saved",
     "share.streak_label": "Consecutive",
     "share.streak_days": "days",
     "share.title.0": "Just starting",
