@@ -806,7 +806,7 @@ class Island(QWidget):
         # 換成連續天數，否則島上唯一會變的數字每天歸零，看起來像連續被重置了。
         head = i18n.t("status.streak", n=self.streak) if self.streak else i18n.t("status.today_count", done=self.drinks, target=target)
         if self.drinks >= target:
-            return f"{head}, {i18n.t('status.target_reached')}"
+            return f"{head}，{i18n.t('status.target_reached')}"
         remain = int(max(0, self.interval_s - self.active_s) // 60)
         # 分隔符用半形空白而非全形，目標次數變多時進度點會吃掉寬度，
         # 全形空白會讓這行剛好超過而被省略號截掉。
