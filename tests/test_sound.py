@@ -218,7 +218,7 @@ check("資料夾不是檔案", sound._is_wav(SANDBOX), False)
 
 # 說明檔：按了「開啟」看到空資料夾等於沒有說明
 sound.ensure_user_dir()
-_readme = os.path.join(SANDBOX, sound.README_NAME)
+_readme = os.path.join(SANDBOX, sound._readme_name())
 check("建資料夾時放了說明", os.path.exists(_readme), True)
 with open(_readme, encoding="utf-8") as f:
     _txt = f.read()
@@ -241,6 +241,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)    # noqa: F841
+import i18n  # noqa: E402
 import onboard  # noqa: E402
 import settings as appsettings  # noqa: E402
 
@@ -260,10 +261,10 @@ win._go(win.page_index["try"])
 win._on_tried()
 check("點完就長出來", win.sound_block.isVisible(), True)
 check("而且開關就在同一個畫面上", win.sound_on.isVisibleTo(win.sound_block), True)
-check("說明講的是剛剛那一聲", "剛剛" in onboard.TRY_SOUND, True)
+check("說明講的是剛剛那一聲", "剛剛" in i18n.t("onboard.try_sound"), True)
 # 只說「我會叫」是威脅，附上出口才是告知。這一頁的出口是底下那個開關，
 # 文案也要指得到它。
-check("同一段就給出關掉的方法", "關掉" in onboard.TRY_SOUND, True)
+check("同一段就給出關掉的方法", "關掉" in i18n.t("onboard.try_sound"), True)
 
 # 聲音是延一拍才播的：跟畫面同時出聲會被讀成「我按下去的音效」
 check("還沒到那一拍時不出聲", _played, [])

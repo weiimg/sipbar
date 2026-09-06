@@ -80,7 +80,8 @@ def _trim(p):
             f.readline()                                # 丟掉被切一半的那行
             rest = f.read()
         with open(p, "w", encoding="utf-8") as f:
-            f.write("（較舊的紀錄已因檔案大小上限被清除）\n" + rest)
+            import i18n
+            f.write(i18n.t("crash.trimmed") + "\n" + rest)
     except OSError:
         pass
 
@@ -151,20 +152,21 @@ def summary():
     """有沒有崩潰過、幾筆、最後一次是什麼時候。"""
     p = path()
     try:
+        import i18n
         if not os.path.exists(p):
-            return "無"
+            return i18n.t("crash.none")
         size = os.path.getsize(p)
         with open(p, "r", encoding="utf-8", errors="replace") as f:
             lines = [ln for ln in f if ln.strip()]
         stamps = [ln for ln in lines if ln[:4].isdigit() and "T" in ln[:20]]
         if not stamps:
-            return f"有紀錄（{size} bytes）"
+            return i18n.t("crash.has_records", size=size)
         # 只回筆數，不回時間。這段會進「診斷資訊」的剪貼簿，而時間戳會透露
         # 「這台機器那個時間在使用中」。要對時間的話，crash.log 本身就有——
         # 那份是使用者自己決定要不要附上的。
-        return f"{len(stamps)} 筆"
+        return i18n.t("crash.count", n=len(stamps))
     except Exception:                                   # noqa: BLE001
-        return "讀取失敗"
+        return i18n.t("crash.read_fail")
 
 
 def tail(n=60):

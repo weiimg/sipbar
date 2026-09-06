@@ -238,6 +238,9 @@ DEFAULTS = {
     # "auto" 跟隨系統，其餘 "light" / "dark"
     "theme": "auto",
 
+    # 介面語言。"auto" 跟隨系統語言，"zh-TW" 繁體中文，"en" English。
+    "language": "auto",
+
     # 升級時出聲。**不是「關閉提醒」總開關**——關掉只是讓聲音那一階消失，
     # 島照樣滑下來、照樣升級、照樣不自己走。完整的理由見模組開頭。
     #
@@ -344,7 +347,8 @@ _BOOL_WORDS = {"true": True, "yes": True, "on": True, "1": True,
 # 沒有任何 try**——又是一次「點了圖示什麼都沒發生」。
 # 認不得的字串本來就會退回系統配色，那條路沒問題，要擋的是型別。
 ENUM_KEYS = {"theme": ("auto", "light", "dark"),
-             "face_style": ("pixel", "geometry")}
+             "face_style": ("pixel", "geometry"),
+             "language": ("auto", "zh-TW", "en")}
 
 # 自由字串：螢幕名稱、音效檔名、打過招呼的版本。內容不管（那是使用者的機器上
 # 的事實），型別要管——不是字串就退回預設，別讓它流到 os.path.basename()

@@ -335,17 +335,26 @@ def achievements(data):
     每一項都要能算出「還差多少」——「再 2 天就解鎖」比一顆灰掉的徽章
     有力得多。全部用正向累積，不放「失敗了幾次」那種計數。
     """
-    t = data["target"]
+    import i18n
+    tgt = data["target"]
     best_day = max((v["drinks"] for v in data["days"].values()), default=0)
     return [
-        # 名字是角色的聲音，說明才是機制。先前兩欄幾乎重複（「連續 3 天」配
-        # 「連續三天達標」），等於浪費一格。
-        ("水啦！", "完成一次補水", min(1, data["total_drinks"]), 1),
-        ("今天很水哦", f"一天內補水 {t} 次", min(best_day, t), t),
-        ("One, two, 水！", "連續三天達標", min(data["longest"], 3), 3),
-        ("需要你", "連續七天達標", min(data["longest"], 7), 7),
-        ("我是一隻魚", "總補水次數達 100", min(data["total_drinks"], 100), 100),
-        ("一氧化二氫成癮者", "連續三十天達標", min(data["longest"], 30), 30),
+        (i18n.t("achievement.name.1"), i18n.t("achievement.desc.1"),
+         min(1, data["total_drinks"]), 1),
+        (i18n.t("achievement.name.2"), i18n.t("achievement.desc.2", t=tgt),
+         min(best_day, tgt), tgt),
+        (i18n.t("achievement.name.3"), i18n.t("achievement.desc.3"),
+         min(data["longest"], 3), 3),
+        (i18n.t("achievement.name.4"), i18n.t("achievement.desc.4"),
+         min(data["longest"], 7), 7),
+        (i18n.t("achievement.name.5"), i18n.t("achievement.desc.5"),
+         min(data["total_drinks"], 100), 100),
+        (i18n.t("achievement.name.6"), i18n.t("achievement.desc.6"),
+         min(data["longest"], 30), 30),
+        (i18n.t("achievement.name.7"), i18n.t("achievement.desc.7"),
+         min(data["total_drinks"], 500), 500),
+        (i18n.t("achievement.name.8"), i18n.t("achievement.desc.8"),
+         min(data["hit_days"], 100), 100),
     ]
 
 
@@ -356,6 +365,7 @@ def unlocked_names(data):
 
 def week_days(data):
     """本週七天（一到日）的狀態，給週曆用。"""
+    import i18n
     today = datetime.strptime(data["today_key"], "%Y-%m-%d")
     monday = today - timedelta(days=today.weekday())
     out = []
@@ -366,7 +376,7 @@ def week_days(data):
         used = bool(info and (info["drinks"] or info["reminds"]))
         out.append({
             "key": key,
-            "label": "一二三四五六日"[i],
+            "label": i18n.t("weekdays")[i],
             "drinks": info["drinks"] if info else 0,
             "used": used,
             "future": d > today,

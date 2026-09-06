@@ -45,7 +45,7 @@ app.processEvents()
 
 # 每一頁各拍一張。不捲動之後「完整內容」就等於「每一頁」，沒有看不到的部分。
 shots = []
-for i, (label, _b) in enumerate(sw.PAGES):
+for i, (label, _b, *_) in enumerate(sw.PAGES):
     win.seg.set_index(i, animate=False)
     win.stack.setCurrentIndex(i)
     win.cards = win.page_cards[i]
@@ -76,14 +76,16 @@ sheet.save(out)
 
 # 高度驗證。這一項要留著：日後往任何一頁加東西，會先在這裡被擋下來，
 # 而不是等使用者看到被切掉的字。不捲動的面板沒有「往下拉就看得到」這條退路。
+# 有 scroll 標記的頁面跳過——它們用 ScrollPane，內容可以比可用空間高。
 avail = win.stack.height()
 print(f"視窗 {win.width()}x{win.height()}　內容可用 {avail}px")
 fails = []
-for i, (label, _b) in enumerate(sw.PAGES):
+for i, (label, _b, *rest) in enumerate(sw.PAGES):
+    scrollable = rest[0] if rest else False
     need = win.stack.widget(i).sizeHint().height()
-    fits = need <= avail
-    print(f"  {'ok  ' if fits else 'FAIL'} {label}：需要 {need}px")
-    if not fits:
+    tag = "scroll" if scrollable else ("ok  " if need <= avail else "FAIL")
+    print(f"  {tag} {label}：需要 {need}px")
+    if not scrollable and need > avail:
         fails.append(label)
 print("OK ->", out)
 sys.exit(1 if fails else 0)

@@ -163,12 +163,13 @@ class Checker:
         `_result` 是 None 就代表 fetch() 失敗了：查得到的話它會回最新的那一版，
         即使那一版並不比現在新。所以這裡分得出「查不到」與「已是最新」。
         """
+        import i18n
         if not self._started:
-            return "未啟用"
+            return i18n.t("updates.disabled")
         with self._lock:
             if not self._done:
-                return "查詢中"
-            return "成功" if self._result else "失敗"
+                return i18n.t("updates.checking")
+            return i18n.t("updates.ok") if self._result else i18n.t("updates.fail")
 
 
 # 每個行程一份。島啟動時叫 start()，介面各處讀 newer_release()。

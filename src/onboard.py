@@ -46,6 +46,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
+import i18n
 import pixelface
 import settings as appsettings
 import sound                                  # 第五頁當場放一次升級的提示音
@@ -105,50 +106,7 @@ WATER_SONG_URL = "https://youtu.be/P5YaZlGD1lI"
 # 「走去廚房那段路我幫不上忙」是它真的做不到的事。
 #
 # 按鈕與開關的標籤不在這個範圍內，那些仍然是標籤，仍然受 test_copy_style.py 管。
-# copy-style: off
-# 驚嘆號只放在承諾與送行，不放在說明。「時間就交給我！」是它接下這件事，
-# 「我在這等你！」是送你出門，兩個都是有情緒的時刻。第三頁的條列是說明書，
-# 加了驚嘆號就變成廣告。全部都有等於全部都沒有。
-WATER_LEAD = ("你只要先做一件事：把水放在手邊。"
-              "要走去廚房的話我幫不上忙，但水在旁邊，時間就交給我！")
-# 原本結尾有一句「其他都不用設定。」，作息那一頁加進來之後它就變成假的——
-# 下一頁馬上就在問起床與就寢。承諾「不用設定」再立刻要人設定，
-# 比一開始就不承諾傷得更重：它把使用者對這個工具說話算不算數的判斷一起賠掉。
-FILL_LEAD = "先去裝，我在這等你！"
-# 彩蛋真的開起來了才這樣寫。開失敗還說「配了首歌」就是介面在說謊。
-FILL_LEAD_SONG = "先去裝，我在這等你，順便配了首歌！"
-HOW_BULLETS = ("平常我不會出現，時間到才從螢幕上緣滑下來",
-               # 系統匣左鍵改成開紀錄之後，這一條不能再說「點圖示也可以喝」。
-               # 順便把新的用途講掉：紀錄視窗做得比島完整，而它需要有人指路。
-               "點我一下就算喝了，右鍵可以看紀錄",
-               "沒有關閉按鈕，喝完我就自己回去了")
-HOW_SETTINGS = "覺得太吵或不夠，設定裡都可以改。右鍵選單或紀錄視窗右上角的齒輪都進得去。"
-# 第四頁：在真的島上點一次。
-#
-# 視窗只負責指路，指令留給島本人。第一版兩邊都寫「點我一下試試」，
-# 但視窗在螢幕正中央、島在最上緣——使用者的視線在視窗上，眼前又有一個杯子圖案，
-# 他會去點那個圖案然後發現沒反應。指令要出現在要被點的東西上。
-#
-# 「這次不算」那句移到島身上（見 island.practice）：那才是他按下去之前
-# 最後看到的字，寫在視窗裡等於寫在他沒在看的地方。
-TRY_LEAD = "我跑到螢幕最上面了，看得到嗎？"
-TRY_DONE = "就是這樣。之後時間到我就會這樣出現。"
-# 音效的告知，跟著聲音本人一起出現。**這一段不能只用寫的。**
-#
-# 第一版是在「這樣用」那頁加一條「等太久我會小聲叫一下」。字看過就忘，
-# 而一個平常完全安靜的工具第一次出聲的那一刻，使用者的反應是「哪來的聲音」，
-# 那時候他要找的是關掉的方法，不是水。
-#
-# 所以改成當場放給他聽：練習點完的那一下，聲音跟這段字一起出現，
-# 底下就是開關。聽過的聲音之後再響起來會被認出來，沒聽過的只會是干擾。
-#
-# 寫法上這是整份引導最靠近底線的一句——「你不喝我就會叫」是把持續當籌碼
-# （見上面的規則）。主詞放在杯子的處境上（「我等太久」不是「你沒喝」），
-# 而且出口就在下一行、看得見也按得到。有出口的是告知，沒有的才是威脅。
-TRY_SOUND = "剛剛那一聲，是我等太久的時候會發出的。平常都是安靜的，不想要現在就可以關掉。"
-# 它自己的名字。維持白話的叫法，不另外取一個。這個工具全篇都不用內部術語，
-# 角色也一樣：使用者看到的是一隻杯子，那它就叫杯子。
-NAME = "杯子"
+# copy-style: off  — 角色台詞已搬到 i18n.py（同樣有 copy-style: off 標記）
 # copy-style: on
 
 PAD = 32
@@ -656,7 +614,7 @@ def _speech(text, lead=None):
     它們是同一組，要貼緊；真正需要距離的是這一組跟下一組之間。
     """
     body = lead if lead is not None else sw.para(text)
-    return sw.col(sw.Label(NAME, "caption", sw.C_ACCENT.name()), body,
+    return sw.col(sw.Label(i18n.t("onboard.name"), "caption", sw.C_ACCENT.name()), body,
                   spacing=sw.S1)
 
 
@@ -867,7 +825,7 @@ class OnboardWindow(QWidget):
         """一頁一個。共用同一個 widget 做不到——一個 widget 只能待在一個版面裡，
         加到第二頁的當下就會從第一頁消失。
         """
-        link = sw.TapLabel("略過導覽", sw.INK3)
+        link = sw.TapLabel(i18n.t("onboard.skip"), sw.INK3)
         link.setFont(sw.font("caption"))
         link.clicked.connect(self._skip)
         self.skip_links.append(link)
@@ -877,18 +835,18 @@ class OnboardWindow(QWidget):
         """「上一步」。第一頁沒有——那裡沒有回頭路，放一顆按不動的鈕
         比不放更糟。其餘每頁都有，讓人知道走錯了退得回去。
         """
-        b = Button("上一步", primary=False)
+        b = Button(i18n.t("onboard.back"), primary=False)
         b.clicked.connect(self._back)
         return b
 
     def _page_water(self):
-        yes = Button("有，繼續")
-        no = Button("還沒有", primary=False)
+        yes = Button(i18n.t("onboard.yes"))
+        no = Button(i18n.t("onboard.not_yet"), primary=False)
         yes.clicked.connect(lambda: self._go(self.page_index["schedule"]))
         no.clicked.connect(self._no_water)
-        return self._page("開始之前", [
-            _speech(WATER_LEAD),
-            sw.Label("桌上現在有水嗎？", "headline", sw.INK),
+        return self._page(i18n.t("onboard.page_water"), [
+            _speech(i18n.t("onboard.water_lead")),
+            sw.Label(i18n.t("onboard.water_q"), "headline", sw.INK),
         ], [no, yes], portrait=CupPortrait(cell=6))
 
     def _no_water(self):
@@ -905,7 +863,9 @@ class OnboardWindow(QWidget):
             played = QDesktopServices.openUrl(QUrl(WATER_SONG_URL))
         except Exception:
             played = False
-        self.fill_lead.setText(FILL_LEAD_SONG if played else FILL_LEAD)
+        self.fill_lead.setText(
+            i18n.t("onboard.fill_lead_song") if played
+            else i18n.t("onboard.fill_lead"))
         # 換過字才量高度。兩句都只有一行，但那是現在——文案一改就可能變兩行，
         # 而頁面的高度是在 Deck.add() 時量的，不重量就會裁掉最後一行。
         self.deck.remeasure(self.page_index["fill"])
@@ -914,12 +874,12 @@ class OnboardWindow(QWidget):
     def _page_fill(self):
         # 不擋：按鈕隨時可以按。文案已經把話講清楚，第一次用就被鎖住
         # 只會讓人直接關掉程式。
-        ok = Button("裝好了")
+        ok = Button(i18n.t("onboard.filled"))
         ok.clicked.connect(lambda: self._go(self.page_index["schedule"]))
-        self.fill_lead = sw.para(FILL_LEAD)
+        self.fill_lead = sw.para(i18n.t("onboard.fill_lead"))
         # 這一頁的杯子跟第一頁同一個樣子（笑臉、同樣的水位）。特別不要在這裡
         # 畫一個快沒水的杯子催他快去，理由見 CupPortrait.LEVEL。
-        return self._page("先去裝一壺", [_speech(None, self.fill_lead)],
+        return self._page(i18n.t("onboard.page_fill"), [_speech(None, self.fill_lead)],
                           [self._back_button(), ok],
                           portrait=CupPortrait(cell=6))
 
@@ -936,29 +896,32 @@ class OnboardWindow(QWidget):
         先前這一頁的說明寫「提醒只在起床後發送」，那句話從來不成立：
         提醒發不發只看人在不在電腦前（閒置就不計時）。
         """
-        nxt = Button("下一步")
+        nxt = Button(i18n.t("onboard.next"))
         nxt.clicked.connect(lambda: self._go(self.page_index["howto"]))
-        picks = sw.row(sw.Label("就寢", "headline", sw.INK), "stretch",
+        picks = sw.row(sw.Label(i18n.t("onboard.bedtime_label"), "headline", sw.INK), "stretch",
                        self.bed_pick, spacing=sw.S3)
-        return self._page("作息", [
-            sw.Label("習慣幾點就寢？", "headline", sw.INK),
-            sw.para("就寢前三小時起自動放慢提醒。"),
+        return self._page(i18n.t("onboard.page_schedule"), [
+            sw.Label(i18n.t("onboard.schedule_q"), "headline", sw.INK),
+            sw.para(i18n.t("onboard.schedule_note")),
             picks,
         ], [self._back_button(), nxt])
 
     def _page_howto(self):
-        nxt = Button("下一步")
+        nxt = Button(i18n.t("onboard.next"))
         nxt.clicked.connect(lambda: self._go(self.page_index["try"]))
-        return self._page("這樣用", [
+        return self._page(i18n.t("onboard.page_howto"), [
             self.preview,
             # 三條是同一組，行距要比它們跟上下文的距離短。用頁面的 S3 排會讓
             # 三條各自讀成一段，掃過去像三件無關的事。
-            sw.col(*[_bullet(t) for t in HOW_BULLETS], spacing=sw.S2),
+            sw.col(*[_bullet(b) for b in (i18n.t("onboard.how_1"),
+                                          i18n.t("onboard.how_2"),
+                                          i18n.t("onboard.how_3"))],
+                   spacing=sw.S2),
             sw.Divider(),
             # 把「在哪裡」也寫出來。這個程式平常完全隱藏，
             # 使用者不會自己想到齒輪在紀錄視窗右上角。
-            sw.para(HOW_SETTINGS),
-            sw.setting_row("開機時啟動", self.autostart),
+            sw.para(i18n.t("onboard.how_settings")),
+            sw.setting_row(i18n.t("onboard.autostart"), self.autostart),
         ], [self._back_button(), nxt])
 
     def _page_try(self):
@@ -977,10 +940,10 @@ class OnboardWindow(QWidget):
         「略過導覽」，每一頁都在。出口只有一個、位置固定，比在最後一頁臨時
         長出第二顆按鈕清楚得多——後者會讓人分不清哪一個才是正常的路。
         """
-        self.start_btn = Button("開始")
+        self.start_btn = Button(i18n.t("onboard.start"))
         self.start_btn.clicked.connect(self._finish)
         self.start_btn.set_enabled(False)
-        self.try_lead = sw.para(TRY_LEAD)
+        self.try_lead = sw.para(i18n.t("onboard.try_lead"))
         # 音效那一段先藏起來，點過才長出來。理由跟這一頁本身一樣：
         # 它講的是「剛剛那一聲」，在還沒發生之前放上去就是在指一件不存在的事。
         #
@@ -988,17 +951,17 @@ class OnboardWindow(QWidget):
         # 跟原本一樣高，點完 remeasure 一次就長開——不必為它預留空白。
         self.sound_block = sw.col(
             sw.Divider(),
-            sw.para(TRY_SOUND),
-            sw.setting_row("提醒音效", self.sound_on),
+            sw.para(i18n.t("onboard.try_sound")),
+            sw.setting_row(i18n.t("onboard.sound_label"), self.sound_on),
             spacing=sw.S3)
         self.sound_block.setVisible(False)
-        return self._page("試一次", [_speech(None, self.try_lead),
+        return self._page(i18n.t("onboard.page_try"), [_speech(None, self.try_lead),
                                     self.sound_block],
                           [self._back_button(), self.start_btn],
                           portrait=self.up_cue)
 
     def _on_tried(self):
-        self.try_lead.setText(TRY_DONE)
+        self.try_lead.setText(i18n.t("onboard.try_done"))
         # 練到了才解鎖。這是「開始」唯一的解鎖條件。
         self.start_btn.set_enabled(True)
         # 聲音跟它的說明一起出場。整份引導只有這裡會出聲，而這是刻意的：

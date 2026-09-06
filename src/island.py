@@ -39,6 +39,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QWidget
 
 import crashlog                               # 閃退時把 traceback 留下來
+import i18n                                   # 多語系字串
 import pixelface                              # 像素杯與表情
 import settings                               # 路徑、設定、推導、開機自啟
 import sound                                  # 升級時的提示音
@@ -171,23 +172,10 @@ VISUAL = {
 # 介面文案（設定項、選單、按鈕）走另一套標準，見 tests/test_copy_style.py。
 #
 # 可預測性是習慣化的根源，所以每次隨機挑，不重複到你背起來為止。
-MESSAGES = {
-    THIRSTY: [
-        "口渴了", "該喝水了", "水呢", "喉嚨乾乾的", "來一口",
-        "水壺還有水嗎", "現在喝正好", "提醒一下：水", "喝一口再繼續",
-    ],
-    WEAK: [
-        "真的渴了", "有點虛", "撐不太住", "還是沒喝喔", "再不喝要倒了",
-        "拜託", "水……", "已經等你一陣子了", "還在等",
-    ],
-    COLLAPSED: [
-        "倒了", "沒力了", "陣亡", "叫不動了", "放棄了",
-        "你贏了", "需要急救（一杯水）", "躺平中",
-    ],
-    NORMAL: ["水分充足", "還沒到時間", "下次再叫你"],
-}
+_MSG_KEYS = {THIRSTY: "thirsty", WEAK: "weak", COLLAPSED: "collapsed", NORMAL: "normal"}
 
-DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
+def _messages(state):
+    return i18n.tl(f"msg.{_MSG_KEYS[state]}")
 
 # 帶數字的台詞。使用者的觀察：「我自己用下來容易忽略喝水提醒」——
 # 而習慣化的解藥是變化，這一批把「還剩幾次」直接說進主字裡。
@@ -198,17 +186,9 @@ DONE_MESSAGES = ["今天已達標", "今天不吵你了", "收工了"]
 #
 # {n} 是還差幾次，{k} 是這是今天第幾次。語氣跟著狀態走：口渴是提醒，
 # 虛弱是拜託，倒地的角色不會替你加油。
-COUNTED_MESSAGES = {
-    THIRSTY: ["還剩 {n} 次", "喝一口，剩 {n} 次", "今天還有 {n} 次",
-              "第 {k} 次，時間到", "剩 {n} 次達標"],
-    WEAK: ["還差 {n} 次", "剩 {n} 次，先喝一口", "等你第 {k} 次", "{n} 次，拜託"],
-    COLLAPSED: ["倒了，還剩 {n} 次", "剩 {n} 次…救我", "第 {k} 次，救命"],
-}
 
 # 兩個端點各自有話說。中間那一大段用上面那批就好——
 # 「還剩 5 次」跟「還剩 4 次」對使用者是同一件事，不值得各寫一句。
-LAST_CALL = ["最後一次了", "剩最後一次", "最後一口"]      # 只差一次就達標
-FIRST_CALL = ["今天還沒開張", "今天第一次", "從第一次開始"]   # 今天還沒喝過
 
 # 深夜文案（「小口就好」「淺嚐一下就好」）已移除，不是忘了寫。
 # 它有 50% 機率出現，但 drink() 一律記整整一次——文案叫你喝半口，
@@ -240,60 +220,6 @@ FIRST_CALL = ["今天還沒開張", "今天第一次", "從第一次開始"]   #
 # 跳出來，比沒有這個功能糟得多。刻意避開幾個流傳很廣但站不住腳的說法：
 # 「一天八杯水」當普世標準、「口渴時已脫水 X%」那種精確宣稱、
 # 「多數人長期慢性脫水」、以及喝水排毒／減重那一類。
-TIPS = [
-    # 身體裡的水有多少（生理學教科書等級的數字）
-    "身體約有六成是水",
-    "血漿約九成是水",
-    "腦脊髓液幾乎都是水",
-    "骨頭裡也含有水分",
-    "肌肉的含水量高於脂肪",
-
-    # 身體怎麼處理水（生理學）
-    "腎臟一天過濾約 180 公升",
-    "消化液一天分泌約 7 公升",
-    "唾液一天約分泌 1 公升",
-    "口渴由下視丘偵測",
-    "血液變濃時會感到口渴",
-    "流汗靠蒸發帶走熱",
-    "呼吸也會帶走水分",
-    "關節靠滑液減少摩擦",
-    "身體無法預先儲存水分",
-
-    # 缺水的時候（Armstrong 2012 / Ganio 2011 / ACSM 2007）。
-    # 注意力那一條的效果量不大，所以寫「影響」不寫「大幅下降」。
-    "輕微缺水會影響注意力",
-    "缺水 2% 會影響運動表現",
-    "流汗帶走的不只是水",
-    "水分夠時尿液顏色偏淡",
-
-    # 怎麼喝（國健署；一小時 1000cc 與起床 300-500cc 兩條 DESIGN 已經引用過）
-    "一小時內不超過 1000cc",
-    "小口分次比一次喝完好",
-    "起床後建議 300-500cc",
-    "體重每公斤約需 30cc",
-    "一杯水約 240cc",
-    "白開水是最直接的選擇",
-    "冰涼的水通常喝得比較多",       # ACSM：15-21°C 的飲品自願攝取量較高
-
-    # 讓自己喝得到（習慣養成研究：環境提示比意志力可靠）
-    "水杯放在看得見的地方",
-    "固定時間喝比靠記憶可靠",
-    "餐前一杯水是好記的時機",
-
-    # 水從哪裡來（EFSA 2010 / IOM 2004）
-    "咖啡和茶也算水分來源",
-    "約兩成水分來自食物",
-    "湯和水果也提供水分",
-    "需要的水量因人而異",
-    "水分建議量男女不同",
-
-    # 什麼時候特別容易缺（環境與情境）
-    "冷氣房空氣乾，蒸散更快",
-    "天冷時口渴的感覺變弱",
-    "睡覺時身體持續流失水分",
-    "流汗多的日子需要多補",
-    "講話多時聲帶需要水分",
-]
 
 # 一天最多帶幾次提示。
 #
@@ -441,9 +367,7 @@ def say_already_running():
     **一句話涵蓋兩種情況**：好好跑著的話，第一句告訴他入口在哪；
     卡住不動的話，第二句告訴他怎麼處理。程式不必分辨是哪一種。
     """
-    _message_box(
-        f"{APP_TITLE} 已經在執行中。動態島的入口在螢幕頂端中央。\n\n"
-        f"若沒有任何反應，請在工作管理員結束 {APP_TITLE} 再重新開啟。")
+    _message_box(i18n.t("dialog.already_running", app=APP_TITLE))
 
 
 
@@ -875,14 +799,14 @@ class Island(QWidget):
         # 這一行要蓋過其他所有資訊，包含暫停中——暫停是他自己按的，他知道；
         # 存不進去他不知道。
         if settings.write_trouble():
-            return "紀錄存不進去"
+            return i18n.t("status.write_trouble")
         if self.paused_until:
-            return f"暫停中，{self.paused_until.strftime('%H:%M')} 恢復"
+            return i18n.t("status.paused", time=self.paused_until.strftime('%H:%M'))
         # 底下那排進度點已經表達了今天的次數，這裡就不重複——
         # 換成連續天數，否則島上唯一會變的數字每天歸零，看起來像連續被重置了。
-        head = f"連續 {self.streak} 天" if self.streak else f"今天 {self.drinks}/{target} 次"
+        head = i18n.t("status.streak", n=self.streak) if self.streak else i18n.t("status.today_count", done=self.drinks, target=target)
         if self.drinks >= target:
-            return f"{head}，今天已達標"
+            return f"{head}, {i18n.t('status.target_reached')}"
         remain = int(max(0, self.interval_s - self.active_s) // 60)
         # 分隔符用半形空白而非全形，目標次數變多時進度點會吃掉寬度，
         # 全形空白會讓這行剛好超過而被省略號截掉。
@@ -908,8 +832,8 @@ class Island(QWidget):
         #（那裡寫著「睡前 3 小時起改為每 109 分」），不屬於一個滑過去看一眼的
         # 地方。
         if remain <= 0:
-            return f"{head} · 快到了"
-        return f"{head} · 下次約 {remain} 分後"
+            return f"{head} · {i18n.t('status.coming_soon')}"
+        return f"{head} · {i18n.t('status.next_in', n=remain)}"
 
     def _reminding_sub(self):
         # 示警要蓋過這裡，理由跟 _status_sub() 相同——而且這裡更要緊。
@@ -920,7 +844,7 @@ class Island(QWidget):
         #
         # 倒地狀態更嚴重：它不會自己收合，那一行會一直掛在畫面上。
         if settings.write_trouble():
-            return "紀錄存不進去"
+            return i18n.t("status.write_trouble")
         # 提示蓋過連續天數，但一天只有 TIPS_PER_DAY 次（見那個常數）。
         # 蓋掉的是這個工具最重要的動機數字，所以份量要壓得很小。
         if self._tip:
@@ -929,10 +853,10 @@ class Island(QWidget):
         # 是同一件事講兩遍，而連續天數才是這條線上最該被看到的東西
         #（見 DESIGN 的 Duolingo 那節）。
         if self.streak:
-            return f"連續 {self.streak} 天"
+            return i18n.t("status.streak", n=self.streak)
         # 還沒有連續可講的第一天，次數仍然是這裡最有用的東西。
         target = self.cfg["daily_target_drinks"]
-        return f"今天補水 {self.drinks}/{target} 次"
+        return i18n.t("remind.today_count", done=self.drinks, target=target)
 
     def _refresh_message(self, override=None, sub=None):
         # 小標只放狀態，不放操作說明。「點一下就算喝了」學會之後就只是噪音，
@@ -976,17 +900,17 @@ class Island(QWidget):
         """
         target = self.cfg["daily_target_drinks"]
         if self.state == NORMAL and self.drinks >= target:
-            return list(DONE_MESSAGES)
+            return list(i18n.tl("msg.done"))
 
-        pool = list(MESSAGES.get(self.state, MESSAGES[NORMAL]))
+        pool = list(_messages(self.state) if self.state in _MSG_KEYS else _messages(NORMAL))
         if self.state in REMINDING:
             left = max(1, target - self.drinks)
             pool += [t.format(n=left, k=self.drinks + 1)
-                     for t in COUNTED_MESSAGES[self.state]]
+                     for t in i18n.tl(f"msg.counted.{_MSG_KEYS[self.state]}")]
             # 兩個端點的份量不一樣，值得多一點被抽到的機會，所以是加進池子
             # 而不是取代——取代的話「最後一次」每天都講同一句。
-            pool += LAST_CALL if left == 1 else []
-            pool += FIRST_CALL if self.drinks == 0 else []
+            pool += i18n.tl("msg.last_call") if left == 1 else []
+            pool += i18n.tl("msg.first_call") if self.drinks == 0 else []
         return pool
 
     def _roll_tip_slots(self):
@@ -1010,10 +934,11 @@ class Island(QWidget):
         用抽牌不用隨機挑：隨機挑會在四十句裡連兩天抽到同一句，而使用者對
         「又是這句」的敏感度遠高於對「這句我上個月看過」的。
         """
-        if not TIPS:
+        tips = i18n.tl("tips")
+        if not tips:
             return None
         if not self._tip_deck:
-            self._tip_deck = random.sample(TIPS, len(TIPS))
+            self._tip_deck = random.sample(tips, len(tips))
         return self._tip_deck.pop()
 
     def _maybe_pick_tip(self):
@@ -1104,9 +1029,9 @@ class Island(QWidget):
         # 主字是角色的聲音，副字是操作說明——兩者語域不同是刻意的：
         # 島可以有個性，但「怎麼叫出它」必須是清楚的指示。
         # copy-style: off
-        _hi = "嗨！"
+        _hi = i18n.t("msg.greet")
         # copy-style: on
-        self._set_text(_hi, "游標移至螢幕上緣中央可呼叫")
+        self._set_text(_hi, i18n.t("msg.greet_sub"))
         self._target_reveal(1.0)
         self._target_expand(1.0)
         self._target_content(1.0, delay_ms=90)
@@ -1344,7 +1269,7 @@ class Island(QWidget):
         # 使用者按下去之前最後看到的字是這一句；寫在視窗裡等於寫在他沒在看的
         # 地方，而且兩邊都寫會變成兩個指令搶同一個動作。
         # copy-style: off
-        self._enter(THIRSTY, message="點我一下", sub="這次不會算進今天的次數")
+        self._enter(THIRSTY, message=i18n.t("msg.practice"), sub=i18n.t("msg.practice_sub"))
         # copy-style: on
 
     def drink(self):
@@ -1357,7 +1282,7 @@ class Island(QWidget):
             # 這條路徑必須放在最前面——底下每一行都有副作用。
             self._practicing = False
             # copy-style: off
-            self._enter(SATISFIED, message="就是這樣", sub="時間到我會自己出現")
+            self._enter(SATISFIED, message=i18n.t("msg.practice_done"), sub=i18n.t("msg.practice_done_sub"))
             # copy-style: on
             cb, self._practice_cb = self._practice_cb, None
             if cb:
@@ -1437,7 +1362,7 @@ class Island(QWidget):
         if self.drinks >= target:
             # 達標的瞬間連續會 +1，這裡是唯一的回饋時機，數字要當場更新
             self._refresh_streak()
-            sub = f"連續 {self.streak} 天" if self.streak else None
+            sub = i18n.t("status.streak", n=self.streak) if self.streak else None
             # 第一次達標多講一句「紀錄在哪裡」。紀錄視窗做得比島完整，而唯一的
             # 入口是右鍵，那是一個沒有任何視覺提示的動作——不講就沒有人會發現。
             #
@@ -1448,13 +1373,13 @@ class Island(QWidget):
             # 而寫入失敗本來就會被計數、在診斷資訊裡看得到。
             self._hinting = not self.cfg.get("records_hinted")
             if self._hinting:
-                sub = "右鍵可以看紀錄"
+                sub = i18n.t("msg.hint_records")
                 self.cfg["records_hinted"] = True
                 settings.save_config(self.cfg)
-            self._enter(SATISFIED, message="今天達標了", sub=sub)
+            self._enter(SATISFIED, message=i18n.t("msg.drink_target"), sub=sub)
             self._hinting = False
         else:
-            self._enter(SATISFIED, message=f"喝了，還剩 {target - self.drinks} 次")
+            self._enter(SATISFIED, message=i18n.t("msg.drink_remaining", n=target - self.drinks))
         self._refresh_stats_window()
 
     def undo_drink(self):
@@ -1563,8 +1488,8 @@ class Island(QWidget):
                 on_replay=self.show_onboarding)
         except Exception as exc:                  # 紀錄視窗掛了不該影響提醒本身
             box = QMessageBox()
-            box.setWindowTitle("開不了紀錄")
-            box.setText(f"開啟紀錄視窗時出錯：\n{exc}")
+            box.setWindowTitle(i18n.t("dialog.records_error_title"))
+            box.setText(i18n.t("dialog.records_error_body", err=exc))
             box.setIcon(QMessageBox.NoIcon)
             box.exec()
 
@@ -2043,9 +1968,8 @@ class Island(QWidget):
         tray.show()
         # Windows 11 預設把新圖示摺進「^」，開機自啟時你不會知道它到底有沒有起來。
         tray.showMessage(
-            f"{APP_TITLE} 已啟動",
-            "系統匣圖示顯示為 pythonw，可拖曳至工作列固定。\n"
-            "將游標移至螢幕上緣中央亦可隨時顯示。",
+            i18n.t("tray.started_title", app=APP_TITLE),
+            i18n.t("tray.started_body"),
             QSystemTrayIcon.Information, 8000,
         )
         return tray
@@ -2106,16 +2030,16 @@ class Island(QWidget):
         副標該回答的是標題沒回答的：喝了多少、下次什麼時候。
         """
         target = self.cfg["daily_target_drinks"]
-        title = f"今天 {self.drinks} / {target} 次"
+        title = i18n.t("menu.head", done=self.drinks, target=target)
 
         if self.paused_until:
-            return title, f"已暫停，{self.paused_until.strftime('%H:%M')} 恢復"
+            return title, i18n.t("menu.paused", time=self.paused_until.strftime('%H:%M'))
         est = self.drinks * self.cfg["ml_per_drink_estimate"]
         if self.drinks >= target:
-            return title, f"約 {est} cc，今日已達標"
+            return title, i18n.t("menu.done", cc=est)
         remain = int(max(0, self.interval_s - self.active_s) // 60)
-        when = "即將提醒" if remain <= 0 else f"下次約 {remain} 分後"
-        return title, f"約 {est} cc，{when}"
+        when = i18n.t("menu.soon") if remain <= 0 else i18n.t("menu.next_in", n=remain)
+        return title, i18n.t("menu.active", cc=est, when=when)
 
     def _menu_items(self):
         """選單有哪幾項。跟開視窗的動作分開，這樣「哪些項目該出現」測得到。
@@ -2127,19 +2051,19 @@ class Island(QWidget):
         讀的人要在腦裡繞一圈才知道結果是「會再提醒」。
         「結束」單獨出現有歧義：結束什麼？
         """
-        items = [("記錄補水", self.drink, False)]
+        items = [(i18n.t("menu.drink"), self.drink, False)]
         # 退路緊接在記錄後面：兩個是一組動作，而退回只有在「剛剛記過」之後
         # 才有意義。次數是 0 就不放——一個按下去不會有反應的項目比沒有更糟。
         if self.drinks > 0:
-            items.append(("退回上一次記錄", self.undo_drink, False))
+            items.append((i18n.t("menu.undo"), self.undo_drink, False))
         if self.paused_until:
-            items.append(("恢復提醒", self._cancel_pause, False))
+            items.append((i18n.t("menu.resume"), self._cancel_pause, False))
         else:
-            items.append(("暫停提醒 2 小時", self.pause_2h, False))
-        items += [("喝水紀錄", self.show_stats, False),
-                  ("設定", self.show_settings, False),
+            items.append((i18n.t("menu.pause"), self.pause_2h, False))
+        items += [(i18n.t("menu.records"), self.show_stats, False),
+                  (i18n.t("menu.settings"), self.show_settings, False),
                   (None, None, False),
-                  ("結束程式", self.quit_app, True)]
+                  (i18n.t("menu.quit"), self.quit_app, True)]
         return items
 
     def _popup_menu(self, pos):

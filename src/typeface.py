@@ -96,18 +96,22 @@ def ensure_loaded():
     actual = QFontInfo(probe).family()
     ok = installed and actual == FAMILY
 
+    import i18n
     if ok:
-        detail = f"使用內嵌的 {FAMILY}"
+        detail = i18n.t("typeface.using", family=FAMILY)
         if missing or failed:
-            # 系統本來就裝了，所以還是拿得到——但發布給別人時就不會了
-            detail = f"使用系統已安裝的 {FAMILY}（隨附字體未載入）"
+            detail = i18n.t("typeface.system", family=FAMILY)
     else:
+        sep = ", " if i18n.current() == "en" else "、"
         why = []
         if missing:
-            why.append(f"缺少 {'、'.join(missing)}")
+            why.append(i18n.t("typeface.missing", names=sep.join(missing)))
         if failed:
-            why.append(f"載入失敗 {'、'.join(failed)}")
-        detail = f"退回 {actual}" + ("（" + "；".join(why) + "）" if why else "")
+            why.append(i18n.t("typeface.load_fail", names=sep.join(failed)))
+        detail = i18n.t("typeface.fallback", actual=actual)
+        if why:
+            joiner = "; " if i18n.current() == "en" else "；"
+            detail += "（" + joiner.join(why) + "）"
 
     _state = (ok, detail)
     return _state

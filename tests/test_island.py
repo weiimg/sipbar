@@ -10,6 +10,7 @@ SCRATCH = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
+import i18n  # noqa: E402
 import island as isl  # noqa: E402
 import settings as ap  # noqa: E402
 
@@ -1178,13 +1179,14 @@ _real_max = w2._max_pill_w
 w2._max_pill_w = lambda: 1366 * isl.PILL_SCREEN_FRAC
 w2.cfg["daily_target_drinks"] = 12
 w2.state = isl.THIRSTY
+_tips = i18n.tl("tips")
 _too_long = None
-for _tip in isl.TIPS:
+for _tip in _tips:
     _av, _pw = _avail_for("口渴了", _tip)
     _need = QFontMetrics(w2._f_sub).horizontalAdvance(_tip)
     if _need > _av and _too_long is None:
         _too_long = f"「{_tip}」需要 {_need:.0f}px / 可用 {_av:.0f}px"
-print(f"       量過 {len(isl.TIPS)} 句提示（目標 12 次、1366 筆電）")
+print(f"       量過 {len(_tips)} 句提示（目標 12 次、1366 筆電）")
 check("每一句提示都放得下", _too_long, None)
 w2._max_pill_w = _real_max
 
@@ -1211,12 +1213,12 @@ check("落點不是每天都同一次", len(_slots) > isl.TIPS_PER_DAY, True)
 
 # 抽完一輪才重洗：使用者對「又是這句」的敏感度遠高於「這句我上個月看過」。
 w2._tip_deck = []
-_drawn = [w2._draw_tip() for _ in range(len(isl.TIPS))]
-check("一輪之內不重複", len(set(_drawn)), len(isl.TIPS))
+_drawn = [w2._draw_tip() for _ in range(len(_tips))]
+check("一輪之內不重複", len(set(_drawn)), len(_tips))
 
 # 探頭是「我要查狀態」，不是「我要看知識」。提示只在島自己跳出來時出現。
-w2.state, w2.drinks, w2._tip = isl.NORMAL, 2, isl.TIPS[0]
-check("探頭時不給提示", isl.TIPS[0] in w2._status_sub(), False)
+w2.state, w2.drinks, w2._tip = isl.NORMAL, 2, _tips[0]
+check("探頭時不給提示", _tips[0] in w2._status_sub(), False)
 
 # 寫不進去要蓋過一切，包含提示——那是使用者唯一會知道自己在掉資料的地方。
 w2.state = isl.THIRSTY
@@ -1224,7 +1226,7 @@ for _ in range(ap.WRITE_FAIL_THRESHOLD):
     ap.note_write("events", False)
 check("紀錄存不進去時蓋過提示", w2._reminding_sub(), "紀錄存不進去")
 ap.note_write("events", True)
-check("恢復之後提示回來", w2._reminding_sub(), isl.TIPS[0])
+check("恢復之後提示回來", w2._reminding_sub(), _tips[0])
 
 (w2.cfg["daily_target_drinks"], w2.state, w2.drinks,
  w2.message, w2.sub_message, w2._tip) = _saved35
@@ -1297,8 +1299,8 @@ print("\n38. 成就名稱都放得下（一氧化二氫成癮者最長）")
 import dashboard
 _real_max37 = w2._max_pill_w
 w2._max_pill_w = lambda: 1366 * isl.PILL_SCREEN_FRAC
-_dummy_data = {"total_drinks": 999, "longest": 999, "target": 7,
-               "days": {"2025-01-01": {"drinks": 99}}}
+_dummy_data = {"total_drinks": 999, "longest": 999, "hit_days": 999,
+               "target": 7, "days": {"2025-01-01": {"drinks": 99}}}
 _too_long37 = None
 for _name, _desc, _, _ in dashboard.achievements(_dummy_data):
     _av, _pw = _avail_for(_name, _desc)

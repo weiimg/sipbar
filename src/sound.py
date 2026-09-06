@@ -141,31 +141,13 @@ def path(name):
 # 設定頁那一列的寬度只夠寫檔名，寫不下「格式要求」與「怎麼還原」。
 #
 # 用 .txt 不用 .md：這是給人在檔案總管裡雙擊的，記事本打開就是最終樣貌。
-README_NAME = "說明.txt"
-README_TEXT = """自訂提醒音效
+def _readme_name():
+    import i18n
+    return i18n.t("sound.readme_name")
 
-平常不必用到這個資料夾——設定頁的「提醒音效」底下有「選擇」，挑完會自動
-複製進來。這份說明是給想直接放檔案的人看的。
-
-把音檔放進這個資料夾，檔名必須是下面兩個之一：
-
-    weak.wav        被忽略 15 分鐘時播（內建版是往上的兩聲）
-    collapsed.wav   被忽略 40 分鐘時播（內建版是往下的兩聲）
-
-只放一個也可以，另一個會繼續用內建的。
-刪掉檔案就回到內建，不需要改任何設定。
-
-格式：WAV。mp3 或 m4a 改名成 .wav 不會生效，設定頁會顯示「不是 WAV 格式」。
-
-音量由檔案本身決定，程式不會幫你調整——Windows 用系統音量播放，
-程式在播的時候沒有辦法調小。內建那兩個的尖峰壓在滿刻度的 26%，
-自己做的話可以拿它當基準。
-
-內建的音檔在程式資料夾的 _internal\\assets\\sound\\ 底下，
-可以複製出來當範本。
-
-設定頁那兩列各有一顆「試聽」，換完可以立刻聽。
-"""
+def _readme_text():
+    import i18n
+    return i18n.t("sound.readme_text")
 
 
 def install(name, src):
@@ -199,10 +181,10 @@ def ensure_user_dir():
     說明只在不存在時寫，不覆蓋——使用者可能在裡面加了自己的筆記。
     """
     os.makedirs(USER_DIR, exist_ok=True)
-    readme = os.path.join(USER_DIR, README_NAME)
+    readme = os.path.join(USER_DIR, _readme_name())
     if not os.path.exists(readme):
         with open(readme, "w", encoding="utf-8") as f:
-            f.write(README_TEXT)
+            f.write(_readme_text())
     return USER_DIR
 
 

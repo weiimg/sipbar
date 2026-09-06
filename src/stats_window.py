@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 )
 
 import dashboard
+import i18n
 import pixelface                             # 島上那顆像素杯，紀錄頁共用同一個容器
 import settings as appsettings               # 設定的讀寫與推導
 import updates                                # 有沒有新版（齒輪上那顆點）
@@ -151,7 +152,7 @@ def apply_theme(name=None):
 apply_theme()          # 模組載入時先套一次，之後由設定或系統決定
 
 STAGGER_MS = 62
-WEEKDAYS = "一二三四五六日"
+WEEKDAYS = i18n.t("weekdays")
 GEAR_GAP = 40                              # 齒輪中心離關閉鈕中心多遠
 
 _FONTS = {}
@@ -557,7 +558,7 @@ class CupGauge(Graphic):
         fm = QFontMetrics(f)
         p.setFont(f)
         p.setPen(PAL.ink_a(255))
-        main = f"{self.done} / {self.target} 次"
+        main = i18n.t("cup.count", done=self.done, target=self.target)
         p.drawText(int((self.W - fm.horizontalAdvance(main)) / 2),
                    self.cup_h + 22, main)
 
@@ -565,7 +566,7 @@ class CupGauge(Graphic):
         fm2 = QFontMetrics(f2)
         p.setFont(f2)
         p.setPen(PAL.ink_a(140))
-        sub = f"約 {self.done * self.ml} / {self.target * self.ml} cc"
+        sub = i18n.t("cup.cc", done=self.done * self.ml, target=self.target * self.ml)
         p.drawText(int((self.W - fm2.horizontalAdvance(sub)) / 2),
                    self.cup_h + 42, sub)
 
@@ -777,7 +778,7 @@ class WeekStrip(Graphic):
             if day["future"]:
                 p.setBrush(QBrush(PAL.veil(14)))
                 p.drawEllipse(box)
-                note = "還沒到"
+                note = i18n.t("week.future")
             elif day["hit"]:
                 p.setBrush(QBrush(C_GREEN))
                 p.drawEllipse(box)
@@ -788,7 +789,7 @@ class WeekStrip(Graphic):
                            QPoint(int(cx - r * 0.08), int(cy + r * 0.28)))
                 p.drawLine(QPoint(int(cx - r * 0.08), int(cy + r * 0.28)),
                            QPoint(int(cx + r * 0.36), int(cy - r * 0.26)))
-                note = f"{day['drinks']} / {self.target} 次，達標"
+                note = i18n.t("week.hit", n=day['drinks'], target=self.target)
             elif day["used"]:
                 # 進度畫成水位，不畫環。
                 #
@@ -815,11 +816,11 @@ class WeekStrip(Graphic):
                 p.setPen(PAL.ink_a(255))
                 p.drawText(int(cx - fm_n.horizontalAdvance(n) / 2),
                            int(cy + fm_n.capHeight() / 2), n)
-                note = f"{day['drinks']} / {self.target} 次"
+                note = i18n.t("week.partial", n=day['drinks'], target=self.target)
             else:
                 p.setBrush(QBrush(C_SLOT))
                 p.drawEllipse(box)
-                note = "沒開電腦，不計入連續"
+                note = i18n.t("week.inactive")
 
             self._hit.append((QRectF(cx - rad - 8, cy - rad - 8, (rad + 8) * 2, (rad + 8) * 2),
                               f"{day['key']}　{note}"))
@@ -890,11 +891,11 @@ class Heatmap(Graphic):
 
                 n = info["drinks"] if info else 0
                 if key in self.data["streak"]["saved_days"]:
-                    note = f"{n} / {tgt} 次，護盾已消耗"
+                    note = i18n.t("heatmap.shield_used", n=n, target=tgt)
                 elif info and (info["drinks"] or info["reminds"]):
-                    note = f"{n} / {tgt} 次"
+                    note = i18n.t("heatmap.count", n=n, target=tgt)
                 else:
-                    note = "沒開電腦，不計入連續"
+                    note = i18n.t("heatmap.inactive")
                 self._hit.append((QRectF(x, y, cell, cell), f"{key}　{note}"))
 
     @staticmethod
@@ -993,6 +994,24 @@ _BADGE_ICONS = [
       ".MWMMWD.",
       "..DWWD..",
       "...DD..."], 3),
+    # 6: 游過太平洋了吧 — wave
+    ([".....LBL",
+      "...LBMBL",
+      "..BMBDB.",
+      ".BMDBD..",
+      "BMDBD...",
+      "MDBD....",
+      "DBD..LBL",
+      "BD..BMBL"], 3),
+    # 7: 水做的 — water figure
+    (["...BB...",
+      "..BWWB..",
+      "..BMMB..",
+      "...BB...",
+      ".LBBBL..",
+      "..DBBD..",
+      ".DB..BD.",
+      ".D....D."], 3),
 ]
 
 
@@ -1018,6 +1037,14 @@ def _badge_shades(done):
     }
 
 
+def draw_badge_grid(p, icon_index, x, y, cell, colors):
+    grid, _ = _BADGE_ICONS[icon_index]
+    for gy, row_str in enumerate(grid):
+        for gx, ch in enumerate(row_str):
+            if ch != '.' and ch in colors:
+                p.fillRect(x + gx * cell, y + gy * cell, cell, cell, colors[ch])
+
+
 class Badge(Graphic):
     def __init__(self, done, remain, icon=0, size=44):
         super().__init__(size, size)
@@ -1036,16 +1063,220 @@ class Badge(Graphic):
         gw, gh = len(grid[0]), len(grid)
         ox = (self.width() - gw * cell) // 2
         oy = (self.height() - gh * cell) // 2
-        colors = _badge_shades(self.done)
-        for gy, row_str in enumerate(grid):
-            for gx, ch in enumerate(row_str):
-                if ch != '.' and ch in colors:
-                    p.fillRect(ox + gx * cell, oy + gy * cell,
-                               cell, cell, colors[ch])
+        draw_badge_grid(p, self.icon, ox, oy, cell, _badge_shades(self.done))
 
 
 def stat_block(value, label):
     return col(Label(value, "title", INK), Label(label, "caption", INK3), spacing=S1)
+
+
+# ---------------------------------------------------------------- 分享卡片
+
+# 稱號門檻：hit_days（累積達標天數）越多稱號越高。
+_TITLE_TIERS = [(100, 4), (30, 3), (7, 2), (1, 1)]
+
+
+def _share_title(d):
+    hd = d["hit_days"]
+    for threshold, tier in _TITLE_TIERS:
+        if hd >= threshold:
+            return i18n.t(f"share.title.{tier}")
+    return i18n.t("share.title.0")
+
+
+def _highest_badge(d):
+    """最高已解鎖成就的 index，沒有解鎖則 None。"""
+    return max(
+        (i for i, (_, _, cur, goal) in enumerate(dashboard.achievements(d))
+         if cur >= goal),
+        default=None,
+    )
+
+
+def render_share_card(d):
+    """產生 1080×1080 的連勝分享卡，回傳 QPixmap。純繪製，不碰剪貼簿。"""
+    from PySide6.QtGui import QImage, QPixmap
+    SIZE = 1080
+    pix = QPixmap(SIZE, SIZE)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+
+    # --- 背景：圓角暗色卡片 ---
+    p.setRenderHint(QPainter.Antialiasing, True)
+    bg_grad = QLinearGradient(0, 0, 0, SIZE)
+    bg_grad.setColorAt(0.0, QColor("#2a2d35"))
+    bg_grad.setColorAt(1.0, QColor("#1e2028"))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(bg_grad))
+    p.drawRoundedRect(QRectF(0, 0, SIZE, SIZE), 48, 48)
+
+    # 上方亮邊
+    hl = QLinearGradient(0, 0, 0, SIZE * 0.4)
+    hl.setColorAt(0.0, QColor(255, 255, 255, 30))
+    hl.setColorAt(1.0, QColor(255, 255, 255, 0))
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(QBrush(hl), 2.0))
+    p.drawRoundedRect(QRectF(1, 1, SIZE - 2, SIZE - 2), 47, 47)
+
+    streak = d["streak"]["streak"]
+    margin = 96
+
+    # --- 火焰 icon（像素格，非動畫） ---
+    p.setRenderHint(QPainter.Antialiasing, False)
+    flame_grid = [
+        "....BB....",
+        "...BBBB...",
+        "..BBLBBB..",
+        ".BBBLLBB..",
+        ".BBBLLLB..",
+        ".BBBWWLB..",
+        "..BWWWB...",
+        "...BWB....",
+        "....B.....",
+    ]
+    flame_cell = 12
+    flame_w = len(flame_grid[0]) * flame_cell
+    flame_x = (SIZE - flame_w) // 2
+    flame_y = margin + 40
+    if streak > 0:
+        fc = C_FLAME
+        flame_colors = {
+            'B': fc, 'L': fc.lighter(130), 'W': QColor(255, 230, 140),
+        }
+    else:
+        gc = QColor(100, 100, 100)
+        flame_colors = {
+            'B': gc, 'L': gc.lighter(115), 'W': QColor(160, 160, 160),
+        }
+    for gy, frow in enumerate(flame_grid):
+        for gx, ch in enumerate(frow):
+            if ch != '.' and ch in flame_colors:
+                p.fillRect(flame_x + gx * flame_cell, flame_y + gy * flame_cell,
+                           flame_cell, flame_cell, flame_colors[ch])
+
+    # --- 連勝數字 ---
+    p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    num_y = flame_y + len(flame_grid) * flame_cell + 56
+    big_font = typeface.make(200, QFont.Bold, -3.0, family=FONT)
+    p.setFont(big_font)
+    p.setPen(QColor(255, 255, 255) if streak else QColor(120, 120, 120))
+    num_str = str(streak)
+    fm_big = QFontMetrics(big_font)
+    num_w = fm_big.horizontalAdvance(num_str)
+    p.drawText(int((SIZE - num_w) / 2), num_y + fm_big.ascent(), num_str)
+
+    # --- 「連續達標」+ 「天」標籤 ---
+    label_y = num_y + fm_big.ascent() + 32
+    sub_font = typeface.make(42, QFont.Bold, 0.0, family=FONT)
+    p.setFont(sub_font)
+    p.setPen(QColor(200, 200, 200))
+    label = f"{i18n.t('share.streak_label')}　{i18n.t('share.streak_days')}"
+    fm_sub = QFontMetrics(sub_font)
+    p.drawText(int((SIZE - fm_sub.horizontalAdvance(label)) / 2),
+               label_y + fm_sub.ascent(), label)
+
+    # --- 稱號 ---
+    title_y = label_y + fm_sub.ascent() + 48
+    title_font = typeface.make(36, QFont.Medium, 0.0, family=FONT)
+    p.setFont(title_font)
+    p.setPen(C_ACCENT)
+    title_text = _share_title(d)
+    fm_title = QFontMetrics(title_font)
+    p.drawText(int((SIZE - fm_title.horizontalAdvance(title_text)) / 2),
+               title_y + fm_title.ascent(), title_text)
+
+    # --- 最高徽章（像素格） ---
+    badge_idx = _highest_badge(d)
+    if badge_idx is not None:
+        p.setRenderHint(QPainter.Antialiasing, False)
+        badge_cell = 10
+        grid, _ = _BADGE_ICONS[badge_idx]
+        bw = len(grid[0]) * badge_cell
+        bh = len(grid) * badge_cell
+        badge_x = (SIZE - bw) // 2
+        badge_y = title_y + fm_title.ascent() + 48
+        draw_badge_grid(p, badge_idx, badge_x, badge_y, badge_cell,
+                        _badge_shades(True))
+        p.setRenderHint(QPainter.Antialiasing, True)
+
+    # --- Sipbar 品牌 ---
+    p.setRenderHint(QPainter.TextAntialiasing, True)
+    brand_font = typeface.make(30, QFont.Medium, 1.0, family=FONT)
+    p.setFont(brand_font)
+    p.setPen(QColor(255, 255, 255, 80))
+    brand = "Sipbar"
+    fm_brand = QFontMetrics(brand_font)
+    p.drawText(int((SIZE - fm_brand.horizontalAdvance(brand)) / 2),
+               SIZE - margin, brand)
+
+    p.end()
+    return pix
+
+
+class ShareButton(Graphic):
+    """分享按鈕：箭頭 icon，立體圓角框，暗色系融入卡片背景。"""
+
+    clicked = Signal()
+    SIZE = 40
+
+    def __init__(self):
+        super().__init__(self.SIZE, self.SIZE)
+        self.setCursor(Qt.PointingHandCursor)
+        self._tip = i18n.t("share.tooltip")
+
+    def paintEvent(self, event):
+        e = ease(self.reveal)
+        if e < 0.01:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setOpacity(e)
+        w, h = self.width(), self.height()
+
+        # 立體圓角框
+        bg = QLinearGradient(0, 0, 0, h)
+        bg.setColorAt(0.0, PAL.veil(30))
+        bg.setColorAt(1.0, PAL.veil(14))
+        p.setPen(QPen(PAL.veil(22), 1))
+        p.setBrush(QBrush(bg))
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 10, 10)
+
+        # 亮邊
+        hl = QLinearGradient(0, 0, 0, h * 0.5)
+        hl.setColorAt(0.0, PAL.veil(30))
+        hl.setColorAt(1.0, PAL.veil(0))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QBrush(hl), 1.0))
+        p.drawRoundedRect(QRectF(1, 1, w - 2, h - 2), 9, 9)
+
+        # 箭頭 icon（↑ 帶底槓，iOS share style）
+        cx, cy = w / 2, h / 2
+        p.setPen(QPen(QColor(PAL.ink), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        # 箭桿
+        p.drawLine(QPointF(cx, cy - 7), QPointF(cx, cy + 6))
+        # 箭頭
+        p.drawLine(QPointF(cx - 5, cy - 3), QPointF(cx, cy - 8))
+        p.drawLine(QPointF(cx + 5, cy - 3), QPointF(cx, cy - 8))
+        # 底托盤
+        path = QPainterPath()
+        path.moveTo(cx - 7, cy + 2)
+        path.lineTo(cx - 7, cy + 8)
+        path.lineTo(cx + 7, cy + 8)
+        path.lineTo(cx + 7, cy + 2)
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+
+    def enterEvent(self, event):
+        if self._tip:
+            Tip.show_for(self, self._tip)
+
+    def leaveEvent(self, event):
+        Tip.hide_tip()
 
 
 # ---------------------------------------------------------------- 卡片
@@ -1118,31 +1349,46 @@ def build_streak_card(d):
     # 語域：進行中講「再幾次會發生什麼」——把結果說出來比催促有效，而且每天讀都還行。
     # 達標當下才用驚嘆號：那是一次性的獎勵時刻，天天用會很快失效、甚至變吵。
     if today >= t:
-        status = f"達標！連續第 {streak} 天" if streak else "今天達標！"
+        status = i18n.t("streak.reached", n=streak) if streak else i18n.t("streak.reached_today")
     elif streak > 0:
-        status = f"再 {left} 次，連續來到第 {streak + 1} 天"
+        status = i18n.t("streak.more_streak", left=left, n=streak + 1)
     elif today > 0:
-        status = f"還差 {left} 次達標"
+        status = i18n.t("streak.more", n=left)
     else:
-        status = "今天還沒開始"
+        status = i18n.t("streak.not_started")
 
     num = CountLabel(streak, "display", INK if streak else INK3)
     gauge = CupGauge(today, t, d["ml"])
-    gauge.set_tip(f"今天 {today} / {t} 次")
+    gauge.set_tip(i18n.t("streak.cup_tip", done=today, target=t))
+
+    share_btn = ShareButton()
+    share_feedback = Label("", "caption", INK3)
+    share_feedback.setFixedWidth(0)
+
+    def _on_share():
+        pix = render_share_card(d)
+        QApplication.clipboard().setImage(pix.toImage())
+        share_feedback.setFixedWidth(share_feedback.sizeHint().width() + 60)
+        share_feedback.setText(i18n.t("share.copied"))
+        QTimer.singleShot(1600, lambda: share_feedback.setText(""))
+        QTimer.singleShot(1600, lambda: share_feedback.setFixedWidth(0))
+
+    share_btn.clicked.connect(_on_share)
 
     card = Card()
     card.add(
         row(Flame(streak > 0),
-            (col(row(num, Label("天", "section", INK2), "stretch", spacing=S2),
-                 Label("連續達標", "caption", INK3),
+            (col(row(num, Label(i18n.t("streak.unit_days"), "section", INK2), "stretch", spacing=S2),
+                 Label(i18n.t("streak.consecutive"), "caption", INK3),
                  spacing=S1), 1),
             gauge,
             spacing=S3),
         Label(status, "body", INK2, elide=True),
-        # 這一列右邊什麼都不放，說明掛在圖示上——理由見 Shields 的 docstring。
-        row(Label("護盾", "caption", INK3),
+        row(Label(i18n.t("streak.shields"), "caption", INK3),
             Shields(s["saves_total"], s["saves_left"], _saves_tip(d)),
             "stretch",
+            share_feedback,
+            share_btn,
             spacing=S3),
     )
     return card
@@ -1162,38 +1408,37 @@ def _saves_tip(d):
     """
     s = d["streak"]
     if s["saves_left"] >= s["saves_total"]:
-        return "保持水分！"
-    return f"還剩 {s['saves_left']} 個，再達標 {s['saves_next_in']} 天多一個"
+        return i18n.t("shield.tip_full")
+    return i18n.t("shield.tip_partial", n=s['saves_left'], d=s['saves_next_in'])
 
 
 def build_week_card(d):
-    card = Card("本週")
+    card = Card(i18n.t("card.week"))
     card.add(WeekStrip(dashboard.week_days(d), d["target"]))
     return card
 
 
 def build_trail_card(d):
-    card = Card("紀錄")
+    card = Card(i18n.t("card.trail"))
     card.add(
         Heatmap(d),
-        row(stat_block(str(d["longest"]), "最長連續（天）"),
+        row(stat_block(str(d["longest"]), i18n.t("stat.longest")),
             "stretch",
-            stat_block(str(d["total_drinks"]), "累積補水（次）"),
+            stat_block(str(d["total_drinks"]), i18n.t("stat.total")),
             "stretch",
-            stat_block(f"{d['total_drinks'] * d['ml'] / 1000:.1f}", "估算水量（公升）"),
+            stat_block(f"{d['total_drinks'] * d['ml'] / 1000:.1f}", i18n.t("stat.liters")),
             spacing=S3),
     )
     return card
 
 
 def build_achievements_card(d):
-    card = Card("成就")
+    card = Card(i18n.t("card.achievements"))
     # 列距用 S3，跟這個視窗其他地方一樣。原本是 S2（8px），六列擠成一團，
     # 每一列有名字與說明兩行，行距 4px——列與列之間只差 8px，掃過去分不出
     # 哪兩行是同一個成就。
     #
-    # 這一頁現在剛好等於最高的那一頁（479px），視窗高度不變。**再加第七個
-    # 成就就會把整個視窗撐高**，那時要嘛回頭縮這個值，要嘛接受視窗變高。
+    # 現在 8 個成就，這一頁用 ScrollPane 捲動，視窗高度不變。
     card.box.setSpacing(S3)
     for i, (name, desc, cur, goal) in enumerate(dashboard.achievements(d)):
         done = cur >= goal
@@ -1203,7 +1448,7 @@ def build_achievements_card(d):
                  Label(desc, "caption", INK3, elide=True),
                  spacing=S1), 1),          # 文字欄位吃掉剩餘空間
             col(Bar(cur / goal if goal else 0),
-                Label("完成" if done else f"{cur} / {goal}", "caption",
+                Label(i18n.t("achievement.done") if done else f"{cur} / {goal}", "caption",
                       INK2 if done else INK3),
                 spacing=S1, align=Qt.AlignHCenter),
             spacing=S3))
@@ -1212,18 +1457,21 @@ def build_achievements_card(d):
 
 def build_footer_card(d):
     rate = f"{d['rate'] * 100:.0f}%" if d["rate"] is not None else "—"
-    wait = f"{d['avg_wait_min']:.0f} 分" if d["avg_wait_min"] is not None else "—"
+    wait = (f"{d['avg_wait_min']:.0f} {i18n.t('unit.min_short')}"
+            if d["avg_wait_min"] is not None else "—")
     card = Card()
-    card.add(row(stat_block(rate, "提醒回應率"), "stretch",
-                 stat_block(wait, "平均回應時間"), "stretch", spacing=S3))
+    card.add(row(stat_block(rate, i18n.t("stat.response_rate")), "stretch",
+                 stat_block(wait, i18n.t("stat.avg_time")), "stretch", spacing=S3))
     return card
 
 
 # 分頁切法：每頁要有一個主角。一頁塞兩個同等重要的東西，等於沒有重點。
+# 第三欄 scroll：成就頁 8 個以後超過一頁的高度，用 ScrollPane 捲動。
+# 今天與紀錄是拿來逛的，藏在捲軸下面等於不存在，所以不捲。
 PAGES = [
-    ("今天", [build_streak_card, build_week_card]),
-    ("紀錄", [build_trail_card, build_footer_card]),
-    ("成就", [build_achievements_card]),
+    (i18n.t("tab.today"), [build_streak_card, build_week_card], False),
+    (i18n.t("tab.history"), [build_trail_card, build_footer_card], False),
+    (i18n.t("tab.achievements"), [build_achievements_card], True),
 ]
 
 
@@ -1489,7 +1737,7 @@ class WeightField(QLineEdit):
     def __init__(self, value):
         super().__init__("" if not value else str(int(value)))
         self.setValidator(QIntValidator(30, 200, self))
-        self.setPlaceholderText("選填")
+        self.setPlaceholderText(i18n.t("placeholder.optional"))
         self.setAlignment(Qt.AlignRight)
         self.setFixedSize(72, CTRL_H)   # 高度也要釘住，否則會被列高拉長
         self.setFont(font(CTRL_TYPE))
@@ -1846,7 +2094,9 @@ class DangerRow(QWidget):
 
     requested = Signal()
 
-    def __init__(self, note, action_text="清除紀錄"):
+    def __init__(self, note, action_text=None):
+        if action_text is None:
+            action_text = i18n.t("danger.action")
         super().__init__()
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedHeight(ROW_FLAT)
@@ -1880,8 +2130,10 @@ class ConfirmOverlay(QWidget):
     CARD_W = 380
     CORNER = 18
 
-    def __init__(self, parent, title, body, confirm_text="刪除"):
+    def __init__(self, parent, title, body, confirm_text=None):
         super().__init__(parent)
+        if confirm_text is None:
+            confirm_text = i18n.t("confirm.delete")
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.card = QWidget(self)
@@ -1891,7 +2143,7 @@ class ConfirmOverlay(QWidget):
         lay.setSpacing(S3)
         lay.addWidget(Label(title, "headline", INK))
         lay.addWidget(para(body, "caption", INK2))
-        self.cancel = TapLabel("取消", INK2)
+        self.cancel = TapLabel(i18n.t("confirm.cancel"), INK2)
         self.cancel.clicked.connect(self.dismiss)
         self.confirm = TapLabel(confirm_text, C_DANGER)
         self.confirm.clicked.connect(self._fire)
@@ -1965,9 +2217,9 @@ class ConfirmOverlay(QWidget):
 def build_empty_card(d):
     card = Card()
     card.add(
-        Label("還沒有紀錄", "title", INK),
-        Label("點擊動態島即可記錄補水", "body", INK2, elide=True),
-        Label("首次記錄後開始累積", "body", INK3, elide=True),
+        Label(i18n.t("empty.title"), "title", INK),
+        Label(i18n.t("empty.instruction"), "body", INK2, elide=True),
+        Label(i18n.t("empty.hint"), "body", INK3, elide=True),
     )
     return card
 
@@ -2022,7 +2274,7 @@ class SettingsPage(QWidget):
         lay.addSpacing(S5)
         lay.addWidget(Divider())
         lay.addSpacing(S3)
-        self.danger = DangerRow("移除所有補水紀錄與連續天數，設定保留")
+        self.danger = DangerRow(i18n.t("danger.note"))
         # 確認的 popup 由視窗開，不是這一頁——它要蓋住整個視窗，
         # 而這一頁被關在捲動區裡面，蓋不出去。
         self.danger.requested.connect(self.reset_requested)
@@ -2090,7 +2342,7 @@ class SettingsPage(QWidget):
         """
         card = Card()
         card.box.setSpacing(ROW_GAP)
-        card.add(section_header("提醒"))
+        card.add(section_header(i18n.t("settings.reminder")))
         card.add(GRID)
 
         # 每日目標不另立一列，它就是體重這一列的結果——放在說明行，
@@ -2103,8 +2355,8 @@ class SettingsPage(QWidget):
         self.weight = WeightField(self.cfg.get("weight_kg"))
         self.weight.editingFinished.connect(self._on_weight)
         self.target_lbl = Label("", "caption", INK3, elide=True)
-        card.add(setting_row("體重", row(self.weight,
-                                        Label("公斤", "body", INK3), spacing=S2),
+        card.add(setting_row(i18n.t("settings.weight"), row(self.weight,
+                                        Label(i18n.t("unit.kg"), "body", INK3), spacing=S2),
                              self.target_lbl))
         card.add(Divider())
 
@@ -2116,9 +2368,9 @@ class SettingsPage(QWidget):
         self.interval.set_index(cur, animate=False)
         self.interval.index = cur
         self.interval.changed.connect(self._on_interval)
-        card.add(setting_row("提醒間隔",
-                             row(self.interval, Label("分鐘", "body", INK3), spacing=S2),
-                             "以鍵盤滑鼠的活動時間計算"))
+        card.add(setting_row(i18n.t("settings.interval"),
+                             row(self.interval, Label(i18n.t("unit.minutes"), "body", INK3), spacing=S2),
+                             i18n.t("settings.interval_hint")))
         card.add(Divider())
 
         # 夜間放慢是「提醒間隔」的補充條件，不是另一個主題——它先前自成一張
@@ -2137,9 +2389,9 @@ class SettingsPage(QWidget):
         self.bedtime.changed.connect(self._on_bedtime)
         # hint 傳 Label 而不是字串：間隔改了、就寢改了，這行都要跟著重算。
         self.late_lbl = Label(self._late_text(), "caption", INK3, elide=True)
-        self.bed_auto = TapLabel("改為自動", C_ACCENT.name())
+        self.bed_auto = TapLabel(i18n.t("settings.bedtime_auto"), C_ACCENT.name())
         self.bed_auto.clicked.connect(self._back_to_auto)
-        card.add(setting_row("預計就寢時間",
+        card.add(setting_row(i18n.t("settings.bedtime"),
                              row(self.bed_auto, self.bedtime, spacing=S3),
                              self.late_lbl))
         card.add(Divider())
@@ -2165,7 +2417,7 @@ class SettingsPage(QWidget):
         self.sound.toggled.connect(self._on_sound)
         # 說明只講「不是每次提醒都響」。確切的時機交給底下那兩列——
         # 它們的標題就是時機，寫在這裡等於同一件事講兩遍。
-        card.add(setting_row("提醒音效", self.sound, "僅於提醒被忽略時發出"))
+        card.add(setting_row(i18n.t("settings.sound"), self.sound, i18n.t("settings.sound_hint")))
         card.add(Divider())
 
         # 兩個升級各一列。用「什麼時候響」當標題，不用「虛弱／倒地」——
@@ -2182,7 +2434,7 @@ class SettingsPage(QWidget):
                     appsettings.DEFAULTS["escalate_collapsed_min"])))):
             if i:
                 card.add(Divider())
-            card.add(self._sound_file_row(name, f"忽略 {mins} 分鐘後"))
+            card.add(self._sound_file_row(name, i18n.t("settings.sound_after", n=mins)))
         self._refresh_target_label()
         self._refresh_schedule_labels()
         return card
@@ -2194,11 +2446,11 @@ class SettingsPage(QWidget):
         會對著一個按下去毫無反應的字，而它旁邊兩個都有反應。
         """
         val = Label("", "body", INK2, elide=True)
-        test = TapLabel("試聽", C_ACCENT.name())
+        test = TapLabel(i18n.t("sound.preview"), C_ACCENT.name())
         test.clicked.connect(lambda n=name: sound.play(n))
-        pick = TapLabel("選擇", C_ACCENT.name())
+        pick = TapLabel(i18n.t("sound.choose"), C_ACCENT.name())
         pick.clicked.connect(lambda n=name: self._pick_sound(n))
-        reset = TapLabel("還原", INK3)
+        reset = TapLabel(i18n.t("sound.restore"), INK3)
         reset.clicked.connect(lambda n=name: self._reset_sound(n))
         self._sound_rows[name] = (val, reset)
         self._refresh_sound_row(name)
@@ -2219,9 +2471,9 @@ class SettingsPage(QWidget):
             if n != name:
                 continue
             if not ok:
-                return "不是 WAV 格式，仍使用內建"
-            return self.cfg.get(f"sound_name_{name}") or "自訂"
-        return "內建"
+                return i18n.t("sound.invalid")
+            return self.cfg.get(f"sound_name_{name}") or i18n.t("sound.custom")
+        return i18n.t("sound.builtin")
 
     def _refresh_sound_row(self, name):
         pair = self._sound_rows.get(name)
@@ -2245,7 +2497,7 @@ class SettingsPage(QWidget):
         """
         start = os.path.expanduser("~")
         picked, _ = QFileDialog.getOpenFileName(
-            self, "選擇提醒音效", start, "音效檔 (*.wav)")
+            self, i18n.t("sound.picker_title"), start, i18n.t("sound.picker_filter"))
         if not picked:
             return                              # 按了取消，什麼都不動
         if sound.install(name, picked):
@@ -2258,7 +2510,7 @@ class SettingsPage(QWidget):
         # 這一行會在下次打開設定頁時被實際狀態蓋掉（見 showEvent），
         # 那是對的——錯誤訊息講的是「剛才那個動作」，不是持續的狀態。
         val, _reset = self._sound_rows[name]
-        val.setText("選的檔案不是 WAV 格式")
+        val.setText(i18n.t("sound.pick_error"))
 
     def _reset_sound(self, name):
         sound.remove(name)
@@ -2269,10 +2521,10 @@ class SettingsPage(QWidget):
     def _display_card(self):
         card = Card()
         card.box.setSpacing(ROW_GAP)
-        card.add(section_header("顯示"))
+        card.add(section_header(i18n.t("settings.display")))
         card.add(GRID)
 
-        modes = (("auto", "跟隨系統"), ("light", "淺色"), ("dark", "深色"))
+        modes = (("auto", i18n.t("theme.auto")), ("light", i18n.t("theme.light")), ("dark", i18n.t("theme.dark")))
         self._theme_keys = [m[0] for m in modes]
         self.theme_seg = Segmented([m[1] for m in modes], h=CTRL_H)
         self.theme_seg.setFixedWidth(CTRL_W)
@@ -2281,13 +2533,13 @@ class SettingsPage(QWidget):
         self.theme_seg.set_index(cur, animate=False)
         self.theme_seg.index = cur
         self.theme_seg.changed.connect(self._on_theme)
-        card.add(setting_row("外觀", self.theme_seg))
+        card.add(setting_row(i18n.t("settings.appearance"), self.theme_seg))
         card.add(Divider())
 
         screens = QApplication.screens()
         if len(screens) > 1:
             self._screens = screens
-            self.screen_seg = Segmented([f"螢幕 {i + 1}" for i in range(len(screens))],
+            self.screen_seg = Segmented([i18n.t("settings.screen_n", n=i + 1) for i in range(len(screens))],
                                         h=CTRL_H)
             self.screen_seg.setFixedWidth(min(CTRL_W, 76 * len(screens)))
             cur = 0
@@ -2300,13 +2552,13 @@ class SettingsPage(QWidget):
             g = screens[cur].geometry()
             self.screen_lbl = Label(f"{g.width()}×{g.height()}", "caption", INK3,
                                     elide=True)
-            card.add(setting_row("動態島顯示在", self.screen_seg,
+            card.add(setting_row(i18n.t("settings.screen"), self.screen_seg,
                                  f"{g.width()}×{g.height()}"))
         else:
             # 只有一個螢幕時不放控制項：單一選項的選擇器是雜訊，
             # 它讓人以為有得選，點下去才發現沒有。
             g = screens[0].geometry() if screens else None
-            card.add(setting_row("動態島顯示在",
+            card.add(setting_row(i18n.t("settings.screen"),
                                  Label(f"{g.width()}×{g.height()}" if g else "—",
                                        "body", INK2)))
         card.add(Divider())
@@ -2315,13 +2567,29 @@ class SettingsPage(QWidget):
         self.autostart.toggled.connect(self._on_autostart)
         # 說明只標示這個開關控制什麼。關掉之後怎麼手動開啟，是使用者的常識，
         # 不是這一列的職責——介面把它寫出來就變成在教學。
-        card.add(setting_row("開機時啟動", self.autostart))
+        card.add(setting_row(i18n.t("settings.autostart"), self.autostart))
         card.add(Divider())
 
         self.check_updates = Toggle(self.cfg.get("check_updates", True))
         self.check_updates.toggled.connect(self._on_check_updates)
-        card.add(setting_row("檢查更新", self.check_updates,
-                             "啟動時向 GitHub 查詢新版本"))
+        card.add(setting_row(i18n.t("settings.updates"), self.check_updates,
+                             i18n.t("settings.updates_hint")))
+        card.add(Divider())
+
+        # 語言選擇
+        lang_choices = ("auto", "zh-TW", "en")
+        self._lang_keys = list(lang_choices)
+        self.lang_seg = Segmented(
+            [i18n.t("lang.auto"), i18n.t("lang.zh"), i18n.t("lang.en")],
+            h=CTRL_H,
+        )
+        self.lang_seg.setFixedWidth(CTRL_W)
+        cur_lang = self.cfg.get("language", "auto")
+        lang_idx = lang_choices.index(cur_lang) if cur_lang in lang_choices else 0
+        self.lang_seg.set_index(lang_idx, animate=False)
+        self.lang_seg.index = lang_idx
+        self.lang_seg.changed.connect(self._on_language)
+        card.add(setting_row(i18n.t("settings.language"), self.lang_seg))
         return card
 
     def _about_card(self):
@@ -2330,27 +2598,27 @@ class SettingsPage(QWidget):
         """
         card = Card()
         card.box.setSpacing(ROW_GAP)
-        card.add(section_header("關於"))
+        card.add(section_header(i18n.t("settings.about")))
         card.add(GRID)
 
-        open_lbl = TapLabel("開啟", C_ACCENT.name())
+        open_lbl = TapLabel(i18n.t("action.open"), C_ACCENT.name())
         open_lbl.clicked.connect(self._open_data_dir)
-        card.add(info_row("資料位置", appsettings.DATA_DIR, open_lbl))
+        card.add(info_row(i18n.t("about.data"), appsettings.DATA_DIR, open_lbl))
         card.add(Divider())
         # 齒輪上那顆點只說「有東西要看」，這一列說「是什麼、怎麼拿」。
         # 不另外開一列——這一列本來就是講版本的，有新版正是版本的一部分。
         _newer = updates.checker.newer_release()
         if _newer:
             _tag, _url = _newer
-            _get = TapLabel("開啟", C_ACCENT.name())
+            _get = TapLabel(i18n.t("action.open"), C_ACCENT.name())
             _get.clicked.connect(lambda: self._open_url(_url))
             # tag 帶 v 前綴（v0.11.0），顯示時拿掉：畫面上的版本一律不帶 v，
             # 同一列出現兩種寫法會讓人以為是兩個不同的東西。
-            card.add(info_row("版本",
-                              f"{appsettings.VERSION}（有新版 {_tag.lstrip('vV')}）",
+            card.add(info_row(i18n.t("about.version"),
+                              f"{appsettings.VERSION}（{i18n.t('about.version_update', tag=_tag.lstrip('vV'))}）",
                               _get))
         else:
-            card.add(info_row("版本", appsettings.VERSION))
+            card.add(info_row(i18n.t("about.version"), appsettings.VERSION))
         card.add(Divider())
 
         # 回報的路要在程式裡，不能只寫在 README——出問題的人正在用程式，
@@ -2362,18 +2630,18 @@ class SettingsPage(QWidget):
         # 「複製診斷資訊」跟回報是一組的。沒有它，收到的 issue 會是「壞掉了」；
         # 有了它，使用者貼上來的是版本、Windows 版本、螢幕與縮放、崩潰摘要。
         # 一樣不自動送——複製到剪貼簿，貼不貼、貼哪裡都是使用者決定。
-        report = TapLabel("開啟", C_ACCENT.name())
+        report = TapLabel(i18n.t("action.open"), C_ACCENT.name())
         report.clicked.connect(self._open_issues)
-        card.add(info_row("回報問題", "GitHub Issues", report))
+        card.add(info_row(i18n.t("about.report"), "GitHub Issues", report))
         card.add(Divider())
 
-        self._diag_lbl = TapLabel("複製", C_ACCENT.name())
+        self._diag_lbl = TapLabel(i18n.t("action.copy"), C_ACCENT.name())
         self._diag_lbl.clicked.connect(self._copy_diagnostics)
         # 值的欄位寫「這是什麼」，不寫指示。同一張卡的其他列都是這樣——
         # 資料位置是路徑、版本是號碼、回報問題是去處。而「回報時附上這段」
         # 除了語域不對（「這段」是口語的指稱），也把指示塞進了描述的位置。
         # 這一列就在「回報問題」正下方，該附上什麼不必再講一次。
-        card.add(info_row("診斷資訊", "系統與版本資訊", self._diag_lbl))
+        card.add(info_row(i18n.t("about.diagnostics"), i18n.t("about.diagnostics_value"), self._diag_lbl))
         card.add(Divider())
 
         # 引導只在第一次啟動時跑，忘記怎麼用的人需要一條回去的路。
@@ -2387,18 +2655,17 @@ class SettingsPage(QWidget):
         # 的字，兩邊會撞名。
         # 而「重看」雖然意思對，中文介面裡不會這樣講：它是口語的縮寫，
         # 讀起來像講到一半。動作標籤要是完整的動詞片語。
-        again = TapLabel("再看一次", C_ACCENT.name())
+        again = TapLabel(i18n.t("action.view_again"), C_ACCENT.name())
         again.clicked.connect(self.replay_onboarding)
-        card.add(info_row("使用導覽", "", again))
+        card.add(info_row(i18n.t("about.guide"), "", again))
         card.add(GRID)
         # 隱私聲明放這裡而不是體重欄底下：這是使用者會主動來找的地方，
         # 而輸入欄的說明行該留給那一欄的結果。
         # 不能寫「本程式無網路連線」：引導裡有一個彩蛋會用瀏覽器開影片。
         # 那句話會變成假的，而隱私聲明只要有一句不精確，整段就不值得信。
         # 「不蒐集也不傳送」才是真正成立、而且是使用者真正在意的那件事。
-        card.add(para("本程式不蒐集也不傳送任何資料，全部僅儲存於本機。"))
-        card.add(para("每日目標依國民健康署的公開資料與體重推算，不構成醫療建議。"
-                      "僅涵蓋使用電腦期間，未計入運動或流汗的額外需求。"))
+        card.add(para(i18n.t("about.privacy")))
+        card.add(para(i18n.t("about.disclaimer")))
         return card
 
     def _schedule_note(self):
@@ -2408,13 +2675,13 @@ class SettingsPage(QWidget):
         # 使用者自己設過就寢時間就不再是推算的——這裡要先擋掉，否則資料不夠時
         # 會對著他親手填的值說「推估值」。
         if not self.cfg.get("auto_schedule", True) or self.cfg.get("bedtime_manual"):
-            return "手動指定"
+            return i18n.t("schedule.manual")
         # 有沒有夠多天的資料可以取中位數，決定了它是真的算出來的還是猜的
         wake = self.cfg.get("day_rollover_hour", 8)
         fallback = (wake - 11) % 24
         if appsettings.infer_late_hour(appsettings.EVENTS_PATH, wake) != fallback:
-            return "依活動紀錄推算"
-        return "推估值，累積足夠紀錄後自動校準"
+            return i18n.t("schedule.inferred")
+        return i18n.t("schedule.estimated")
 
     # ------------------------------------------------------------ 事件
 
@@ -2425,8 +2692,8 @@ class SettingsPage(QWidget):
     def _refresh_target_label(self):
         t = appsettings.effective_target(self.cfg)
         ml = t * self.cfg.get("ml_per_drink_estimate", 200)
-        src = "由體重推算" if self.cfg.get("weight_kg") else "預設值"
-        self.target_lbl.setText(f"{src}：每日目標 {t} 次，約 {ml} cc")
+        src = i18n.t("target.from_weight") if self.cfg.get("weight_kg") else i18n.t("target.default")
+        self.target_lbl.setText(i18n.t("target.label", src=src, t=t, ml=ml))
 
     def _on_weight(self):
         kg = self.weight.value()
@@ -2498,15 +2765,16 @@ class SettingsPage(QWidget):
         控制項裡，假設本來就看得見。）
         """
         mins = appsettings.late_night_interval(self.cfg)
-        tail = f"睡前 {appsettings.LATE_BEFORE_SLEEP_H} 小時起改為每 {mins} 分"
+        h = appsettings.LATE_BEFORE_SLEEP_H
+        tail = i18n.t("late.interval", h=h, mins=mins)
         # 這個值是誰決定的要寫出來。使用者的抱怨是「為什麼每次打開都不一樣」
         # ——自動推算的值本來就會隨著紀錄變，但畫面上看不出它是自動的，
         # 於是那個變動讀起來像壞掉。標出來之後，會變就變得合理。
         if self.cfg.get("bedtime_manual"):
-            return f"手動指定，{tail}"
-        if self._schedule_note().startswith("推估"):
-            return f"推估值，累積足夠紀錄後自動校準，{tail}"
-        return f"依活動紀錄推算，{tail}"
+            return i18n.t("late.manual", tail=tail)
+        if self._schedule_note() == i18n.t("schedule.estimated"):
+            return i18n.t("late.estimated", tail=tail)
+        return i18n.t("late.inferred", tail=tail)
 
     def _refresh_late_label(self):
         self._refresh_schedule_labels()
@@ -2546,6 +2814,12 @@ class SettingsPage(QWidget):
         """
         self.cfg["check_updates"] = on
         self._emit()
+
+    def _on_language(self, i):
+        self.cfg["language"] = self._lang_keys[i]
+        i18n.set_language(self._lang_keys[i] if self._lang_keys[i] != "auto" else i18n._detect_system())
+        self._emit()
+        self.theme_changed.emit(self.cfg.get("theme", "auto"))
 
     def _on_autostart(self, on):
         if not appsettings.set_autostart(on):
@@ -2588,10 +2862,18 @@ class SettingsPage(QWidget):
         # 「主題 dark／臉 pixel」這種寫法有兩個問題：設定頁那一列叫「外觀」
         # 不叫「主題」，同一個東西在兩個地方用不同名字；而「臉」是隨手造的
         # 口語詞，介面上根本沒有。使用者看不懂自己貼出去的是什麼。
-        THEME = {"auto": "跟隨系統", "light": "淺色", "dark": "深色"}
-        FACE = {"pixel": "像素", "geometry": "幾何"}
+        THEME = {"auto": i18n.t("diag.theme.auto"),
+                 "light": i18n.t("diag.theme.light"),
+                 "dark": i18n.t("diag.theme.dark")}
+        FACE = {"pixel": i18n.t("diag.face.pixel"),
+                "geometry": i18n.t("diag.face.geometry")}
         scr = QApplication.primaryScreen()
         screens = QApplication.screens()
+        theme_val = THEME.get(self.cfg.get('theme'), self.cfg.get('theme'))
+        face_val = FACE.get(self.cfg.get('face_style'), self.cfg.get('face_style'))
+        font_val = i18n.t("diag.font.embedded") if typeface.ensure_loaded()[0] else i18n.t("diag.font.fallback")
+        t = appsettings.effective_target(self.cfg)
+        tgt_src = i18n.t("diag.target.weight") if self.cfg.get('weight_kg') else i18n.t("diag.target.default")
         lines = [
             f"Sipbar {appsettings.VERSION}",
             f"Windows {platform.version()}（{platform.machine()}）",
@@ -2601,28 +2883,26 @@ class SettingsPage(QWidget):
             # 就是這一行。requirements.txt 只寫下界（>=6.11），同一個 commit
             # 在不同時間建出來可能夾帶不同版本。
             f"Qt {qVersion()}（PySide6 {PySide6.__version__}）",
-            f"螢幕 {len(screens)} 個，主要 "
-            f"{scr.geometry().width()}×{scr.geometry().height()}，"
-            f"縮放 {scr.devicePixelRatio() * 100:.0f}%",
-            f"字體 {'內嵌' if typeface.ensure_loaded()[0] else '系統替代'}",
-            f"外觀 {THEME.get(self.cfg.get('theme'), self.cfg.get('theme'))}，"
-            f"角色 {FACE.get(self.cfg.get('face_style'), self.cfg.get('face_style'))}",
+            i18n.t("diag.screens", n=len(screens),
+                   w=scr.geometry().width(), h=scr.geometry().height(),
+                   pct=f"{scr.devicePixelRatio() * 100:.0f}"),
+            i18n.t("diag.font", value=font_val),
+            i18n.t("diag.appearance", theme=theme_val, face=face_val),
             # 只放推導出來的目標，**不放體重**。體重是個人健康資料，而且目標
             # 已經是它算出來的結果，對修 bug 沒有額外資訊——這一段會被貼進
             # 公開的 issue 裡。
-            f"每日目標 {appsettings.effective_target(self.cfg)} 次"
-            f"（{'依體重推導' if self.cfg.get('weight_kg') else '預設'}）",
-            f"提醒間隔 {self.cfg.get('interval_min')} 分鐘",
-            f"崩潰紀錄 {crashlog.summary()}",
+            f"{i18n.t('diag.target', t=t)}（{tgt_src}）",
+            i18n.t("diag.interval", n=self.cfg.get('interval_min')),
+            i18n.t("diag.crash", summary=crashlog.summary()),
             # 檢查更新失敗時是安靜的（沒網路、被限流、GitHub 改了回傳格式都
             # 一律安靜放棄）。沒有這一行的話，它哪天靜靜停止運作不會有人發現。
-            f"檢查更新 {updates.checker.status()}",
+            i18n.t("diag.update", status=updates.checker.status()),
             # 寫入健康狀態。這一行是給「紀錄怎麼少了一段」那種回報用的：
             # 寫檔失敗會被安靜吞掉（不吞的話程式會崩潰，那更糟），所以
             # 畫面上一切正常、資料卻沒存進去。沒有這一行就查不出來。
             # 要講得出是**哪一個**檔案在失敗。只報一個次數的話，回報者只能說
             # 「紀錄好像不見了」，而設定、狀態、紀錄三個檔壞掉的症狀完全不同。
-            f"寫入失敗 連續 {appsettings.write_fail_streak()} 次"
+            i18n.t("diag.write_fail", n=appsettings.write_fail_streak())
             + (f"（{'、'.join(appsettings.failing_writes())}）"
                if appsettings.failing_writes() else ""),
             # 資料檔的實際狀況。使用者回報「紀錄不見了」「數字不對」的時候，
@@ -2634,7 +2914,7 @@ class SettingsPage(QWidget):
         # 一切正常——值是合法的，島照跑——使用者只會覺得「我明明改了卻沒有
         # 用」。沒有這一行，那個疑惑在回報裡查不出來。
         if appsettings.repaired_keys():
-            lines.append("設定值退回預設 "
+            lines.append(i18n.t("diag.repaired") + " "
                          + "、".join(appsettings.repaired_keys()))
         return "\n".join(lines)
 
@@ -2667,23 +2947,23 @@ class SettingsPage(QWidget):
             # 破了自己的規矩。分辨「空的／有東西／是另一份」大小一樣夠用。
             try:
                 if not os.path.exists(p):
-                    return "不存在"
+                    return i18n.t("diag.file_missing")
                 return f"{os.path.getsize(p)} bytes"
             except Exception as e:                        # noqa: BLE001
-                return f"讀取失敗 {type(e).__name__}"
+                return i18n.t("diag.file_error", error=type(e).__name__)
 
         a = appsettings.EVENTS_PATH
         b = getattr(self, "_events_path", None)
-        out = [f"資料檔 {show(a)} → {stat(a)}"]
+        out = [i18n.t("diag.file", path=show(a), stat=stat(a))]
         if b and os.path.normcase(b) != os.path.normcase(a):
-            out.append(f"視窗實際讀 {show(b)} → {stat(b)}")
+            out.append(i18n.t("diag.file_actual", path=show(b), stat=stat(b)))
         return "\n".join(out)
 
     def _copy_diagnostics(self):
         QApplication.clipboard().setText(self.diagnostics())
         # 剪貼簿是看不見的，沒有回饋的話使用者不知道按到了，就會一直按。
-        self._diag_lbl.setText("已複製")
-        QTimer.singleShot(1600, lambda: self._diag_lbl.setText("複製"))
+        self._diag_lbl.setText(i18n.t("action.copied"))
+        QTimer.singleShot(1600, lambda: self._diag_lbl.setText(i18n.t("action.copy")))
 
     def _on_reset(self):
         """確認已經由視窗的 ConfirmOverlay 問過了，這裡只負責執行。"""
@@ -2721,10 +3001,10 @@ class StatsWindow(QWidget):
         # `WA_AlwaysShowToolTips` 是上一版為了讓 setToolTip() 在非作用中視窗上
         # 也能出現而加的。那條路已經整條換掉，屬性跟著拿掉——留著一個沒有東西
         # 依賴的設定，下一個人會去猜它在防什麼。
-        self.setWindowTitle("喝水紀錄")
+        self.setWindowTitle(i18n.t("window.title"))
         self.resize(WIN_W + SHADOW * 2, WIN_H + SHADOW * 2)
 
-        self.title_lbl = Label("喝水紀錄", "title", INK)
+        self.title_lbl = Label(i18n.t("title.stats"), "title", INK)
         # 副標在設定模式下兼任麵包屑。右上角那顆返回箭頭太小、也沒有標籤，
         # 使用者不一定認得它是「回上一層」——一條寫著去處的文字連結才是明確的路。
         self.sub_lbl = TapLabel("", INK3)
@@ -2732,9 +3012,8 @@ class StatsWindow(QWidget):
         self.sub_lbl.clicked.connect(
             lambda: self._switch_mode("stats") if self.mode == "settings" else None)
 
-        # 不捲動：內容分成幾頁，每一頁自己就放得下。
-        # 捲動面板有兩個代價——使用者不知道下面還有什麼（成就永遠在看不到的地方），
-        # 而且「這頁到底有多少東西」變成不可知，人就不會逛。
+        # 今天與紀錄不捲——它們是拿來逛的，藏在捲軸下面等於不存在。
+        # 成就頁 8 個以後超出一頁高度，用 ScrollPane 捲動（PAGES 第三欄控制）。
         self.seg = Segmented([p[0] for p in PAGES])
         self.stack = QStackedWidget()
         self.stack.setAttribute(Qt.WA_TranslucentBackground)
@@ -2778,7 +3057,7 @@ class StatsWindow(QWidget):
 
     def refresh(self, animate=True):
         self.data = dashboard.compute(self.cfg, self.events_path)
-        self.sub_lbl.setText(f"每日目標 {self.data['target']} 次")
+        self.sub_lbl.setText(i18n.t("subtitle.goal", target=self.data['target']))
 
         while self.stack.count():
             w = self.stack.widget(0)
@@ -2786,7 +3065,7 @@ class StatsWindow(QWidget):
             w.deleteLater()
 
         # 還沒有任何紀錄時不分頁——三個空頁面比一頁誠實的「還沒開始」糟得多
-        pages = ([("開始", [build_empty_card, build_footer_card])]
+        pages = ([(i18n.t("tab.start"), [build_empty_card, build_footer_card], False)]
                  if self.data["active_days"] == 0 else PAGES)
         self.seg.setVisible(len(pages) > 1)
         self.seg.labels = [p[0] for p in pages]
@@ -2794,7 +3073,7 @@ class StatsWindow(QWidget):
         self.seg.index = 0
 
         self.page_cards = []
-        for _label, builders in pages:
+        for _label, builders, scroll in pages:
             page = QWidget()
             page.setAttribute(Qt.WA_TranslucentBackground)
             lay = QVBoxLayout(page)
@@ -2805,7 +3084,10 @@ class StatsWindow(QWidget):
                 lay.addWidget(c)
             lay.addStretch(1)          # 卡片往上靠，短的頁面不要被撐開
             self.page_cards.append(cards)
-            self.stack.addWidget(page)
+            if scroll:
+                self.stack.addWidget(ScrollPane(page))
+            else:
+                self.stack.addWidget(page)
 
         if self.mode == "stats":
             self.cards = self.page_cards[0]
@@ -2946,8 +3228,8 @@ class StatsWindow(QWidget):
             return
         self.mode = mode
         if mode == "settings":
-            self.title_lbl.setText("設定")
-            self.sub_lbl.setText("‹ 喝水紀錄")          # 麵包屑，可點
+            self.title_lbl.setText(i18n.t("title.settings"))
+            self.sub_lbl.setText(i18n.t("breadcrumb.back"))          # 麵包屑，可點
             self.sub_lbl.setStyleSheet(f"color:{C_ACCENT.name()};background:transparent")
             self.sub_lbl.setCursor(Qt.PointingHandCursor)
             cards = self.settings_page.cards
@@ -2961,8 +3243,8 @@ class StatsWindow(QWidget):
                 # 使用者還站在設定頁上時把它腳下的頁面抽掉，捲軸與焦點都會亂跳。
                 self._stats_stale = False
                 self.refresh(animate=False)
-            self.title_lbl.setText("喝水紀錄")
-            self.sub_lbl.setText(f"每日目標 {self.data['target']} 次")
+            self.title_lbl.setText(i18n.t("title.stats"))
+            self.sub_lbl.setText(i18n.t("subtitle.goal", target=self.data['target']))
             self.sub_lbl.setStyleSheet(f"color:{INK3};background:transparent")
             self.sub_lbl.setCursor(Qt.ArrowCursor)
             cards = self.page_cards[self.seg.index]
@@ -3230,8 +3512,8 @@ class StatsWindow(QWidget):
         if self._confirm is not None:
             self._confirm.deleteLater()
         self._confirm = ConfirmOverlay(
-            self, "清除所有紀錄？",
-            "移除所有補水紀錄與連續天數，設定保留。此動作無法復原。")
+            self, i18n.t("confirm.reset_title"),
+            i18n.t("confirm.reset_body"))
         self._confirm.accepted.connect(self.settings_page._on_reset)
         self._confirm.ask()
 
