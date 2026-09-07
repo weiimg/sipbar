@@ -266,21 +266,6 @@ _ZH = {
     "streak.consecutive": "連續達標",
     "streak.shields": "護盾",
 
-    # --- 分享卡片 ---
-    # copy-style: off
-    "share.tooltip": "儲存連勝分享卡",
-    "share.save_title": "儲存分享卡",
-    "share.save_default": "Sipbar 連勝分享卡",
-    "share.saved": "已儲存",
-    "share.streak_label": "連續達標",
-    "share.streak_days": "天",
-    "share.title.0": "剛起步",
-    "share.title.1": "小水滴",
-    "share.title.2": "補水達人",
-    "share.title.3": "水之守護者",
-    "share.title.4": "水的化身",
-    # copy-style: on
-
     # --- 杯子計量 ---
     "cup.count": "{done} / {target} 次",
     "cup.cc": "約 {done} / {target} cc",
@@ -668,21 +653,6 @@ _EN = {
     "streak.unit_days": "days",
     "streak.consecutive": "Consecutive",
     "streak.shields": "Shields",
-
-    # --- Share card ---
-    # copy-style: off
-    "share.tooltip": "Save streak card",
-    "share.save_title": "Save share card",
-    "share.save_default": "Sipbar Streak Card",
-    "share.saved": "Saved",
-    "share.streak_label": "Consecutive",
-    "share.streak_days": "days",
-    "share.title.0": "Just starting",
-    "share.title.1": "Little Drop",
-    "share.title.2": "Hydration Pro",
-    "share.title.3": "Water Guardian",
-    "share.title.4": "Water Spirit",
-    # copy-style: on
 
     # --- Cup gauge ---
     "cup.count": "{done} / {target}",
