@@ -939,110 +939,12 @@ class Bar(Graphic):
             p.drawRoundedRect(QRectF(0, 0, max(8, self.width() * v), self.height()), 4, 4)
 
 
-_BADGE_ICONS = [
-    # 0: 水啦 — smiling water drop
-    (["........",
-      "...BB...",
-      "..BBBB..",
-      ".BBBBBB.",
-      ".MWMMWM.",
-      ".DDWWDD.",
-      "..DDDD..",
-      "........"], 3),
-    # 1: 今天很水哦 — smiling cup
-    (["KBBBBBBK",
-      "KBBBBBBK",
-      "KBWBBWBK",
-      "KBBBBBBK",
-      "KMWMMWMK",
-      "KDDWWDDK",
-      "KDDDDDDK",
-      ".KKKKKK."], 3),
-    # 2: One, two, 水！ — cup
-    (["........",
-      ".DBBBBD.",
-      ".DWBBWD.",
-      ".DBWWBD.",
-      ".DBBBBD.",
-      "..DBBD..",
-      "...BD...",
-      "..DDDD.."], 3),
-    # 3: 需要你 — crying cup
-    (["KBBBBBBK",
-      "KBBBBBBK",
-      "KBWBBWBK",
-      "KBBBBBBK",
-      "KMWWWWMK",
-      "KWDDDDWK",
-      "KDDDDDDK",
-      ".KKKKKK."], 3),
-    # 4: 我是一隻魚 — fish
-    (["........",
-      "..DDL...",
-      ".BBBBL.D",
-      "BWBBWDLD",
-      "LBWWDBDD",
-      ".LLLLD.D",
-      "...LD...",
-      "........"], 3),
-    # 5: 一氧化二氫成癮者 — H₂O
-    (["LD....LD",
-      "DD....DD",
-      "..L..L..",
-      "...BM...",
-      "..BBMD..",
-      ".MWMMWD.",
-      "..DWWD..",
-      "...DD..."], 3),
-    # 6: 游過太平洋了吧 — wave
-    ([".....LBL",
-      "...LBMBL",
-      "..BMBDB.",
-      ".BMDBD..",
-      "BMDBD...",
-      "MDBD....",
-      "DBD..LBL",
-      "BD..BMBL"], 3),
-    # 7: 水做的 — water figure
-    (["...BB...",
-      "..BWWB..",
-      "..BMMB..",
-      "...BB...",
-      ".LBBBL..",
-      "..DBBD..",
-      ".DB..BD.",
-      ".D....D."], 3),
-]
+_BADGE_ICONS = pixelface.BADGE_ICONS
+draw_badge_grid = pixelface.draw_badge_grid
 
 
 def _badge_shades(done):
-    if done:
-        b = C_ACCENT
-        return {
-            'B': b,
-            'L': b.lighter(108),
-            'M': b.darker(115),
-            'D': b.darker(135),
-            'K': b.darker(165),
-            'W': QColor(255, 255, 255),
-        }
-    g = QColor(140, 140, 140)
-    return {
-        'B': _alpha(g, 77),
-        'L': _alpha(g, 65),
-        'M': _alpha(g, 90),
-        'D': _alpha(g, 110),
-        'K': _alpha(g, 128),
-        'W': _alpha(QColor(200, 200, 200), 50),
-    }
-
-
-def draw_badge_grid(p, icon_index, x, y, cell, colors):
-    grid, _ = _BADGE_ICONS[icon_index]
-    for gy, row_str in enumerate(grid):
-        for gx, ch in enumerate(row_str):
-            if ch != '.' and ch in colors:
-                p.fillRect(x + gx * cell, y + gy * cell, cell, cell, colors[ch])
+    return pixelface.badge_shades(C_ACCENT, done)
 
 
 class Badge(Graphic):
@@ -1321,17 +1223,20 @@ class Card(QWidget):
     def set_reveal(self, t):
         """任何有 set_reveal 的子元件都跟著動，不限自繪的圖形。"""
         value = clamp(ease(t), 0.0, 1.0)
-        self._fx.setOpacity(value)
-        # 完全不透明時把效果關掉：淡入結束之後它本來就不做事（opacity 1.0），
-        # 而掛著 QGraphicsEffect 的 widget 一律要先畫進離屏圖再合成，白付成本。
-        #
-        # 這不是「設定頁捲動時版面錯位」那個 bug 的修正。我一度以為是，
-        # 理由是效果的離屏圖在捲動時不會失效；但把效果強制開回來當對照組跑，
-        # 殘影的量跟關掉時一樣（實測 34278 vs 34206 個像素）。假設被推翻了，
-        # 這行留著只是因為它本身划算。那個 bug 到目前為止還沒找到原因：
-        # 版面在每一條路徑上量出來都是對的（371/274/338、間距 17px），
-        # 畫面上卻差了 200px，所以問題在繪製，不在幾何。
-        self._fx.setEnabled(value < 0.999)
+        # 完全不透明時把效果整個拔掉，不只是 setEnabled(False)。
+        # setEnabled(False) 不會把 widget 從離屏渲染管線移出：Qt 內部仍然在
+        # QWidgetPrivate 上保留 graphicsEffect 指標，paint 路徑繞一圈才走回
+        # 正常分支。之前的對照組只測了 enabled/disabled（34278 vs 34206），
+        # 沒測過完全移除。尚未在真機上驗證是否解決捲動版面錯位。
+        if value >= 0.999:
+            if self.graphicsEffect() is not None:
+                self.setGraphicsEffect(None)
+                self._fx = None
+        else:
+            if self._fx is None:
+                self._fx = QGraphicsOpacityEffect(self)
+                self.setGraphicsEffect(self._fx)
+            self._fx.setOpacity(value)
         for w in self.findChildren(QWidget):
             if w is not self and hasattr(w, "set_reveal"):
                 w.set_reveal(t)
@@ -1961,6 +1866,7 @@ def fill_window_bg(widget, painter):
       背景處理，設了沒有用。
     - `setViewport(自繪的 widget)`：視口的 paint 事件先進 viewportEvent()，
       被基底類別吃掉，自訂的 paintEvent 根本不會被呼叫（實測 alpha 全 0）。
+
     能穩定生效的只有「讓實際覆蓋那塊區域的 widget 自己畫」。
     """
     win = widget.window()
@@ -1969,6 +1875,11 @@ def fill_window_bg(widget, painter):
     g.setColorAt(0.0, PAL.bg_top)
     g.setColorAt(1.0, PAL.bg_bottom)
     painter.fillRect(widget.rect(), QBrush(g))
+
+
+class _ScrollInner(QWidget):
+    def paintEvent(self, event):
+        fill_window_bg(self, QPainter(self))
 
 
 class ScrollPane(QWidget):
@@ -2007,7 +1918,8 @@ class ScrollPane(QWidget):
             這不是「設定頁捲動時版面錯位」那個 bug 的修正。加了之後症狀照舊，
             原因至今未明——版面在每一條路徑上量出來都是對的（371/274/338、
             間距 17px），畫面上卻差了 200px。線索：靜止時空白也不會消失，
-            所以不是捲動當下的暫時殘影。
+            所以不是捲動當下的暫時殘影。試過的一條路：淡入結束後把效果整個
+            拔掉而非只 disable（見 Card.set_reveal）。尚未在真機上驗證。
             """
             super().scrollContentsBy(dx, dy)
             self.viewport().update()
@@ -3087,8 +2999,9 @@ class StatsWindow(QWidget):
 
         self.page_cards = []
         for _label, builders, scroll in pages:
-            page = QWidget()
-            page.setAttribute(Qt.WA_TranslucentBackground)
+            page = _ScrollInner() if scroll else QWidget()
+            if not scroll:
+                page.setAttribute(Qt.WA_TranslucentBackground)
             lay = QVBoxLayout(page)
             lay.setContentsMargins(0, 0, 0, 0)
             lay.setSpacing(GAP)

@@ -474,8 +474,9 @@ class Island(QWidget):
         # 第一次達標那條路上是 True，_hold_for() 靠它決定停留多久。
         self._hinting = False
         self._unlocked = None            # 已解鎖的成就名稱；None = 還沒拍到基準
-        self._pending_achievement = None  # (name, desc)，等 _settle() 顯示
+        self._pending_achievement = None  # (name, desc, icon_index)，等 _settle() 顯示
         self._showing_achievement = False # 這一輪 SATISFIED 是成就通知
+        self._achievement_icon = None    # 正在顯示的徽章索引
         self._restored_state = None      # 上次關掉時停在哪個提醒狀態
         # 抽到的那句主字，連同產生它的 (狀態, 次數, override)。見 _refresh_message()。
         self._msg_cache = None
@@ -802,38 +803,14 @@ class Island(QWidget):
             return i18n.t("status.write_trouble")
         if self.paused_until:
             return i18n.t("status.paused", time=self.paused_until.strftime('%H:%M'))
-        # 底下那排進度點已經表達了今天的次數，這裡就不重複——
-        # 換成連續天數，否則島上唯一會變的數字每天歸零，看起來像連續被重置了。
-        head = i18n.t("status.streak", n=self.streak) if self.streak else i18n.t("status.today_count", done=self.drinks, target=target)
+        # 進度點已經表達了今天的次數，不重複。有連續天數時才放 head。
+        head = i18n.t("status.streak", n=self.streak) if self.streak else ""
         if self.drinks >= target:
-            return f"{head}，{i18n.t('status.target_reached')}"
+            suffix = i18n.t('status.target_reached')
+            return f"{head}，{suffix}" if head else suffix
         remain = int(max(0, self.interval_s - self.active_s) // 60)
-        # 分隔符用半形空白而非全形，目標次數變多時進度點會吃掉寬度，
-        # 全形空白會讓這行剛好超過而被省略號截掉。
-        #
-        # 一律寫「下次」，深夜不另外標示。
-        #
-        # 先前深夜會換成「夜間約 N 分後」，用意是解釋「這次怎麼比較久」——
-        # 抖動有 ±15%，光看數字分不出是抖動還是深夜模式。
-        #
-        # 但那個標示會在早上出現。深夜的範圍當時是
-        # `hour >= late_night_start_hour or hour < day_rollover_hour`（見
-        # `_is_late()`），也就是一路延續到起床時間為止——起床設 9 點的人，
-        # 早上 8:40 坐在電腦前看到的是「夜間約 62 分後」。
-        #
-        # 那個範圍後來改掉了（夜間到清晨 5 點換日就結束），8:40 不會再是夜間。
-        # 但這個決定維持不變：底下那兩個理由跟範圍沒有關係。
-        #
-        # 那一刻它在事實上沒有錯（間隔確實還是放慢的），但**讀起來是錯的**，
-        # 而一個讀起來是錯的標籤比沒有標籤糟：使用者會開始懷疑其他數字。
-        #
-        # 那它解釋的那件事怎麼辦——不解釋。深夜放慢是自動的、使用者沒有要求過、
-        # 也不需要為它做任何事；「為什麼是 109 分不是 75 分」屬於設定頁
-        #（那裡寫著「睡前 3 小時起改為每 109 分」），不屬於一個滑過去看一眼的
-        # 地方。
-        if remain <= 0:
-            return f"{head} · {i18n.t('status.coming_soon')}"
-        return f"{head} · {i18n.t('status.next_in', n=remain)}"
+        tail = i18n.t('status.coming_soon') if remain <= 0 else i18n.t('status.next_in', n=remain)
+        return f"{head} · {tail}" if head else tail
 
     def _reminding_sub(self):
         # 示警要蓋過這裡，理由跟 _status_sub() 相同——而且這裡更要緊。
@@ -854,9 +831,7 @@ class Island(QWidget):
         #（見 DESIGN 的 Duolingo 那節）。
         if self.streak:
             return i18n.t("status.streak", n=self.streak)
-        # 還沒有連續可講的第一天，次數仍然是這裡最有用的東西。
-        target = self.cfg["daily_target_drinks"]
-        return i18n.t("remind.today_count", done=self.drinks, target=target)
+        return ""
 
     def _refresh_message(self, override=None, sub=None):
         # 小標只放狀態，不放操作說明。「點一下就算喝了」學會之後就只是噪音，
@@ -1138,9 +1113,11 @@ class Island(QWidget):
             self._pending_achievement = None
             if ach:
                 self._showing_achievement = True
+                self._achievement_icon = ach[2]
                 self._enter(SATISFIED, message=ach[0], sub=ach[1])
                 return
             self._showing_achievement = False
+            self._achievement_icon = None
             self._peek_locked = True
             self._enter(NORMAL)
             return
@@ -1276,6 +1253,7 @@ class Island(QWidget):
         """點一下＝「我剛補了水」，不管喝了幾口。不宣稱喝滿一杯，就沒有虛報的壓力。"""
         self._pending_achievement = None
         self._showing_achievement = False
+        self._achievement_icon = None
 
         if self._practicing:
             # 練習不留任何痕跡：不加次數、不重擲間隔、不寫 events、不存檔。
@@ -1351,9 +1329,11 @@ class Island(QWidget):
             new = after - self._unlocked if self._unlocked is not None else frozenset()
             self._unlocked = after
             if new:
-                for name, desc, _, _ in reversed(dashboard.achievements(data)):
+                achs = dashboard.achievements(data)
+                for i in range(len(achs) - 1, -1, -1):
+                    name, desc = achs[i][0], achs[i][1]
                     if name in new:
-                        self._pending_achievement = (name, desc)
+                        self._pending_achievement = (name, desc, i)
                         break
         except Exception:
             pass
@@ -1420,6 +1400,7 @@ class Island(QWidget):
             return
         self._pending_achievement = None
         self._showing_achievement = False
+        self._achievement_icon = None
         snap, self._undo = self._undo, None      # 一份只能用一次
         log_event(
             self.day, "undo",
@@ -1780,7 +1761,10 @@ class Island(QWidget):
         lay = self._layout(rect, c)
         face = self._draw_face(p, rect, color, lay)
 
-        pips_left = self._draw_pips(p, rect, lay)
+        if self._showing_achievement:
+            pips_left = rect.right() - 20
+        else:
+            pips_left = self._draw_pips(p, rect, lay)
         if c > 0.01:
             self._draw_text(p, rect, face, c, pips_left)
         p.setOpacity(1.0)
@@ -1817,15 +1801,23 @@ class Island(QWidget):
         if self.cfg.get("face_style", "pixel") == "pixel":
             w, h, cup_cell = lay["w"], lay["h"], lay["cup_cell"]
             cx = lay["face_left"] + w / 2.0
-            water = pixelface.WATER_DONE if self.state == SATISFIED else pixelface.WATER
-            if cup_cell:
-                pixelface.draw_cup(p, cx, cy, clamp(self.sp_level.value, 0.0, 1.0),
-                                   self.state, pixelface.GLASS, water, pixelface.INK,
-                                   cell=cup_cell)
+            if self._showing_achievement and self._achievement_icon is not None:
+                badge_cell = max(1, int(min(w, h) / 8))
+                bw = bh = badge_cell * 8
+                bx = int(cx - bw / 2.0)
+                by = int(cy - bh / 2.0)
+                colors = pixelface.badge_shades(ACCENT, True)
+                pixelface.draw_badge_grid(p, self._achievement_icon,
+                                          bx, by, badge_cell, colors)
             else:
-                # 探頭時只會是 NORMAL、水位恆滿，杯子本來就沒帶資訊，省下來換臉大一點
-                pixelface.draw_at_cell(p, cx - w / 2.0, cy - h / 2.0,
-                                       pixelface.PEEK_CELL, self.state, pixelface.INK)
+                water = pixelface.WATER_DONE if self.state == SATISFIED else pixelface.WATER
+                if cup_cell:
+                    pixelface.draw_cup(p, cx, cy, clamp(self.sp_level.value, 0.0, 1.0),
+                                       self.state, pixelface.GLASS, water, pixelface.INK,
+                                       cell=cup_cell)
+                else:
+                    pixelface.draw_at_cell(p, cx - w / 2.0, cy - h / 2.0,
+                                           pixelface.PEEK_CELL, self.state, pixelface.INK)
             # 像素關掉抗鋸齒，後面的文字與進度點要自己開回來
             p.setRenderHint(QPainter.Antialiasing, True)
             return QRectF(cx - w / 2.0, cy - h / 2.0, w, h)

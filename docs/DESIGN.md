@@ -479,6 +479,23 @@ Inter 預設的數字是比例寬（`1` 是 415、`0` 是 646），那對內文�
 （第一版把漸層做成 28px，結果它蓋到完整顯示、讀得到的那幾行，
 把說明段落洗成半透明。遮罩的作用是暗示還有，不是把內容變淡。）
 
+> **捲動頁面裡的 QScrollArea 和 viewport 要設 `WA_TranslucentBackground`。**
+> 這個視窗用 `WA_TranslucentBackground` 做圓角與陰影，沒畫到的像素是全透明的。
+> 不捲動的頁面無所謂，因為 `StatsWindow.paintEvent` 的漸層會透過去。
+> 但 `QScrollArea` 預設會在 viewport 上畫自己的底色，把父層的漸層蓋掉。
+> 內容頁即使設了 `WA_TranslucentBackground`，viewport 那一層還是不透明的，
+> 上下左右都會漏出跟視窗漸層不一致的底色。
+>
+> 修法是在 `ScrollPane` 裡對 `QScrollArea` 和 `viewport()` 都設
+> `WA_TranslucentBackground`，讓 `ScrollPane.paintEvent` 的漸層直接透過去。
+> 內容頁跟不捲動的頁面一樣保持透明就好，不需要另外畫底色。
+> 這跟 `viewport().setAutoFillBackground(True)`（被 QAbstractScrollArea 覆寫）
+> 和 `setViewport(自繪的 widget)`（viewportEvent 吃掉 paintEvent）不同。
+>
+> 一開始設計設定頁時踩過同一個坑。當時的做法是讓 `SettingsPage` 自己畫底色
+> （`fill_window_bg()`），那個做法能用但只補了一面，沒有從根源解決。
+> 成就頁改成可捲動時漏掉了同樣的處理，才又復發。
+
 ### 版面用網格，不是逐項微調
 
 設定列看起來「沒排好」，多半不是對齊錯了，是**每一列高度都不一樣**——有說明的列

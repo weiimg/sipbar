@@ -285,17 +285,15 @@ check("間隔沒被重擲", w2.interval_s, 3600.0)
 # 深夜與否要由測試決定，不能交給真實時鐘：_status_sub() 在深夜會多一段
 # 「深夜放慢」，這幾條若在 23:00-08:00 之間跑就會拿到另一個字串而莫名變紅。
 w2._is_late = lambda hour=None: False
-w2.streak = 0        # 沒有連續時，開頭仍顯示今天次數
-check("倒數一致", w2._status_sub(),
-      f"今天 2/{cfg['daily_target_drinks']} 次 · 下次約 30 分後")
+w2.streak = 0        # 沒有連續時，進度點已表達次數，只顯示倒數
+check("倒數一致", w2._status_sub(), "下次約 30 分後")
 w2.streak = 5        # 有連續時，開頭換成連續天數（進度點已表達今天次數）
 check("有連續時顯示連續", w2._status_sub(), "連續 5 天 · 下次約 30 分後")
 # 次數搬到主字之後，這一行不再重複它——「還剩 3 次」配「今天 2/7 次」是
 # 同一件事講兩遍，而連續天數才是這條線上最該被看到的東西。
 check("提醒中的小標只講連續", w2._reminding_sub(), "連續 5 天")
 w2.streak = 0
-check("還沒有連續可講的第一天，次數仍然放這裡", w2._reminding_sub(),
-      f"今天補水 2/{cfg['daily_target_drinks']} 次")
+check("還沒有連續可講的第一天，進度點已表達次數", w2._reminding_sub(), "")
 w2.streak = 5
 # 深夜不標示。先前寫「夜間約 N 分後」，但深夜的範圍一路延續到起床時間，
 # 於是起床設 9 點的人早上 8:40 會看到「夜間」——那一刻事實上沒錯（間隔確實
@@ -1247,10 +1245,12 @@ sip(w36)
 check("第一次補水狀態", w36.state, isl.SATISFIED)
 check("有成就等著顯示", w36._pending_achievement is not None, True)
 check("成就名稱", w36._pending_achievement[0], "水啦！")
+check("成就徽章索引", w36._pending_achievement[2], 0)
 w36._settle()
 check("成就通知中狀態仍是 SATISFIED", w36.state, isl.SATISFIED)
 check("島上顯示成就名稱", w36.message, "水啦！")
 check("島上顯示成就說明", w36.sub_message, "完成一次補水")
+check("正在顯示徽章索引", w36._achievement_icon, 0)
 check("成就停留 3 秒", w36.hold_timer.interval(), int(isl.ACHIEVEMENT_HOLD_S * 1000))
 w36._settle()
 check("成就結束後回到隱藏", w36.state, isl.NORMAL)
@@ -1300,7 +1300,8 @@ import dashboard
 _real_max37 = w2._max_pill_w
 w2._max_pill_w = lambda: 1366 * isl.PILL_SCREEN_FRAC
 _dummy_data = {"total_drinks": 999, "longest": 999, "hit_days": 999,
-               "target": 7, "days": {"2025-01-01": {"drinks": 99}}}
+               "target": 7, "days": {"2025-01-01": {"drinks": 99}},
+               "hours": {h: 99 for h in range(24)}}
 _too_long37 = None
 for _name, _desc, _, _ in dashboard.achievements(_dummy_data):
     _av, _pw = _avail_for(_name, _desc)
@@ -1309,6 +1310,11 @@ for _name, _desc, _, _ in dashboard.achievements(_dummy_data):
         _too_long37 = f"「{_name}」需要 {_need:.0f}px / 可用 {_av:.0f}px"
 check("每一個成就名稱都放得下", _too_long37, None)
 w2._max_pill_w = _real_max37
+
+print("\n39. BADGE_ICONS 和 achievements 數量一致")
+import pixelface as _pf39
+check("徽章圖示數量 == 成就數量",
+      len(_pf39.BADGE_ICONS), len(dashboard.achievements(_dummy_data)))
 
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。

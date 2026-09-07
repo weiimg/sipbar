@@ -355,6 +355,14 @@ def achievements(data):
          min(data["total_drinks"], 500), 500),
         (i18n.t("achievement.name.8"), i18n.t("achievement.desc.8"),
          min(data["hit_days"], 100), 100),
+        (i18n.t("achievement.name.9"), i18n.t("achievement.desc.9"),
+         min(data["hit_days"], 365), 365),
+        (i18n.t("achievement.name.10"), i18n.t("achievement.desc.10"),
+         min(data["total_drinks"], 1000), 1000),
+        (i18n.t("achievement.name.11"), i18n.t("achievement.desc.11"),
+         min(sum(data["hours"].get(h, 0) for h in range(0, 5)), 10), 10),
+        (i18n.t("achievement.name.12"), i18n.t("achievement.desc.12"),
+         min(sum(data["hours"].get(h, 0) for h in range(5, 8)), 10), 10),
     ]
 
 

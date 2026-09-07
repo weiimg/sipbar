@@ -225,3 +225,149 @@ def draw_cup(p: QPainter, cx, cy, level, state, glass: QColor,
     if face:
         draw_at_cell(p, x0 + (CUP_W - GRID) // 2 * cell, y0 + 3 * cell, cell, state, ink)
     return w, h
+
+
+# ---------------------------------------------------------------- 成就徽章
+#
+# 8×8 像素格。每筆是 (行字串列表, 預設格距)。
+# 顏色鍵：B=base, L=lighter, M=mid-dark, D=dark, K=darkest, W=white。
+BADGE_ICONS = [
+    # 0: 水啦 — smiling water drop
+    (["........",
+      "...BB...",
+      "..BBBB..",
+      ".BBBBBB.",
+      ".MWMMWM.",
+      ".DDWWDD.",
+      "..DDDD..",
+      "........"], 3),
+    # 1: 今天很水哦 — smiling cup
+    (["KBBBBBBK",
+      "KBBBBBBK",
+      "KBWBBWBK",
+      "KBBBBBBK",
+      "KMWMMWMK",
+      "KDDWWDDK",
+      "KDDDDDDK",
+      ".KKKKKK."], 3),
+    # 2: One, two, 水！ — cup
+    (["........",
+      ".DBBBBD.",
+      ".DWBBWD.",
+      ".DBWWBD.",
+      ".DBBBBD.",
+      "..DBBD..",
+      "...BD...",
+      "..DDDD.."], 3),
+    # 3: 需要你 — crying cup
+    (["KBBBBBBK",
+      "KBBBBBBK",
+      "KBWBBWBK",
+      "KBBBBBBK",
+      "KMWWWWMK",
+      "KWDDDDWK",
+      "KDDDDDDK",
+      ".KKKKKK."], 3),
+    # 4: 我是一隻魚 — fish
+    (["........",
+      "..DDL...",
+      ".BBBBL.D",
+      "BWBBWDLD",
+      "LBWWDBDD",
+      ".LLLLD.D",
+      "...LD...",
+      "........"], 3),
+    # 5: 一氧化二氫成癮者 — H₂O
+    (["LD....LD",
+      "DD....DD",
+      "..L..L..",
+      "...BM...",
+      "..BBMD..",
+      ".MWMMWD.",
+      "..DWWD..",
+      "...DD..."], 3),
+    # 6: 游過太平洋了吧 — wave
+    ([".....LBL",
+      "...LBMBL",
+      "..BMBDB.",
+      ".BMDBD..",
+      "BMDBD...",
+      "MDBD....",
+      "DBD..LBL",
+      "BD..BMBL"], 3),
+    # 7: 水做的 — water figure
+    (["...BB...",
+      "..BWWB..",
+      "..BMMB..",
+      "...BB...",
+      ".LBBBL..",
+      "..DBBD..",
+      ".DB..BD.",
+      ".D....D."], 3),
+    # 8: 一整年 — trophy
+    (["KBBBBBBK",
+      "KBWBBWBK",
+      ".KBWWBK.",
+      "..KBBK..",
+      "...KK...",
+      "..KDDK..",
+      ".KDDDDK.",
+      ".KKKKKK."], 3),
+    # 9: 千杯之友 — crowned face
+    (["........",
+      "....B...",
+      ".B.BB.B.",
+      ".BBBBBB.",
+      ".BWBBWB.",
+      ".MMWWMM.",
+      ".MMMMMM.",
+      "........"], 3),
+    # 10: 夜貓子 — cat face
+    (["........",
+      ".M....M.",
+      ".MBBBBM.",
+      ".BBBBBB.",
+      "BBWBBWBB",
+      ".MBWWBM.",
+      "..BMMB..",
+      "........"], 3),
+    # 11: 晨型人 — sun face
+    (["M......M",
+      ".M.BB.M.",
+      "..BBBB..",
+      ".BWBBWB.",
+      ".MMWWMM.",
+      "..MMMM..",
+      ".M.MM.M.",
+      "M......M"], 3),
+]
+
+
+def badge_shades(accent, done):
+    """徽章配色。accent 是 QColor，done 決定彩色或灰色。"""
+    if done:
+        return {
+            'B': accent,
+            'L': accent.lighter(108),
+            'M': accent.darker(115),
+            'D': accent.darker(135),
+            'K': accent.darker(165),
+            'W': QColor(255, 255, 255),
+        }
+    g = QColor(140, 140, 140)
+    def _a(c, a):
+        r = QColor(c); r.setAlpha(a); return r
+    return {
+        'B': _a(g, 77), 'L': _a(g, 65), 'M': _a(g, 90),
+        'D': _a(g, 110), 'K': _a(g, 128),
+        'W': _a(QColor(200, 200, 200), 50),
+    }
+
+
+def draw_badge_grid(p, icon_index, x, y, cell, colors):
+    """畫一個 8×8 徽章。colors 是 char->QColor 的 dict。"""
+    grid, _ = BADGE_ICONS[icon_index]
+    for gy, row_str in enumerate(grid):
+        for gx, ch in enumerate(row_str):
+            if ch != '.' and ch in colors:
+                p.fillRect(x + gx * cell, y + gy * cell, cell, cell, colors[ch])

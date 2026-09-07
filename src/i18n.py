@@ -109,6 +109,10 @@ _ZH = {
     "achievement.name.6": "一氧化二氫成癮者",
     "achievement.name.7": "游過太平洋了吧",
     "achievement.name.8": "水做的",
+    "achievement.name.9": "一整年",
+    "achievement.name.10": "千杯之友",
+    "achievement.name.11": "夜貓子",
+    "achievement.name.12": "晨型人",
 
     # 引導——杯子的聲音
     "onboard.name": "杯子",
@@ -138,6 +142,10 @@ _ZH = {
     "achievement.desc.6": "連續三十天達標",
     "achievement.desc.7": "總補水次數達 500",
     "achievement.desc.8": "累積達標 100 天",
+    "achievement.desc.9": "累積達標 365 天",
+    "achievement.desc.10": "總補水次數達 1000",
+    "achievement.desc.11": "深夜補水 10 次",
+    "achievement.desc.12": "清晨補水 10 次",
     "achievement.done": "完成",
 
     # 星期
@@ -501,6 +509,10 @@ _EN = {
     "achievement.name.6": "H₂O addict",
     "achievement.name.7": "Swam the Pacific",
     "achievement.name.8": "Made of water",
+    "achievement.name.9": "Full year",
+    "achievement.name.10": "1000 club",
+    "achievement.name.11": "Night owl",
+    "achievement.name.12": "Early bird",
 
     "onboard.name": "Cup",
     "onboard.water_lead": ("First things first: keep water within reach. "
@@ -532,6 +544,10 @@ _EN = {
     "achievement.desc.6": "Reach the goal 30 days in a row",
     "achievement.desc.7": "Reach 500 total hydrations",
     "achievement.desc.8": "Hit your daily goal 100 days",
+    "achievement.desc.9": "Hit your daily goal 365 days",
+    "achievement.desc.10": "Reach 1000 total hydrations",
+    "achievement.desc.11": "Hydrate 10 times in the wee hours",
+    "achievement.desc.12": "Hydrate 10 times in the early morning",
     "achievement.done": "Done",
 
     "weekdays": "MTWTFSS",
