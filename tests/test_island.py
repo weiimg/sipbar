@@ -154,8 +154,7 @@ check("reveal 目標（消失）", w.sp_reveal.target, 0.0)
 print("\n9. 補滿 6 次 -> 達標訊息，之後整天不再出現")
 sip(w, cfg["daily_target_drinks"] - 1)
 check("次數", w.drinks, cfg["daily_target_drinks"])
-check("訊息", w.message, "今天達標了")
-check("達標時小標顯示連續", w.sub_message.startswith("連續 ") or w.streak == 0, True)
+check("達標時大標顯示連續", w.message.startswith("連續 ") or w.streak == 0, True)
 settle_through(w)
 ticks(600)
 check("跑 600 分鐘仍隱藏", w.sp_reveal.target, 0.0)
@@ -285,21 +284,16 @@ check("間隔沒被重擲", w2.interval_s, 3600.0)
 # 深夜與否要由測試決定，不能交給真實時鐘：_status_sub() 在深夜會多一段
 # 「深夜放慢」，這幾條若在 23:00-08:00 之間跑就會拿到另一個字串而莫名變紅。
 w2._is_late = lambda hour=None: False
-w2.streak = 0        # 沒有連續時，進度點已表達次數，只顯示倒數
-check("倒數一致", w2._status_sub(), "下次約 30 分後")
-w2.streak = 5        # 有連續時，開頭換成連續天數（進度點已表達今天次數）
-check("有連續時顯示連續", w2._status_sub(), "連續 5 天 · 下次約 30 分後")
-# 次數搬到主字之後，這一行不再重複它——「還剩 3 次」配「今天 2/7 次」是
-# 同一件事講兩遍，而連續天數才是這條線上最該被看到的東西。
-check("提醒中的小標只講連續", w2._reminding_sub(), "連續 5 天")
 w2.streak = 0
-check("還沒有連續可講的第一天，進度點已表達次數", w2._reminding_sub(), "")
+check("倒數一致", w2._status_sub(), "下次約 30 分後")
+w2.streak = 5        # 連續天數不再顯示在小標
+check("有連續時也只顯示倒數", w2._status_sub(), "下次約 30 分後")
+check("提醒中的小標不顯示連續", w2._reminding_sub(), "")
+w2.streak = 0
+check("還沒有連續可講的第一天", w2._reminding_sub(), "")
 w2.streak = 5
-# 深夜不標示。先前寫「夜間約 N 分後」，但深夜的範圍一路延續到起床時間，
-# 於是起床設 9 點的人早上 8:40 會看到「夜間」——那一刻事實上沒錯（間隔確實
-# 還是放慢的），但讀起來是錯的，而讀起來是錯的標籤比沒有標籤糟。
 w2._is_late = lambda hour=None: True
-check("深夜也是同一句，不特別標示", w2._status_sub(), "連續 5 天 · 下次約 30 分後")
+check("深夜也只顯示倒數", w2._status_sub(), "下次約 30 分後")
 w2._is_late = lambda hour=None: False
 w2.streak = 0
 
@@ -1083,7 +1077,7 @@ w33.tick_timer.stop(); w33.frame.stop(); w33.hold_timer.stop()
 w33.peek_timer.stop(); w33.beat_timer.stop()
 w33.drinks = _cfg33["daily_target_drinks"] - 1
 sip(w33)                                        # 喝下達標的那一口
-check("主字仍然是達標", w33.message, "今天達標了")
+check("主字顯示連續或達標", w33.message.startswith("連續 ") or w33.message == "今天達標了", True)
 check("小標換成指示", w33.sub_message, "右鍵可以看紀錄")
 check("提示過就記下來", w33.cfg["records_hinted"], True)
 check("而且寫回設定檔",

@@ -803,14 +803,10 @@ class Island(QWidget):
             return i18n.t("status.write_trouble")
         if self.paused_until:
             return i18n.t("status.paused", time=self.paused_until.strftime('%H:%M'))
-        # 進度點已經表達了今天的次數，不重複。有連續天數時才放 head。
-        head = i18n.t("status.streak", n=self.streak) if self.streak else ""
         if self.drinks >= target:
-            suffix = i18n.t('status.target_reached')
-            return f"{head}，{suffix}" if head else suffix
+            return i18n.t('status.target_reached')
         remain = int(max(0, self.interval_s - self.active_s) // 60)
-        tail = i18n.t('status.coming_soon') if remain <= 0 else i18n.t('status.next_in', n=remain)
-        return f"{head} · {tail}" if head else tail
+        return i18n.t('status.coming_soon') if remain <= 0 else i18n.t('status.next_in', n=remain)
 
     def _reminding_sub(self):
         # 示警要蓋過這裡，理由跟 _status_sub() 相同——而且這裡更要緊。
@@ -826,11 +822,6 @@ class Island(QWidget):
         # 蓋掉的是這個工具最重要的動機數字，所以份量要壓得很小。
         if self._tip:
             return self._tip
-        # 次數搬到主字之後，這裡就不再重複它——「還剩 3 次」配「今天 6/9 次」
-        # 是同一件事講兩遍，而連續天數才是這條線上最該被看到的東西
-        #（見 DESIGN 的 Duolingo 那節）。
-        if self.streak:
-            return i18n.t("status.streak", n=self.streak)
         return ""
 
     def _refresh_message(self, override=None, sub=None):
@@ -1340,23 +1331,15 @@ class Island(QWidget):
 
         target = self.cfg["daily_target_drinks"]
         if self.drinks >= target:
-            # 達標的瞬間連續會 +1，這裡是唯一的回饋時機，數字要當場更新
             self._refresh_streak()
-            sub = i18n.t("status.streak", n=self.streak) if self.streak else None
-            # 第一次達標多講一句「紀錄在哪裡」。紀錄視窗做得比島完整，而唯一的
-            # 入口是右鍵，那是一個沒有任何視覺提示的動作——不講就沒有人會發現。
-            #
-            # 蓋掉「連續 N 天」不可惜：第一次達標的連續本來就是 1，那個數字
-            # 沒什麼好看的，而這句話一輩子只出現一次。
-            #
-            # 存不進去的話下次達標會再提示一次。那不是災難（多講一次而已），
-            # 而寫入失敗本來就會被計數、在診斷資訊裡看得到。
+            msg = i18n.t("status.streak", n=self.streak) if self.streak else i18n.t("msg.drink_target")
+            sub = None
             self._hinting = not self.cfg.get("records_hinted")
             if self._hinting:
                 sub = i18n.t("msg.hint_records")
                 self.cfg["records_hinted"] = True
                 settings.save_config(self.cfg)
-            self._enter(SATISFIED, message=i18n.t("msg.drink_target"), sub=sub)
+            self._enter(SATISFIED, message=msg, sub=sub)
             self._hinting = False
         else:
             self._enter(SATISFIED, message=i18n.t("msg.drink_remaining", n=target - self.drinks))

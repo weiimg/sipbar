@@ -702,7 +702,7 @@ _EN = {
     "settings.sound_hint": "Only when a reminder is ignored",
     "settings.sound_after": "After ignoring for {n} min",
     "settings.display": "Display",
-    "theme.auto": "Follow system",
+    "theme.auto": "Auto",
     "theme.light": "Light",
     "theme.dark": "Dark",
     "settings.appearance": "Appearance",
@@ -775,7 +775,7 @@ _EN = {
     "action.copied": "Copied",
 
     # --- Diagnostics ---
-    "diag.theme.auto": "Follow system",
+    "diag.theme.auto": "Auto",
     "diag.theme.light": "Light",
     "diag.theme.dark": "Dark",
     "diag.face.pixel": "Pixel",
