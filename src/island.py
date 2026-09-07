@@ -822,7 +822,10 @@ class Island(QWidget):
         # 蓋掉的是這個工具最重要的動機數字，所以份量要壓得很小。
         if self._tip:
             return self._tip
-        return ""
+        if self.streak:
+            return i18n.t("status.streak", n=self.streak)
+        target = self.cfg["daily_target_drinks"]
+        return i18n.t("status.today_count", done=self.drinks, target=target)
 
     def _refresh_message(self, override=None, sub=None):
         # 小標只放狀態，不放操作說明。「點一下就算喝了」學會之後就只是噪音，

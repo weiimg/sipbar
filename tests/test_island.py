@@ -286,11 +286,11 @@ check("間隔沒被重擲", w2.interval_s, 3600.0)
 w2._is_late = lambda hour=None: False
 w2.streak = 0
 check("倒數一致", w2._status_sub(), "下次約 30 分後")
-w2.streak = 5        # 連續天數不再顯示在小標
+w2.streak = 5
 check("有連續時也只顯示倒數", w2._status_sub(), "下次約 30 分後")
-check("提醒中的小標不顯示連續", w2._reminding_sub(), "")
+check("提醒中的小標顯示連續", w2._reminding_sub(), "連續 5 天")
 w2.streak = 0
-check("還沒有連續可講的第一天", w2._reminding_sub(), "")
+check("還沒有連續就顯示進度", w2._reminding_sub(), "今天 2/7 次")
 w2.streak = 5
 w2._is_late = lambda hour=None: True
 check("深夜也只顯示倒數", w2._status_sub(), "下次約 30 分後")
