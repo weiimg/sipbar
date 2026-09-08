@@ -772,10 +772,17 @@ class Island(QWidget):
         try:
             import dashboard
             days = dashboard.load_days(EVENTS_PATH, settings.DAY_ROLLOVER_HOUR)
-            self.streak = dashboard.compute_streaks(
-                days, self.cfg["daily_target_drinks"], self.day)["streak"]
+            d = dashboard.compute_streaks(
+                days, self.cfg["daily_target_drinks"], self.day)
+            self.streak = d["streak"]
+            self.grace_active = d["grace_active"]
+            self.grace_day = d["grace_day"]
+            self.grace_recovered = d["grace_recovered"]
         except Exception:
-            self.streak = 0                       # 算不出來就不顯示，不影響提醒本身
+            self.streak = 0
+            self.grace_active = False
+            self.grace_day = None
+            self.grace_recovered = False
 
     def _init_unlocked(self):
         """啟動時拍一份「已經解鎖的成就」，避免舊成就在第一次 drink 全部跳出來。"""
@@ -803,6 +810,8 @@ class Island(QWidget):
             return i18n.t("status.write_trouble")
         if self.paused_until:
             return i18n.t("status.paused", time=self.paused_until.strftime('%H:%M'))
+        if getattr(self, 'grace_active', False):
+            return i18n.t("status.grace_warning", n=self.streak)
         if self.drinks >= target:
             return i18n.t('status.target_reached')
         remain = int(max(0, self.interval_s - self.active_s) // 60)
@@ -818,8 +827,8 @@ class Island(QWidget):
         # 倒地狀態更嚴重：它不會自己收合，那一行會一直掛在畫面上。
         if settings.write_trouble():
             return i18n.t("status.write_trouble")
-        # 提示蓋過連續天數，但一天只有 TIPS_PER_DAY 次（見那個常數）。
-        # 蓋掉的是這個工具最重要的動機數字，所以份量要壓得很小。
+        if getattr(self, 'grace_active', False):
+            return i18n.t("status.grace_warning", n=self.streak)
         if self._tip:
             return self._tip
         if self.streak:
@@ -1158,9 +1167,12 @@ class Island(QWidget):
             self._roll_tip_slots()
             log_event(self.day, "day_start", target=self.cfg["daily_target_drinks"])
             self._persist()
-            self._refresh_streak()      # 昨天結算完，連續天數要跟著更新
+            was_grace = getattr(self, 'grace_active', False)
+            self._refresh_streak()
+            if self.grace_active and not was_grace:
+                self._notify_grace_activated()
             self._enter(NORMAL)
-            self._refresh_stats_window()    # 換日把次數歸零了，開著的視窗也要跟上
+            self._refresh_stats_window()
 
         if self.paused_until:
             if now < self.paused_until:
@@ -1334,8 +1346,15 @@ class Island(QWidget):
 
         target = self.cfg["daily_target_drinks"]
         if self.drinks >= target:
+            was_grace = getattr(self, 'grace_active', False)
             self._refresh_streak()
-            msg = i18n.t("status.streak", n=self.streak) if self.streak else i18n.t("msg.drink_target")
+            if self.grace_recovered and was_grace:
+                self._notify_grace_recovered()
+                msg = i18n.t("status.grace_recovered", n=self.streak)
+            elif self.streak:
+                msg = i18n.t("status.streak", n=self.streak)
+            else:
+                msg = i18n.t("msg.drink_target")
             sub = None
             self._hinting = not self.cfg.get("records_hinted")
             if self._hinting:
@@ -1970,6 +1989,27 @@ class Island(QWidget):
             self._draw_features(p, face, self.state)
         p.end()
         return QIcon(pm)
+
+    def _notify_grace_activated(self):
+        if not hasattr(self, "tray"):
+            return
+        if getattr(self, '_grace_notified_day', None) == self.grace_day:
+            return
+        self._grace_notified_day = self.grace_day
+        self.tray.showMessage(
+            i18n.t("grace.notify_title"),
+            i18n.t("grace.notify_body", n=self.streak),
+            QSystemTrayIcon.Warning, 10000,
+        )
+
+    def _notify_grace_recovered(self):
+        if not hasattr(self, "tray"):
+            return
+        self.tray.showMessage(
+            i18n.t("grace.recovered_title"),
+            i18n.t("grace.recovered_body", n=self.streak),
+            QSystemTrayIcon.Information, 8000,
+        )
 
     def _sync_tray(self):
         if not hasattr(self, "tray"):

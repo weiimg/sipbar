@@ -228,11 +228,13 @@ def compute_streaks(days, target, today_key, cap=SAVE_CAP,
     而數字一自相矛盾，整個後台的可信度就沒了。
     這樣寫的結構保證「目前」永遠是最後一段，不可能超過「最長」。
 
-    四條規則讓它不會變成懲罰機器：
+    五條規則讓它不會變成懲罰機器：
     - 完全沒有紀錄的日子（拍攝日、電腦沒開）視為中性，跳過不算斷。
     - 有紀錄但資料不足以判定的日子也視為中性，理由見 is_judgeable()。
     - 有紀錄、判得出來但沒達標的日子，有護盾就用掉，連續保住。
     - 護盾靠達標賺回來，沒有日曆邊界——理由見 SAVE_CAP 那一段。
+    - 護盾用完之後還有一次寬限期：下一個可判定日達標就赦免斷裂。
+      判定方式是往後看（forward-looking），已結算的歷史與今天的快照一致。
 
     護盾一開始就給滿。新使用者的頭幾天正是最容易放棄的時候，
     而那時候他還沒有機會賺到任何東西。
@@ -246,15 +248,16 @@ def compute_streaks(days, target, today_key, cap=SAVE_CAP,
     saves = cap                                   # 一開始就給滿
     progress = 0                                  # 距離下一個護盾還差幾個達標日
 
-    for key in keys:
+    grace_pending_run = 0
+    grace_day = None
+
+    for i, key in enumerate(keys):
         info = days[key]
         if info["drinks"] >= tgt[key]:
             run += 1
             progress += 1
             if progress >= earn_days:
                 progress = 0
-                # 存滿了就溢出去。不累積到無限大——那會讓「存量」這個概念失效，
-                # 停用一個月回來還有二十個護盾，圖示上的三格就不再是實話。
                 saves = min(cap, saves + 1)
             continue
         if key == today_key:
@@ -265,8 +268,38 @@ def compute_streaks(days, target, today_key, cap=SAVE_CAP,
             saves -= 1
             saved_days.append(key)                # 擋下來，連續保住但這天不計入
             continue
+        # 護盾用完。有連勝就往後看一天決定生死。
+        if run > 0:
+            next_met = None
+            for future_key in keys[i + 1:]:
+                if future_key == today_key:
+                    continue
+                if not is_judgeable(days[future_key], tgt.get(future_key, target)):
+                    continue
+                next_met = days[future_key]["drinks"] >= tgt[future_key]
+                break
+            if next_met is True:
+                progress = 0
+                continue                          # 下一天達標，赦免這次斷裂
+            if next_met is None:
+                grace_pending_run = run
+                grace_day = key
+                progress = 0
+                run = 0
+                continue                          # 沒有後續資料，進入即時寬限窗口
         runs.append(run)
         run = 0
+
+    grace_active = grace_pending_run > 0 and grace_day is not None
+    grace_recovered = False
+
+    if grace_active:
+        if today_key in days and days[today_key]["drinks"] >= tgt.get(today_key, target):
+            run = grace_pending_run + run
+            grace_recovered = True
+            grace_active = False
+        else:
+            run = grace_pending_run
 
     runs.append(run)                              # 最後一段就是目前的連續
     return {
@@ -275,9 +308,20 @@ def compute_streaks(days, target, today_key, cap=SAVE_CAP,
         "saved_days": saved_days,
         "saves_left": saves,
         "saves_total": cap,
-        # 還差幾個達標日多一個護盾。存滿時沒有意義，由顯示端決定要不要講。
         "saves_next_in": earn_days - progress,
+        "grace_active": grace_active,
+        "grace_day": grace_day,
+        "grace_recovered": grace_recovered,
     }
+
+
+def hours_until_rollover(now, rollover_hour=5):
+    """距離下一個換日邊界還有幾小時。純函式，不依賴 Qt。"""
+    current_h = now.hour + now.minute / 60 + now.second / 3600
+    diff = rollover_hour - current_h
+    if diff <= 0:
+        diff += 24
+    return diff
 
 
 # ---------------------------------------------------------------- 彙總

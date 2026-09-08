@@ -579,9 +579,10 @@ class Flame(Graphic):
     動畫由自己的 Spring + QTimer 驅動，不走卡片的共用計時器。
     """
 
-    def __init__(self, lit, w=76, h=112):
+    def __init__(self, lit, w=76, h=112, grace=False):
         super().__init__(w, h)
         self.lit = lit
+        self.grace = grace
         self._armed = False
         self._burst_sp = None
         self._burst_timer = None
@@ -622,13 +623,18 @@ class Flame(Graphic):
         if self._idle:
             t = now - self._t0
             if t >= self._IDLE_DUR:
-                self._idle = False
-                self._burst_t = 1.0
-                self._burst_timer.stop()
-                self.update()
-                return
+                if self.grace:
+                    self._t0 = now
+                    t = 0
+                else:
+                    self._idle = False
+                    self._burst_t = 1.0
+                    self._burst_timer.stop()
+                    self.update()
+                    return
             fade = 1.0 - t / self._IDLE_DUR
-            self._burst_t = 1.0 + fade * (0.04 * math.sin(t * 2.8)
+            amp = 0.08 if self.grace else 0.04
+            self._burst_t = 1.0 + fade * (amp * math.sin(t * 2.8)
                                            + 0.025 * math.sin(t * 4.3))
             self.update()
             return
@@ -677,14 +683,26 @@ class Flame(Graphic):
             return
         cx, bottom = self.width() / 2, self.height() - 3
         p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(C_FLAME if self.lit else C_SLOT))
+        if self.grace:
+            p.setBrush(QBrush(PAL.danger))
+        elif self.lit:
+            p.setBrush(QBrush(C_FLAME))
+        else:
+            p.setBrush(QBrush(C_SLOT))
         p.drawPath(self._path(cx, bottom, h))
         inner_dy = 0
         if self._idle:
             t = time.perf_counter() - self._t0
             fade = max(0.0, 1.0 - t / self._IDLE_DUR)
             inner_dy = fade * 1.5 * math.sin(t * 3.5)
-        p.setBrush(QBrush(C_FLAME2 if self.lit else PAL.veil(16)))
+        if self.grace:
+            inner = QColor(PAL.danger)
+            inner.setAlphaF(0.6)
+            p.setBrush(QBrush(inner))
+        elif self.lit:
+            p.setBrush(QBrush(C_FLAME2))
+        else:
+            p.setBrush(QBrush(PAL.veil(16)))
         p.drawPath(self._path(cx, bottom - h * 0.06 + inner_dy, h * 0.56))
 
 
@@ -1047,9 +1065,17 @@ def build_streak_card(d):
     t, today, streak = d["target"], d["today"]["drinks"], d["streak"]["streak"]
     s = d["streak"]
     left = t - today
-    # 語域：進行中講「再幾次會發生什麼」——把結果說出來比催促有效，而且每天讀都還行。
-    # 達標當下才用驚嘆號：那是一次性的獎勵時刻，天天用會很快失效、甚至變吵。
-    if today >= t:
+    grace = s.get("grace_active", False)
+
+    if grace:
+        from datetime import datetime as _dt
+        hrs = dashboard.hours_until_rollover(_dt.now(), appsettings.DAY_ROLLOVER_HOUR)
+        h, m = int(hrs), int((hrs % 1) * 60)
+        if today >= t:
+            status = i18n.t("grace.stats_recovering", n=streak)
+        else:
+            status = i18n.t("grace.stats_countdown", n=streak, h=h, m=m, left=max(left, 0))
+    elif today >= t:
         status = i18n.t("streak.reached", n=streak) if streak else i18n.t("streak.reached_today")
     elif streak > 0:
         status = i18n.t("streak.more_streak", left=left, n=streak + 1)
@@ -1058,19 +1084,19 @@ def build_streak_card(d):
     else:
         status = i18n.t("streak.not_started")
 
-    num = CountLabel(streak, "display", INK if streak else INK3)
+    num = CountLabel(streak, "display", C_DANGER if grace else (INK if streak else INK3))
     gauge = CupGauge(today, t, d["ml"])
     gauge.set_tip(i18n.t("streak.cup_tip", done=today, target=t))
 
     card = Card()
     card.add(
-        row(Flame(streak > 0),
+        row(Flame(streak > 0, grace=grace),
             (col(row(num, Label(i18n.t("streak.unit_days"), "section", INK2), "stretch", spacing=S2),
                  Label(i18n.t("streak.consecutive"), "caption", INK3),
                  spacing=S1), 1),
             gauge,
             spacing=S3),
-        Label(status, "body", INK2, elide=True),
+        Label(status, "body", C_DANGER if grace else INK2, elide=True),
         row(Label(i18n.t("streak.shields"), "caption", INK3),
             Shields(s["saves_total"], s["saves_left"], _saves_tip(d)),
             "stretch",

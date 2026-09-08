@@ -85,10 +85,11 @@ case("中間一天沒達標，護盾擋下",
 case("連續兩天沒達標，還是沒斷",
      {"2026-08-01": T, "2026-08-02": 1, "2026-08-03": 1, "2026-08-04": T},
      "2026-08-04", 2, 2)
-case("第三天才斷",
+# 有寬限期後，第三天進入寬限而非直接斷裂；今天達標就恢復。
+case("第三天進寬限，今天達標恢復",
      {"2026-08-01": T, "2026-08-02": 1, "2026-08-03": 1, "2026-08-04": 1,
       "2026-08-05": T},
-     "2026-08-05", 1, 1)
+     "2026-08-05", 2, 2)
 
 r = case("達標會把護盾賺回來",
          {"2026-08-01": T, "2026-08-02": 1, "2026-08-03": T, "2026-08-04": T,
@@ -159,6 +160,74 @@ case("只開 2 小時但喝滿目標，仍然算達標",
      {"2026-08-10": T, "2026-08-11": {"drinks": T, "span_h": 2.0},
       "2026-08-12": T},
      "2026-08-12", 3, 3)
+
+print("\n8. 寬限期（Grace Period）")
+
+
+def grace_case(name, spec, today, want_streak, want_longest=None,
+               want_grace=False, want_recovered=False, target=T):
+    r = dashboard.compute_streaks(mk(spec), target, today)
+    ok = r["streak"] == want_streak
+    if want_longest is not None:
+        ok = ok and r["longest"] == want_longest
+    ok = ok and r.get("grace_active", False) == want_grace
+    ok = ok and r.get("grace_recovered", False) == want_recovered
+    tag = "  ok  " if ok else "  FAIL"
+    ga = r.get("grace_active")
+    gr = r.get("grace_recovered")
+    print(f"{tag} {name}：連續={r['streak']}（預期 {want_streak}）"
+          f"　grace={ga} recovered={gr}")
+    if not ok:
+        fails.append(name)
+    return r
+
+
+grace_case("護盾用完，進入寬限",
+    {"2026-08-01": T, "2026-08-02": 1, "2026-08-03": 1,
+     "2026-08-04": 1, "2026-08-05": 0},
+    "2026-08-05", want_streak=1, want_grace=True)
+
+grace_case("寬限期內達標，連勝恢復",
+    {"2026-08-01": T, "2026-08-02": 1, "2026-08-03": 1,
+     "2026-08-04": 1, "2026-08-05": T},
+    "2026-08-05", want_streak=2, want_grace=False, want_recovered=True)
+
+grace_case("5 天連勝寬限後恢復",
+    {f"2026-08-0{i}": T for i in range(1, 6)} |
+    {"2026-08-06": 1, "2026-08-07": 1, "2026-08-08": 1,
+     "2026-08-09": T},
+    "2026-08-09", want_streak=6, want_grace=False, want_recovered=True)
+
+grace_case("寬限期內還沒喝，仍在寬限（顯示 at-risk 原始連勝）",
+    {f"2026-08-0{i}": T for i in range(1, 4)} |
+    {"2026-08-04": 1, "2026-08-05": 1, "2026-08-06": 1,
+     "2026-08-07": 0},
+    "2026-08-07", want_streak=3, want_grace=True)
+
+grace_case("歷史斷裂被後一天赦免",
+    {"2026-08-01": T, "2026-08-02": 1, "2026-08-03": 1,
+     "2026-08-04": 1, "2026-08-05": T, "2026-08-06": T},
+    "2026-08-06", want_streak=3, want_grace=False)
+
+grace_case("寬限期間最長連續不退",
+    {f"2026-08-{i:02d}": T for i in range(1, 13)} |
+    {"2026-08-13": 1, "2026-08-14": 1, "2026-08-15": 1,
+     "2026-08-16": 0},
+    "2026-08-16", want_streak=12, want_longest=12, want_grace=True)
+
+grace_case("恢復後隔天不倒退",
+    {f"2026-08-0{i}": T for i in range(1, 6)} |
+    {"2026-08-06": 1, "2026-08-07": 1, "2026-08-08": 1,
+     "2026-08-09": T, "2026-08-10": T},
+    "2026-08-10", want_streak=7)
+
+# 寬限沒達標，連勝真的歸零
+grace_case("寬限期沒達標，連勝歸零",
+    {f"2026-08-0{i}": T for i in range(1, 4)} |
+    {"2026-08-04": 1, "2026-08-05": 1, "2026-08-06": 1,
+     "2026-08-07": 1, "2026-08-08": 0},
+    "2026-08-08", want_streak=0, want_grace=False)
+
 
 print("\n" + ("全部通過" if not fails else f"有 {len(fails)} 項失敗：{fails}"))
 sys.exit(1 if fails else 0)

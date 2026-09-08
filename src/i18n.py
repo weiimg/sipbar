@@ -197,6 +197,8 @@ _ZH = {
     "status.write_trouble": "紀錄存不進去",
     "status.paused": "暫停中，{time} 恢復",
     "status.streak": "連續 {n} 天",
+    "status.grace_warning": "{n} 天連勝即將消失，今天達標可挽回",
+    "status.grace_recovered": "連續 {n} 天保住了！",
     "status.today_count": "今天 {done}/{target} 次",
     "status.target_reached": "今天已達標",
     "status.coming_soon": "快到了",
@@ -265,6 +267,12 @@ _ZH = {
     "streak.unit_days": "天",
     "streak.consecutive": "連續達標",
     "streak.shields": "護盾",
+    "grace.stats_countdown": "{n} 天連勝即將消失（剩 {h} 時 {m} 分），再 {left} 次可挽回",
+    "grace.stats_recovering": "達標！{n} 天連勝保住了",
+    "grace.notify_title": "連勝即將消失",
+    "grace.notify_body": "你的 {n} 天連勝快斷了，今天達標就能挽回",
+    "grace.recovered_title": "連勝保住了！",
+    "grace.recovered_body": "連續 {n} 天的紀錄安全了",
 
     # --- 杯子計量 ---
     "cup.count": "{done} / {target} 次",
@@ -582,6 +590,8 @@ _EN = {
     "status.write_trouble": "Records can't be saved",
     "status.paused": "Paused, resuming at {time}",
     "status.streak": "{n}-day streak",
+    "status.grace_warning": "{n}-day streak at risk — reach goal today to save it",
+    "status.grace_recovered": "{n}-day streak saved!",
     "status.today_count": "Today {done}/{target}",
     "status.target_reached": "Target reached today",
     "status.coming_soon": "Coming soon",
@@ -653,6 +663,12 @@ _EN = {
     "streak.unit_days": "days",
     "streak.consecutive": "Consecutive",
     "streak.shields": "Shields",
+    "grace.stats_countdown": "{n}-day streak at risk ({h}h {m}m left), {left} more to save",
+    "grace.stats_recovering": "Goal! {n}-day streak saved",
+    "grace.notify_title": "Streak at risk",
+    "grace.notify_body": "Your {n}-day streak is about to break — reach your goal today to save it",
+    "grace.recovered_title": "Streak saved!",
+    "grace.recovered_body": "Your {n}-day streak is safe",
 
     # --- Cup gauge ---
     "cup.count": "{done} / {target}",
