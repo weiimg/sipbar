@@ -1168,9 +1168,12 @@ class Island(QWidget):
             log_event(self.day, "day_start", target=self.cfg["daily_target_drinks"])
             self._persist()
             was_grace = getattr(self, 'grace_active', False)
+            old_streak = self.streak if was_grace else 0
             self._refresh_streak()
             if self.grace_active and not was_grace:
                 self._notify_grace_activated()
+            elif was_grace and not self.grace_active and not self.grace_recovered:
+                self._notify_grace_expired(old_streak)
             self._enter(NORMAL)
             self._refresh_stats_window()
 
@@ -2009,6 +2012,15 @@ class Island(QWidget):
             i18n.t("grace.recovered_title"),
             i18n.t("grace.recovered_body", n=self.streak),
             QSystemTrayIcon.Information, 8000,
+        )
+
+    def _notify_grace_expired(self, old_streak):
+        if not hasattr(self, "tray"):
+            return
+        self.tray.showMessage(
+            i18n.t("grace.expired_title"),
+            i18n.t("grace.expired_body"),
+            QSystemTrayIcon.Warning, 10000,
         )
 
     def _sync_tray(self):

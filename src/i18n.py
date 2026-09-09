@@ -273,6 +273,8 @@ _ZH = {
     "grace.notify_body": "你的 {n} 天連勝快斷了，今天達標就能挽回",
     "grace.recovered_title": "連勝保住了！",
     "grace.recovered_body": "連續 {n} 天的紀錄安全了",
+    "grace.expired_title": "你不要我了嗎？",
+    "grace.expired_body": "喝點水再繼續吧",
 
     # --- 杯子計量 ---
     "cup.count": "{done} / {target} 次",
@@ -669,6 +671,8 @@ _EN = {
     "grace.notify_body": "Your {n}-day streak is about to break — reach your goal today to save it",
     "grace.recovered_title": "Streak saved!",
     "grace.recovered_body": "Your {n}-day streak is safe",
+    "grace.expired_title": "Don’t leave me…",
+    "grace.expired_body": "Have some water and let’s start again",
 
     # --- Cup gauge ---
     "cup.count": "{done} / {target}",
