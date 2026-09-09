@@ -92,6 +92,7 @@ _ZH = {
     # 打招呼 & 練習模式
     "msg.greet": "嗨！",
     "msg.greet_sub": "游標移至螢幕上緣中央可呼叫",
+    "msg.fill_water": "先去裝杯水吧",
     "msg.practice": "點我一下",
     "msg.practice_sub": "這次不會算進今天的次數",
     "msg.practice_done": "就是這樣",
@@ -488,6 +489,7 @@ _EN = {
 
     "msg.greet": "Hi!",
     "msg.greet_sub": "Move cursor to top center to summon",
+    "msg.fill_water": "Go fill your water bottle",
     "msg.practice": "Tap me",
     "msg.practice_sub": "This one won't count",
     "msg.practice_done": "That's it",

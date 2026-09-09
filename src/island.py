@@ -1015,6 +1015,21 @@ class Island(QWidget):
         self._target_content(1.0, delay_ms=90)
         QTimer.singleShot(4000, self._end_greet)
 
+    def _nudge_fill_water(self):
+        if self.drinks > 0 or self.state in REMINDING:
+            return
+        if getattr(self, 'paused_until', None):
+            return
+        self._peeking = True
+        self._set_text(i18n.t("msg.fill_water"))
+        self._target_reveal(1.0)
+        self._target_expand(1.0)
+        self._target_content(1.0, delay_ms=90)
+        QTimer.singleShot(8000, self._end_greet)
+
+    def _schedule_fill_nudge(self):
+        QTimer.singleShot(5 * 60 * 1000, self._nudge_fill_water)
+
     def _end_greet(self):
         self._greeting = False
         if self._hover or VISUAL[self.state][2]:
@@ -1176,6 +1191,7 @@ class Island(QWidget):
                 self._notify_grace_expired(old_streak)
             self._enter(NORMAL)
             self._refresh_stats_window()
+            self._schedule_fill_nudge()
 
         if self.paused_until:
             if now < self.paused_until:
@@ -2185,6 +2201,8 @@ def main():
         QTimer.singleShot(800, island.greet)
         cfg["greeted_version"] = settings.VERSION
         settings.save_config(cfg)
+
+    island._schedule_fill_nudge()
 
     # 背景查一次有沒有新版。攜帶版沒有安裝程式，不查的話使用者永遠不會知道
     # 修正發布了——那正是 0.10.1 修完之後遇到的困境。
