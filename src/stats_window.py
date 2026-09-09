@@ -3165,14 +3165,16 @@ class StatsWindow(QWidget):
             # 那一列版本資訊，點在那裡沒有作用。
             if updates.checker.newer_release():
                 dot = QPointF(gx + 6.5, cy - 6.5)
-                # 先畫一圈底色再畫點。不墊的話點會跟齒輪的線條黏成一塊，
-                # 看起來像齒輪長歪了而不是一個獨立的記號——徽章要讀成
-                # 「疊在上面」，那一圈底色就是做這件事的。
                 p.setPen(Qt.NoPen)
                 p.setBrush(C_BG_TOP)
                 p.drawEllipse(dot, 5.0, 5.0)
                 p.setBrush(C_ACCENT)
                 p.drawEllipse(dot, 3.4, 3.4)
+                p.setFont(font("caption"))
+                p.setPen(C_ACCENT)
+                text = i18n.t("updates.available")
+                tw = QFontMetrics(font("caption")).horizontalAdvance(text)
+                p.drawText(int(gx - 16 - tw), int(cy + 4), text)
 
     @staticmethod
     def _draw_gear(p, cx, cy):
