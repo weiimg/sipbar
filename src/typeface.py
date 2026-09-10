@@ -36,11 +36,13 @@ import settings
 # 它就會把一整份中文字符表載進記憶體（實測 56MB -> 396MB）。
 # 完整的量測與其他做法的比較寫在 tools/build_font.py 的 docstring 裡。
 FAMILY = "WaterPet Sans TC"
+BRAND_FAMILY = "Comfortaa"
 
 # 只有兩個字重會被要求：Bold 700（display/title/section/headline）與
 # Medium 500（body/caption 與島的小標）。Regular 400 全專案沒有任何地方用到，
 # 所以不隨附——多 5.4MB 換一個沒人叫的字重不划算。
-BUNDLED = ("WaterPetSansTC-Bold.otf", "WaterPetSansTC-Medium.otf")
+BUNDLED = ("WaterPetSansTC-Bold.otf", "WaterPetSansTC-Medium.otf",
+           "Comfortaa-Bold.ttf")
 
 # 出貨的東西都在 assets/ 底下，不在 src/ 裡：產生器在 tools/，產物在 assets/，
 # 這條規則對字體與圖示都一樣。

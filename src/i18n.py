@@ -278,6 +278,7 @@ _ZH = {
     "grace.expired_body": "喝點水再繼續吧",
 
     # --- 杯子計量 ---
+    "cup.goal": "每日目標",
     "cup.count": "{done} / {target} 次",
     "cup.cc": "約 {done} / {target} cc",
 
@@ -678,6 +679,7 @@ _EN = {
     "grace.expired_body": "Have some water and let’s start again",
 
     # --- Cup gauge ---
+    "cup.goal": "Daily goal",
     "cup.count": "{done} / {target}",
     "cup.cc": "~{done} / {target} cc",
 

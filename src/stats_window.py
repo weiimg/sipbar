@@ -1088,13 +1088,16 @@ def build_streak_card(d):
     gauge = CupGauge(today, t, d["ml"])
     gauge.set_tip(i18n.t("streak.cup_tip", done=today, target=t))
 
+    goal_lbl = Label(i18n.t("cup.goal"), "caption", INK3)
+    goal_lbl.setAlignment(Qt.AlignHCenter)
+
     card = Card()
     card.add(
         row(Flame(streak > 0, grace=grace),
             (col(row(num, Label(i18n.t("streak.unit_days"), "section", INK2), "stretch", spacing=S2),
                  Label(i18n.t("streak.consecutive"), "caption", INK3),
                  spacing=S1), 1),
-            gauge,
+            col(goal_lbl, gauge, spacing=S1),
             spacing=S3),
         Label(status, "body", C_DANGER if grace else INK2, elide=True),
         row(Label(i18n.t("streak.shields"), "caption", INK3),
@@ -2722,13 +2725,12 @@ class StatsWindow(QWidget):
         self.setWindowTitle(i18n.t("window.title"))
         self.resize(WIN_W + SHADOW * 2, WIN_H + SHADOW * 2)
 
-        self.title_lbl = Label(i18n.t("title.stats"), "title", INK)
-        # 副標在設定模式下兼任麵包屑。右上角那顆返回箭頭太小、也沒有標籤，
-        # 使用者不一定認得它是「回上一層」——一條寫著去處的文字連結才是明確的路。
-        self.sub_lbl = TapLabel("", INK3)
-        self.sub_lbl.setFont(font("caption"))
-        self.sub_lbl.clicked.connect(
-            lambda: self._switch_mode("stats") if self.mode == "settings" else None)
+        self._brand_font = typeface.make(28, QFont.Bold, family=typeface.BRAND_FAMILY)
+        self.title_lbl = Label("Sipbar", "title", INK)
+        self.title_lbl.setFont(self._brand_font)
+        self.sub_lbl = QWidget()
+        self.sub_lbl.setFixedHeight(0)
+        self.sub_lbl.hide()
 
         # 今天與紀錄不捲——它們是拿來逛的，藏在捲軸下面等於不存在。
         # 成就頁 8 個以後超出一頁高度，用 ScrollPane 捲動（PAGES 第三欄控制）。
@@ -2759,7 +2761,7 @@ class StatsWindow(QWidget):
         outer.setContentsMargins(SHADOW + WIN_PAD, SHADOW + WIN_PAD,
                                  SHADOW + WIN_PAD, SHADOW + WIN_PAD)
         outer.setSpacing(S4)
-        outer.addWidget(col(self.title_lbl, self.sub_lbl, spacing=S1))
+        outer.addWidget(self.title_lbl)
         outer.addWidget(self.root, 1)
 
         self.sp_win = Spring(0.0, *PRESET["enter"])
@@ -2775,7 +2777,6 @@ class StatsWindow(QWidget):
 
     def refresh(self, animate=True):
         self.data = dashboard.compute(self.cfg, self.events_path)
-        self.sub_lbl.setText(i18n.t("subtitle.goal", target=self.data['target']))
 
         while self.stack.count():
             w = self.stack.widget(0)
@@ -2908,17 +2909,7 @@ class StatsWindow(QWidget):
         self.update()
 
     def _restyle_chrome(self):
-        """把視窗外框（標題、副標）的顏色套成目前主題。
-
-        自繪的部分（分段控制項、關閉鈕、卡片）讀模組變數，換主題自動跟著變；
-        只有 QLabel 需要手動重上——它的顏色是建立當下寫死進 stylesheet 的。
-        """
         self.title_lbl.setStyleSheet(f"color:{INK};background:transparent")
-        if self.mode == "settings":
-            self.sub_lbl.setStyleSheet(
-                f"color:{C_ACCENT.name()};background:transparent")
-        else:
-            self.sub_lbl.setStyleSheet(f"color:{INK3};background:transparent")
         self.seg.update()
 
     def showEvent(self, event):
@@ -2948,24 +2939,15 @@ class StatsWindow(QWidget):
         self.mode = mode
         if mode == "settings":
             self.title_lbl.setText(i18n.t("title.settings"))
-            self.sub_lbl.setText(i18n.t("breadcrumb.back"))          # 麵包屑，可點
-            self.sub_lbl.setStyleSheet(f"color:{C_ACCENT.name()};background:transparent")
-            self.sub_lbl.setCursor(Qt.PointingHandCursor)
+            self.title_lbl.setFont(font("title"))
             cards = self.settings_page.cards
-            # 每次進來都從頂端開始。停在上次離開的捲動位置，會讓人以為
-            # 自己看到的是整頁——而最上面那幾項才是最常改的。
             self.pane.to_top()
         else:
             if self._stats_stale:
-                # 目標次數變了，環、連續天數、成就的每個數字都要重算。
-                # 重建放在「離開設定頁的那一刻」，不是改的當下——
-                # 使用者還站在設定頁上時把它腳下的頁面抽掉，捲軸與焦點都會亂跳。
                 self._stats_stale = False
                 self.refresh(animate=False)
-            self.title_lbl.setText(i18n.t("title.stats"))
-            self.sub_lbl.setText(i18n.t("subtitle.goal", target=self.data['target']))
-            self.sub_lbl.setStyleSheet(f"color:{INK3};background:transparent")
-            self.sub_lbl.setCursor(Qt.ArrowCursor)
+            self.title_lbl.setText("Sipbar")
+            self.title_lbl.setFont(self._brand_font)
             cards = self.page_cards[self.seg.index]
 
         # 壓暗 -> 換頁 -> 淡入。中間不能留給 Qt 任何一次重繪的機會，
@@ -3199,7 +3181,7 @@ class StatsWindow(QWidget):
         if event.button() != Qt.LeftButton:
             return
         pos = event.position()
-        head_bottom = SHADOW + WIN_PAD + self.title_lbl.height() + self.sub_lbl.height() + S1
+        head_bottom = SHADOW + WIN_PAD + self.title_lbl.height() + S1
         if SHADOW <= pos.y() < head_bottom and pos.x() >= SHADOW:
             right = self.width() - SHADOW - WIN_PAD
             if pos.x() > right - 24:
