@@ -519,27 +519,19 @@ class Ring(Graphic):
 
 
 class CupGauge(Graphic):
-    """今日進度：像素杯的水位 + 次數 + 換算的 cc。取代原本的環。
-
-    這是量表，不是插畫。卡片上已經有一個大圖示（火焰，連續天數的徽記），
-    再放第二個同等份量的圖形，兩個會互相競爭、看不出誰是主角。
-    所以杯子收在原本環的footprint 裡（132 寬），杯身只佔上半，
-    底下兩行文字——讀起來是一個儀表，不是另一張插畫。
+    """今日進度：像素杯的水位。次數與 cc 移到卡片層級顯示。
 
     用島上那顆杯子而不是另畫一個容器，是為了讓兩個畫面說同一種話：
     島上那杯水降下去代表該喝了，這裡那杯水升上來代表今天喝了多少。
     同一個容器，兩個方向。
-
-    cc 是換算不是紀錄。這個工具刻意數「次」——被提醒時你只會喝幾口，
-    用 cc 當計數單位會逼人虛報或不敢按（見 README）。所以它小一級、灰一階。
     """
 
-    W = 132
-    CELL = 5
+    W = 80
+    CELL = 4
 
     def __init__(self, done, target, ml_each):
         cw, ch = pixelface.cup_size(self.CELL)
-        super().__init__(self.W, ch + 46)
+        super().__init__(self.W, ch + 4)
         self.done, self.target, self.ml = done, target, ml_each
         self.cup_h = ch
 
@@ -555,21 +547,155 @@ class CupGauge(Graphic):
                            pixelface.GLASS, pixelface.WATER, pixelface.INK,
                            cell=self.CELL)
 
-        f = font("headline")
-        fm = QFontMetrics(f)
-        p.setFont(f)
-        p.setPen(PAL.ink_a(255))
-        main = i18n.t("cup.count", done=self.done, target=self.target)
-        p.drawText(int((self.W - fm.horizontalAdvance(main)) / 2),
-                   self.cup_h + 22, main)
 
-        f2 = font("caption")
-        fm2 = QFontMetrics(f2)
-        p.setFont(f2)
-        p.setPen(PAL.ink_a(140))
-        sub = i18n.t("cup.cc", done=self.done * self.ml, target=self.target * self.ml)
-        p.drawText(int((self.W - fm2.horizontalAdvance(sub)) / 2),
-                   self.cup_h + 42, sub)
+class CupLogo(QWidget):
+    """Header branding icon: pixel-art cup with face. No water level, pure design."""
+    CELL = 2
+    LIFT = 3
+
+    def __init__(self):
+        super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        w, h = pixelface.cup_size(self.CELL)
+        self._cw, self._ch = w, h
+        self.setFixedSize(w, h + self.LIFT * 2)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        pixelface.draw_cup(p, self._cw / 2, self._ch / 2, 0.0, pixelface.NORMAL,
+                           pixelface.GLASS, pixelface.WATER, pixelface.INK,
+                           cell=self.CELL, face=True)
+
+
+class TinyCup(QWidget):
+    """Tiny cup icon syncing water level. No face, pure data indicator."""
+    W, H = 14, 16
+
+    def __init__(self, done, target):
+        super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedSize(self.W, self.H)
+        self._ratio = clamp(done / max(1, target), 0.0, 1.0)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        r = 2.5
+        body = QPainterPath()
+        body.moveTo(1.0, 1.0)
+        body.lineTo(1.0, h - 1 - r)
+        body.quadTo(1.0, h - 1, 1.0 + r, h - 1)
+        body.lineTo(w - 1 - r, h - 1)
+        body.quadTo(w - 1, h - 1, w - 1, h - 1 - r)
+        body.lineTo(w - 1, 1.0)
+        p.setPen(QPen(PAL.ink_a(80), 1.5))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(body)
+        if self._ratio > 0:
+            iw, ih = w - 4, h - 4
+            wh = ih * self._ratio
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(pixelface.WATER))
+            p.setOpacity(0.45)
+            p.drawRoundedRect(QRectF(2, 2 + ih - wh, iw, wh), 1, 1)
+
+
+class Bubble(QWidget):
+    """Status text as a speech bubble. tail='up'/'down'/False."""
+    TAIL = 6
+    RAD = 10
+    PH, PV = 12, 6
+
+    def __init__(self, text, danger=False, tail="down", big=False):
+        super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._text = text
+        self._danger = danger
+        self._tail = tail
+        px = int(TYPE["caption"][0] * 1.25) if big else TYPE["caption"][0]
+        self._font = typeface.make(px, TYPE["caption"][1], TYPE["caption"][2], family=FONT)
+        fm = QFontMetrics(self._font)
+        lines = text.split('\n')
+        tw = max(fm.horizontalAdvance(ln) for ln in lines)
+        th = fm.height() * len(lines)
+        tail_h = self.TAIL if tail else 0
+        self.setFixedSize(tw + self.PH * 2, th + self.PV * 2 + tail_h)
+        self._scale = 1.0
+        self.sp = Spring(1.0, *PRESET["enter"])
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._animate)
+        self._last = time.perf_counter()
+
+    def set_reveal(self, t):
+        if t >= 1.0 and not self._timer.isActive():
+            self._scale = 1.0
+            self.sp.snap(1.0)
+            self.update()
+        elif t > 0.5 and self._scale >= 1.0 and not self._timer.isActive():
+            self._scale = 0.0
+            self.sp.snap(0.0)
+            self.sp.target = 1.0
+            self._last = time.perf_counter()
+            self._timer.start()
+
+    def _animate(self):
+        now = time.perf_counter()
+        self.sp.step(now - self._last)
+        self._last = now
+        self._scale = clamp(self.sp.value, 0.0, 1.0)
+        self.update()
+        if self.sp.settled:
+            self._scale = 1.0
+            self._timer.stop()
+            self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        s = self._scale
+        if s < 0.01:
+            return
+        tail_h = self.TAIL if self._tail else 0
+        w, total_h = self.width(), self.height()
+        bh = total_h - tail_h
+        y_off = tail_h if self._tail == "up" else 0
+        if s < 1.0:
+            p.setOpacity(s)
+            cx, cy = w * 0.7, total_h
+            p.translate(cx, cy)
+            p.scale(s, s)
+            p.translate(-cx, -cy)
+        p.setPen(QPen(PAL.veil(20), 1))
+        p.setBrush(PAL.veil(12))
+        p.drawRoundedRect(QRectF(0.5, y_off + 0.5, w - 1, bh - 1),
+                          self.RAD, self.RAD)
+        if self._tail == "down":
+            cx = w / 2
+            tri = QPainterPath()
+            tri.moveTo(cx - 4, y_off + bh - 0.5)
+            tri.lineTo(cx, y_off + bh + tail_h)
+            tri.lineTo(cx + 4, y_off + bh - 0.5)
+            tri.closeSubpath()
+            p.setPen(Qt.NoPen)
+            p.setBrush(PAL.veil(12))
+            p.drawPath(tri)
+        elif self._tail == "up":
+            cx = w * 0.7
+            tri = QPainterPath()
+            tri.moveTo(cx - 4, y_off + 0.5)
+            tri.lineTo(cx, 0)
+            tri.lineTo(cx + 4, y_off + 0.5)
+            tri.closeSubpath()
+            p.setPen(Qt.NoPen)
+            p.setBrush(PAL.veil(12))
+            p.drawPath(tri)
+        p.setFont(self._font)
+        p.setPen(C_DANGER if self._danger else PAL.ink_a(150))
+        p.drawText(QRectF(self.PH, y_off + self.PV,
+                          w - self.PH * 2, bh - self.PV * 2),
+                   Qt.AlignCenter, self._text)
 
 
 class Flame(Graphic):
@@ -1067,29 +1193,37 @@ def build_streak_card(d):
     left = t - today
     grace = s.get("grace_active", False)
 
+    grace_tip = None
     if grace:
         from datetime import datetime as _dt
         hrs = dashboard.hours_until_rollover(_dt.now(), appsettings.DAY_ROLLOVER_HOUR)
         h, m = int(hrs), int((hrs % 1) * 60)
         if today >= t:
-            status = i18n.t("grace.stats_recovering", n=streak)
+            status = i18n.t("grace.stats_recovering")
         else:
-            status = i18n.t("grace.stats_countdown", n=streak, h=h, m=m, left=max(left, 0))
+            status = i18n.t("grace.stats_countdown", left=max(left, 0))
+            grace_tip = i18n.t("grace.bubble_tip", n=streak, h=h, m=m)
     elif today >= t:
-        status = i18n.t("streak.reached", n=streak) if streak else i18n.t("streak.reached_today")
+        status = i18n.t("streak.reached", n=streak + 1) if streak else i18n.t("streak.reached_today")
     elif streak > 0:
-        status = i18n.t("streak.more_streak", left=left, n=streak + 1)
+        status = i18n.t("streak.more_streak", left=left)
     elif today > 0:
         status = i18n.t("streak.more", n=left)
     else:
         status = i18n.t("streak.not_started")
 
     num = CountLabel(streak, "display", C_DANGER if grace else (INK if streak else INK3))
-    gauge = CupGauge(today, t, d["ml"])
-    gauge.set_tip(i18n.t("streak.cup_tip", done=today, target=t))
+    bubble = Bubble(status, danger=grace, tail="up", big=True)
+    if grace_tip:
+        bubble.setToolTip(grace_tip)
+    tiny = TinyCup(today, t)
+    tiny.setToolTip(i18n.t("streak.cup_tip", done=today, target=t))
 
-    goal_lbl = Label(i18n.t("cup.goal"), "caption", INK3)
-    goal_lbl.setAlignment(Qt.AlignHCenter)
+    progress = col(
+        Label(i18n.t("cup.count", done=today, target=t), "caption", INK),
+        Label(i18n.t("cup.cc", done=today * d["ml"], target=t * d["ml"]),
+              "caption", INK3),
+        spacing=0)
 
     card = Card()
     card.add(
@@ -1097,13 +1231,13 @@ def build_streak_card(d):
             (col(row(num, Label(i18n.t("streak.unit_days"), "section", INK2), "stretch", spacing=S2),
                  Label(i18n.t("streak.consecutive"), "caption", INK3),
                  spacing=S1), 1),
-            col(goal_lbl, gauge, spacing=S1),
-            spacing=S3),
-        Label(status, "body", C_DANGER if grace else INK2, elide=True),
+            row(tiny, progress, spacing=S3, align=Qt.AlignVCenter),
+            spacing=S3, align=Qt.AlignTop),
+        S5,
         row(Label(i18n.t("streak.shields"), "caption", INK3),
             Shields(s["saves_total"], s["saves_left"], _saves_tip(d)),
-            "stretch",
-            spacing=S3),
+            "stretch", bubble, spacing=S2, align=Qt.AlignBottom),
+        spacing=0,
     )
     return card
 
@@ -2728,9 +2862,9 @@ class StatsWindow(QWidget):
         self._brand_font = typeface.make(28, QFont.Bold, family=typeface.BRAND_FAMILY)
         self.title_lbl = Label("Sipbar", "title", INK)
         self.title_lbl.setFont(self._brand_font)
-        self.sub_lbl = QWidget()
-        self.sub_lbl.setFixedHeight(0)
-        self.sub_lbl.hide()
+        self.cup_logo = CupLogo()
+        self.title_row = row(self.title_lbl, self.cup_logo, "stretch", spacing=S2,
+                             align=Qt.AlignVCenter)
 
         # 今天與紀錄不捲——它們是拿來逛的，藏在捲軸下面等於不存在。
         # 成就頁 8 個以後超出一頁高度，用 ScrollPane 捲動（PAGES 第三欄控制）。
@@ -2761,7 +2895,7 @@ class StatsWindow(QWidget):
         outer.setContentsMargins(SHADOW + WIN_PAD, SHADOW + WIN_PAD,
                                  SHADOW + WIN_PAD, SHADOW + WIN_PAD)
         outer.setSpacing(S4)
-        outer.addWidget(self.title_lbl)
+        outer.addWidget(self.title_row)
         outer.addWidget(self.root, 1)
 
         self.sp_win = Spring(0.0, *PRESET["enter"])
@@ -2940,6 +3074,7 @@ class StatsWindow(QWidget):
         if mode == "settings":
             self.title_lbl.setText(i18n.t("title.settings"))
             self.title_lbl.setFont(font("title"))
+            self.cup_logo.hide()
             cards = self.settings_page.cards
             self.pane.to_top()
         else:
@@ -2948,6 +3083,7 @@ class StatsWindow(QWidget):
                 self.refresh(animate=False)
             self.title_lbl.setText("Sipbar")
             self.title_lbl.setFont(self._brand_font)
+            self.cup_logo.show()
             cards = self.page_cards[self.seg.index]
 
         # 壓暗 -> 換頁 -> 淡入。中間不能留給 Qt 任何一次重繪的機會，
