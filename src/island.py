@@ -1477,8 +1477,8 @@ class Island(QWidget):
         except RuntimeError:
             self._stats_win = None      # 視窗已經被 Qt 銷毀，參考失效
 
-    def pause_2h(self):
-        self.paused_until = datetime.now() + timedelta(hours=2)
+    def pause_30m(self):
+        self.paused_until = datetime.now() + timedelta(minutes=30)
         log_event(self.day, "pause", until=self.paused_until.isoformat(timespec="seconds"))
         self._persist()
         self._enter(NORMAL)
@@ -2105,7 +2105,7 @@ class Island(QWidget):
         if self.paused_until:
             items.append((i18n.t("menu.resume"), self._cancel_pause, False))
         else:
-            items.append((i18n.t("menu.pause"), self.pause_2h, False))
+            items.append((i18n.t("menu.pause"), self.pause_30m, False))
         items += [(i18n.t("menu.records"), self.show_stats, False),
                   (i18n.t("menu.settings"), self.show_settings, False),
                   (None, None, False),
