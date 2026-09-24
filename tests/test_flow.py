@@ -225,7 +225,11 @@ while w.drinks < target:
     w._last_drink_at = -1e9
     w.drink()
 check("達到目標", w.drinks, target)
-check("訊息是達標", w.message, "今天達標了")
+# 達標那一刻連續天數 +1，主標直接換成連續天數（ceedf91 刻意的設計，
+# 與 test_island 第 9 節同一條規則）。沒有連續時才退回「今天達標了」。
+check("訊息是連續天數", w.message,
+      f"連續 {w.streak} 天" if w.streak else "今天達標了")
+check("第一次達標，連續是 1", w.streak, 1)
 # 這一支從第一次啟動走到這裡，所以這是這個使用者的第一次達標——
 # 紀錄視窗做得比島完整，而唯一的入口是右鍵，不講就沒有人會發現。
 # 接縫在這裡：drink() 要讀設定、寫設定、再把那句話交給島顯示。

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-# 台灣 Windows 的主控台預設是 cp950，而被驗的 UI 文案裡有 Big5 沒有的字（麵包屑的 ‹）。
+# 台灣 Windows 的主控台預設是 cp950，而被驗的 UI 文案裡可能有 Big5 沒有的字（例如 ‹ 或彎引號）。
 # 不放寬錯誤處理的話，測試會在「印出結果」那一步崩掉——看起來像測試沒過，其實是主控台
 # 印不出來。驗文案的測試不能因為文案本身而掛掉。
 sys.stdout.reconfigure(errors="replace")
@@ -390,12 +390,24 @@ check("進設定後視窗維持不透明", win.sp_win.value, 1.0)
 win.play_in()
 check("開窗仍然從全透明淡入", win.sp_win.value, 0.0)
 
-print("\n12b. 麵包屑：副標在設定模式下是一條寫著去處的返回連結")
+print("\n12b. 返回：設定模式下齒輪換成返回箭頭，點它回紀錄")
+# 668b7fe 拿掉了副標麵包屑（「‹ 喝水紀錄」）。回紀錄的入口只剩標題列右上那顆
+# 返回箭頭——它畫在齒輪原本的位置、共用同一個點擊區（見 StatsWindow.paintEvent
+# 與 mousePressEvent）。這裡驗的是那顆箭頭真的畫出來、真的點得回去。
+from PySide6.QtCore import QRect  # noqa: E402
+
+win._switch_mode("stats", animate=False)
+_app.processEvents()
+_icon = QRect(int(gear_x) - 12, int(gear_y) - 12, 24, 24)
+_gear_img = win.grab(_icon).toImage()
 win._switch_mode("settings", animate=False)
-check("設定模式的副標是麵包屑", win.sub_lbl.text(), "‹ 喝水紀錄")
-win.sub_lbl.clicked.emit()
-check("點麵包屑會回紀錄", win.mode, "stats")
-check("紀錄模式副標換回資訊", win.sub_lbl.text().startswith("每日目標"), True)
+_app.processEvents()
+check("設定模式的標題是設定", win.title_lbl.text(), sw.i18n.t("title.settings"))
+check("齒輪的位置換成別的圖示（返回箭頭）",
+      win.grab(_icon).toImage() != _gear_img, True)
+click(gear_x, gear_y)
+check("點返回箭頭會回紀錄", win.mode, "stats")
+check("回紀錄後標題換回品牌名", win.title_lbl.text(), "Sipbar")
 
 print("\n12c. 清除紀錄要跳 popup，而且刪除鍵不能長在觸發鍵的位置")
 from PySide6.QtCore import QRect  # noqa: E402
