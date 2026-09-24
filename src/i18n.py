@@ -263,7 +263,10 @@ _ZH = {
     "streak.reached_today": "今天達標！",
     "streak.more_streak": "再 {left} 次",
     "streak.more": "還差 {n} 次",
+    # 連續卡片的泡泡還沒開始時是一句邀請，算角色的聲音（見 DESIGN「兩套標準」）。
+    # copy-style: off
     "streak.not_started": "喝第一杯吧",
+    # copy-style: on
     "streak.cup_tip": "今天 {done} / {target} 次",
     "streak.unit_days": "天",
     "streak.consecutive": "連續達標",
@@ -271,12 +274,15 @@ _ZH = {
     "grace.stats_countdown": "連勝快消失了\n再 {left} 次可挽回",
     "grace.stats_recovering": "保住了！",
     "grace.bubble_tip": "連續 {n} 天即將消失，剩 {h} 時 {m} 分",
+    # 續命水的系統匣通知是寵物在說話，口語與第二人稱是刻意的。
+    # copy-style: off
     "grace.notify_title": "連勝即將消失",
     "grace.notify_body": "你的 {n} 天連勝快斷了，今天達標就能挽回",
     "grace.recovered_title": "連勝保住了！",
     "grace.recovered_body": "連續 {n} 天的紀錄安全了",
     "grace.expired_title": "你不要我了嗎？",
     "grace.expired_body": "喝點水再繼續吧",
+    # copy-style: on
 
     # --- 杯子計量 ---
     "cup.goal": "每日目標",
