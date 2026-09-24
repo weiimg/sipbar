@@ -1020,8 +1020,11 @@ class Island(QWidget):
             return
         if getattr(self, 'paused_until', None):
             return
+        # 跟 greet() 一樣要舉 _greeting：不舉的話下一次 _peek_tick（120ms 後）
+        # 看到游標不在熱區，就把剛現身的島收回去。_end_greet() 會把它放下。
+        self._greeting = True
         self._peeking = True
-        self._set_text(i18n.t("msg.fill_water"))
+        self._set_text(i18n.t("msg.fill_water"), i18n.t("msg.fill_water_sub"))
         self._target_reveal(1.0)
         self._target_expand(1.0)
         self._target_content(1.0, delay_ms=90)

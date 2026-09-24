@@ -134,6 +134,10 @@ _ZH = {
     # copy-style: on
     # -------------------------------------------------------------- 介面文案
 
+    # 裝水提醒的副字。主字「先去裝杯水吧」是角色台詞（在上面的區塊），
+    # 副字是操作說明，跟 msg.greet_sub 同一種語域，所以放在受檢查的這一側。
+    "msg.fill_water_sub": "喝完點一下即可記錄",
+
     # 成就說明
     "achievement.desc.1": "完成一次補水",
     "achievement.desc.2": "一天內補水 {t} 次",
@@ -493,6 +497,7 @@ _EN = {
     "msg.greet": "Hi!",
     "msg.greet_sub": "Move cursor to top center to summon",
     "msg.fill_water": "Go fill your water bottle",
+    "msg.fill_water_sub": "Tap after drinking to log it",
     "msg.practice": "Tap me",
     "msg.practice_sub": "This one won't count",
     "msg.practice_done": "That's it",

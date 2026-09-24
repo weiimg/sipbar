@@ -1310,6 +1310,64 @@ import pixelface as _pf39
 check("徽章圖示數量 == 成就數量",
       len(_pf39.BADGE_ICONS), len(dashboard.achievements(_dummy_data)))
 
+print("\n40. 裝水提醒真的會出現，8 秒後收回")
+# 258c7eb 加進來的時候少傳了副標，_set_text() 當場 TypeError——而它是
+# singleShot 叫起來的，Qt 只把 traceback 丟給 excepthook，於是從來沒顯示過。
+# 補上副標之後還有第二關：它沒舉 _greeting，下一次 _peek_tick（120ms）
+# 看到游標不在熱區就把島收掉。所以這一節也要跑一次 _peek_tick。
+_dir40 = os.path.join(SCRATCH, "wp_fill_nudge")
+shutil.rmtree(_dir40, ignore_errors=True)
+_saved_paths40 = (isl.DATA_DIR, isl.STATE_PATH, isl.EVENTS_PATH)
+isl.DATA_DIR = _dir40
+isl.STATE_PATH = os.path.join(_dir40, "state.json")
+isl.EVENTS_PATH = os.path.join(_dir40, "events.jsonl")
+os.makedirs(_dir40, exist_ok=True)
+w40 = isl.Island(dict(cfg))
+for _t in (w40.tick_timer, w40.frame, w40.hold_timer, w40.peek_timer, w40.beat_timer):
+    _t.stop()
+# 前提不成立的話 _nudge_fill_water() 會直接 return，後面全部變成空轉
+check("前提：還沒喝", w40.drinks, 0)
+check("前提：NORMAL", w40.state, isl.NORMAL)
+check("前提：沒暫停", bool(w40.paused_until), False)
+
+_shots40 = []
+_orig_single40 = isl.QTimer.singleShot
+isl.QTimer.singleShot = lambda ms, fn, *a: _shots40.append((ms, fn))
+_err40 = None
+try:
+    w40._nudge_fill_water()
+except Exception as e:           # noqa: BLE001 —— 要把例外變成一條 FAIL，不是讓整支停掉
+    _err40 = f"{type(e).__name__}: {e}"
+finally:
+    isl.QTimer.singleShot = _orig_single40
+check("不丟例外", _err40, None)
+check("主字是裝水", w40.message, i18n.t("msg.fill_water"))
+check("副字是操作說明", w40.sub_message, i18n.t("msg.fill_water_sub"))
+check("reveal 目標", w40.sp_reveal.target, 1.0)
+check("expand 目標", w40.sp_expand.target, 1.0)
+
+# 游標在螢幕左下角：不在熱區、也不在藥丸上。打招呼期間不該被收掉
+_scr40 = isl.target_screen(cfg).geometry()
+_orig_cursor40 = isl.cursor_pos
+isl.cursor_pos = lambda: (_scr40.left() + 5, _scr40.bottom() - 5)
+try:
+    w40._peek_tick()
+finally:
+    isl.cursor_pos = _orig_cursor40
+check("游標不在熱區也不收（reveal）", w40.sp_reveal.target, 1.0)
+check("游標不在熱區也不收（_peeking）", w40._peeking, True)
+
+_end40 = [fn for ms, fn in _shots40 if ms == 8000]
+check("排了一個 8 秒的收回", len(_end40), 1)
+if _end40:
+    check("收回的是 _end_greet", _end40[0] == w40._end_greet, True)
+    _end40[0]()
+check("8 秒後 reveal 收回", w40.sp_reveal.target, 0.0)
+check("8 秒後 _peeking 收回", w40._peeking, False)
+check("8 秒後 _greeting 收回", w40._greeting, False)
+isl.DATA_DIR, isl.STATE_PATH, isl.EVENTS_PATH = _saved_paths40
+shutil.rmtree(_dir40, ignore_errors=True)
+
 print("\n99. 整支測試不能碰到使用者真實的資料檔")
 # Qt 會吞掉 slot 裡拋出的例外——只把 traceback 印到 stderr 然後繼續跑。
 # 所以光靠 settings 的防線拋例外還不夠：自動化跑完照樣顯示「全部通過」，
